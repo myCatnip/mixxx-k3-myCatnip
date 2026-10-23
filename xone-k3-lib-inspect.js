@@ -1,0 +1,597 @@
+// xone-k3-lib-inspect.js — read-only runtime probes for K3Controller.
+//
+// Loaded after lib-controller and lib-funcs. Extends the
+// K3Controller prototype with `inspect` and the `_inspect*`
+// family. Stateless, read-only, no cross-references into the
+// rest of the controller.
+
+'use strict';
+
+(function() {
+    if (typeof XoneK3 === 'undefined') {
+        throw new Error('Xone K3: xone-k3-lib-inspect.js — xone-k3-lib-core.js must load first');
+    }
+    if (typeof XoneK3._requireLoad !== 'function') {
+        throw new Error('Xone K3: xone-k3-lib-inspect.js — xone-k3-lib-core.js must load first');
+    }
+    XoneK3._requireLoad('xone-k3-lib-inspect.js',
+        ['K3Controller', 'FUNCS', 'TOKENS', '_funcId']);
+
+    XoneK3._funcName = function(fn) {
+        if (!fn) return null;
+        for (var k in XoneK3.FUNCS) {
+            if (XoneK3.FUNCS[k] === fn) return k;
+        }
+        return XoneK3._funcId(fn);
+    };
+
+    XoneK3.K3Controller.prototype.inspect = function(what, sub) {
+        if (what === undefined || what === null || what === '') {
+            this._inspectRoot();
+            return;
+        }
+        if (what === 'patches') { this._inspectPatches(); return; }
+        if (what === 'beat')    { this._inspectBeat();    return; }
+        if (what === 'tokens')  { this._inspectTokens();  return; }
+        if (what === 'dark')    { this._inspectDark();    return; }
+        if (what === 'rate')    {
+            if (sub === 'reset') { this._resetRateStats(); return; }
+            this._inspectRate();
+            return;
+        }
+        if (what === 'why') {
+            if (!sub) {
+                print('[inspect] why needs a binding name — inspect("why", "layer")');
+                return;
+            }
+            this._inspectWhy(sub);
+            return;
+        }
+        if (this.bindings[what]) { this._inspectBinding(what); return; }
+        print('[inspect] no such target: ' + what);
+    };
+
+    XoneK3.K3Controller.prototype._inspectRoot = function() {
+        function row(label, value) {
+            while (label.length < 20) label += ' ';
+            print('  ' + label + value);
+        }
+
+        print('');
+        print('== Xone K3 "' + this.label + '" (ch 0x' +
+            this.midiChannel.toString(16) + ') ==');
+
+        row('activePatches:', this.activePatches.join(', ') || '(empty)');
+        row('resolved stack:', this._buildStack().join(' → ') || '(empty)');
+        row('top mode:', this.currentTopMode() || '—');
+        row('isShifted:', this.isShifted);
+        row('_chordActive:', this._chordActive);
+        row('activeDeck:', this.activeDeck);
+        row('activeFx:', this.activeFx);
+        row('selectedDeckA/B/C/D:',
+            this.selectedDeckA + '/' + this.selectedDeckB + '/' +
+            this.selectedDeckC + '/' + this.selectedDeckD);
+        row('selectedFxA/B/C/D:',
+            this.selectedFxA + '/' + this.selectedFxB + '/' +
+            this.selectedFxC + '/' + this.selectedFxD);
+        row('selectedDeckCurrent/Alt:',
+            this.selectedDeckCurrent + '/' + this.selectedDeckAlt);
+        row('selectedFxCurrent/Alt:',
+            this.selectedFxCurrent + '/' + this.selectedFxAlt);
+        row('activeDeckVirtual:', this.activeDeckVirtual);
+        row('activeLoopVirtual:', this.activeLoopVirtual);
+        row('activeDisplaySource:', this.activeDisplaySource);
+
+        var applied = 0, dark = 0;
+        for (var name in this.bindings) {
+            if (!this.bindings.hasOwnProperty(name)) continue;
+            if (this._applied[name] !== undefined) applied++;
+            else dark++;
+        }
+        print('');
+        row('bindings active:', applied);
+        row('bindings dark:', dark);
+        row('beat LEDs:', this._beatLeds.length);
+        row('beat clocks:', this._beatConns.length > 0
+            ? ('open (' + this._beatConns.length + ' ch)')
+            : 'closed');
+        var k2 = 0;
+        for (var idx in this.k2Indices) if (this.k2Indices[idx]) k2++;
+        row('K2 indices:', k2);
+        row('escapes:', this._escapes.length);
+        if (this._lastRateClaim) {
+            var since = Date.now() - this._lastRateClaim.ts;
+            row('last rate claim:',
+                this._lastRateClaim.binding + ' (' +
+                this._lastRateClaim.className + ') -' + since + 'ms');
+        } else {
+            row('last rate claim:', '—');
+        }
+        print('');
+    };
+
+    XoneK3.K3Controller.prototype._inspectBinding = function(name) {
+        var b = this.bindings[name];
+        function row(label, value) {
+            while (label.length < 14) label += ' ';
+            print('  ' + label + (value === undefined || value === null ? '—' : value));
+        }
+
+        print('');
+        print('== ' + name + ' ==');
+        row('type:', b.type);
+        row('bound:', !!b._rawCfg);
+        row('group:', b.group);
+        row('inKey:', b.inKey);
+        row('outKey:', b.outKey);
+        row('buttonMode:', b.buttonMode);
+        row('func:', XoneK3._funcName(b._func));
+        row('args:', b._funcArgs && b._funcArgs.length
+            ? JSON.stringify(b._funcArgs) : null);
+        row('tokens:', b._usedTokens && b._usedTokens.length
+            ? b._usedTokens.join(' ') : null);
+        row('softTakeover:', b.softTakeover);
+        row('noLED:', b._noLED);
+        row('k2:', b._k2);
+        row('rate class:', b._rateClass
+            ? (typeof b._rateClass === 'string' ? b._rateClass : 'inline')
+            : '—');
+        row('rate accepted:', b._rateAccepted);
+        row('rate gated:', b._rateGated);
+        row('conns:', b._conns.length + (b._valueConn ? 1 : 0));
+
+        if (b._csFailed) {
+            row('cs:', 'FAILED (see console for warning)');
+        } else if (!b._csActive) {
+            row('cs:', 'inactive');
+        } else {
+            var kind = b._csDeviation
+                ? ('deviation (knob: ' + (b._csKnob ? b._csKnob._name : '?') + ')')
+                : 'static';
+            row('cs:', kind);
+            if (b._csOn !== null && b._csOn !== undefined) {
+                row('cs.on:', JSON.stringify(b._csOn));
+            }
+            if (b._csScheme) {
+                row('cs.beat:', b._csScheme.beat ? 'yes' : 'no');
+            }
+        }
+        print('');
+    };
+
+    XoneK3.K3Controller.prototype._inspectPatches = function() {
+        print('');
+        print('== patches ==');
+        print('  active:  ' + (this.activePatches.join(', ') || '(empty)'));
+        print('  stack:   ' + (this._buildStack().join(' → ') || '(empty)'));
+        print('');
+        var names = Object.keys(this.patches).sort();
+        for (var i = 0; i < names.length; i++) {
+            var n = names[i];
+            var p = this.patches[n];
+            if (!p || typeof p !== 'object') continue;
+            var active = this.activePatches.indexOf(n) !== -1;
+            var applies = active && this._patchActive(n);
+            var mark = applies ? '•' : (active ? '·' : ' ');
+            var notes = [];
+            if (p._host) {
+                notes.push('_host: ' + (Array.isArray(p._host)
+                    ? p._host.join('|') : p._host));
+            }
+            if (p._shift) notes.push('_shift: ' + p._shift);
+            if (p.patch) {
+                notes.push('patch: ' + (Array.isArray(p.patch)
+                    ? p.patch.join('|') : p.patch));
+            }
+            print('  ' + mark + ' ' + n +
+                (notes.length ? ('   ' + notes.join('   ')) : ''));
+        }
+        print('');
+    };
+
+    XoneK3.K3Controller.prototype._inspectBeat = function() {
+        print('');
+        print('== beat ==');
+        var open = this._beatConns.length > 0;
+        print('  clocks:  ' + (open
+            ? ('open (' + this._beatConns.length + ' channels)')
+            : 'closed'));
+        print('  loop tempo: ' + (XoneK3.VIRTUAL_CLOCKS.loop.trackTempo ? 'track' : 'real'));
+        print('');
+        for (var ch = 1; ch <= 4; ch++) {
+            var st = this._decks[ch];
+            var vbeat = this._virtualBeatFor(ch);
+            print('  deck ' + ch +
+                '   count=' + st.count +
+                '   active=' + st.active +
+                '   hasBeat=' + st.hasBeat +
+                '   playing=' + st.playing +
+                '   loopActive=' + st.loopActive +
+                '   displaySource=' + st.displaySource +
+                '   origin=' + this._phraseOrigin[ch]);
+            print('           loopClock=' +
+                (st.loopClock.running ? 'running' : 'stopped') +
+                ' pos=' + st.loopClock.pos.toFixed(4));
+            if (st.loopActive) {
+                print('           loop=[' + st.loopStartN.toFixed(4) +
+                    ',' + st.loopEndN.toFixed(4) + ']');
+            }
+        }
+        print('');
+        if (this._beatLeds.length === 0) {
+            print('  beat LEDs: (none)');
+        } else {
+            print('  beat LEDs:');
+            for (var i = 0; i < this._beatLeds.length; i++) {
+                var b = this._beatLeds[i];
+                var scheme = b._csScheme;
+                var raw = scheme && scheme.beat && scheme.beat.deck;
+                var resolved = this._resolveDeckRef(raw);
+                print('    ' + b._name +
+                    '   scheme.beat.deck=' + (raw !== undefined ? raw : '(default)') +
+                    ' → channel ' + (resolved || '?'));
+            }
+        }
+        print('');
+    };
+
+    XoneK3.K3Controller.prototype._inspectTokens = function() {
+        print('');
+        print('== tokens ==');
+        var counts = {};
+        for (var ti = 0; ti < XoneK3.TOKENS.length; ti++) {
+            counts[XoneK3.TOKENS[ti].token] = [];
+        }
+        for (var name in this.bindings) {
+            if (!this.bindings.hasOwnProperty(name)) continue;
+            var b = this.bindings[name];
+            if (!b._usedTokens) continue;
+            for (var i = 0; i < b._usedTokens.length; i++) {
+                var tok = b._usedTokens[i];
+                if (!counts[tok]) counts[tok] = [];
+                counts[tok].push(name);
+            }
+        }
+        var toks = Object.keys(counts).sort();
+        for (var t = 0; t < toks.length; t++) {
+            var tok = toks[t];
+            var uses = counts[tok];
+            if (uses.length === 0) {
+                print('  ' + tok + '   (unused)');
+            } else {
+                print('  ' + tok + '   ' + uses.length + '  ' + uses.join(', '));
+            }
+        }
+        print('');
+    };
+
+    XoneK3.K3Controller.prototype._inspectDark = function() {
+        print('');
+        print('== dark bindings ==');
+        var any = false;
+        var names = Object.keys(this.bindings).sort();
+        for (var i = 0; i < names.length; i++) {
+            var n = names[i];
+            if (this._applied[n] !== undefined) continue;
+            any = true;
+            print('  ' + n);
+        }
+        if (!any) print('  (none)');
+        print('');
+    };
+
+    // ============================================================
+    // RATE DIAGNOSTICS
+    // ============================================================
+    XoneK3.K3Controller.prototype._inspectRate = function() {
+        print('');
+        print('== rate limits ==');
+        var now = Date.now();
+
+        if (this._lastRateClaim) {
+            var since = now - this._lastRateClaim.ts;
+            print('  last claim:        ' + this._lastRateClaim.binding +
+                  ' (' + this._lastRateClaim.className + ') -' + since + 'ms');
+        } else {
+            print('  last claim:        —');
+        }
+        if (this._lastLoopChangeMs) {
+            print('  shared clock:      -' + (now - this._lastLoopChangeMs) + 'ms');
+        } else {
+            print('  shared clock:      —');
+        }
+        print('  escapes recorded:  ' + this._escapes.length);
+        print('');
+
+        // ---- Per class aggregate ----
+        var perClass = {};
+        for (var name in this.bindings) {
+            if (!this.bindings.hasOwnProperty(name)) continue;
+            var b = this.bindings[name];
+            if (!b._rateClass) continue;
+            var cname = (typeof b._rateClass === 'string') ? b._rateClass : 'inline';
+            if (!perClass[cname]) perClass[cname] = { accepted: 0, gated: 0, count: 0 };
+            perClass[cname].accepted += b._rateAccepted;
+            perClass[cname].gated    += b._rateGated;
+            perClass[cname].count    += 1;
+        }
+        var classNames = Object.keys(perClass).sort();
+        print('  per class:');
+        if (classNames.length === 0) {
+            print('    (no rate-gated bindings)');
+        } else {
+            for (var ci = 0; ci < classNames.length; ci++) {
+                var cn = classNames[ci];
+                var cc = perClass[cn];
+                print('    ' + cn +
+                    '   bindings=' + cc.count +
+                    '   accepted=' + cc.accepted +
+                    '   gated=' + cc.gated);
+            }
+        }
+        print('');
+
+        // ---- Per binding ----
+        var rows = [];
+        for (var bn in this.bindings) {
+            if (!this.bindings.hasOwnProperty(bn)) continue;
+            var bb = this.bindings[bn];
+            if (!bb._rateClass) continue;
+            rows.push(bb);
+        }
+        rows.sort(function(a, b2) { return b2._rateAccepted - a._rateAccepted; });
+
+        print('  per binding:');
+        if (rows.length === 0) {
+            print('    (none)');
+        } else {
+            var header = '    ' +
+                padRight('binding', 12) + ' ' +
+                padRight('class', 8) + ' ' +
+                padRight('accepted', 9) + ' ' +
+                padRight('gated', 6) + ' ' +
+                padRight('min', 5) + ' ' +
+                padRight('p50', 5) + ' ' +
+                padRight('max', 5);
+            print(header);
+            for (var ri = 0; ri < rows.length; ri++) {
+                var rb = rows[ri];
+                var cname2 = (typeof rb._rateClass === 'string') ? rb._rateClass : 'inline';
+                var stats = intervalStats(rb._rateIntervals);
+                print('    ' +
+                    padRight(rb._name, 12) + ' ' +
+                    padRight(cname2, 8) + ' ' +
+                    padRight(String(rb._rateAccepted), 9) + ' ' +
+                    padRight(String(rb._rateGated), 6) + ' ' +
+                    padRight(stats.min, 5) + ' ' +
+                    padRight(stats.p50, 5) + ' ' +
+                    padRight(stats.max, 5));
+            }
+        }
+        print('');
+
+        // ---- Escapes ----
+        if (this._escapes.length > 0) {
+            print('  escapes:');
+            for (var ei = 0; ei < this._escapes.length; ei++) {
+                var e = this._escapes[ei];
+                print('    deck=' + e.ch +
+                    ' sinceClaim=' + e.sinceClaim + 'ms' +
+                    ' claimedBy=' + (e.claimedBy || '—') +
+                    '/' + (e.className || '—') +
+                    ' loop=[' + e.loopStartN.toFixed(4) +
+                    ',' + e.loopEndN.toFixed(4) + ']');
+            }
+            print('');
+        }
+    };
+
+    XoneK3.K3Controller.prototype._resetRateStats = function() {
+        for (var name in this.bindings) {
+            if (!this.bindings.hasOwnProperty(name)) continue;
+            var b = this.bindings[name];
+            if (b._resetRateStats) b._resetRateStats();
+        }
+        this._escapes = [];
+        print('[k3] rate stats reset');
+    };
+
+    // ============================================================
+    // WHY — walk the pipeline for one binding
+    // ============================================================
+    // Prints where in the render pipeline the binding stopped.
+    // Read-only, no state mutation. Answers "why isn't this LED
+    // doing what I think it should be doing?" in one command.
+    //
+    //   XoneK3.controllers[0].inspect('why', 'layer')
+    XoneK3.K3Controller.prototype._inspectWhy = function(name) {
+        var b = this.bindings[name];
+        if (!b) { print('[inspect] no such binding: ' + name); return; }
+
+        function row(label, value) {
+            while (label.length < 24) label += ' ';
+            print('  ' + label + (value === undefined || value === null ? '—' : value));
+        }
+
+        var isOn = 0, onThrew = null;
+        try { isOn = b._isOn(); } catch (e) { onThrew = e.message; }
+
+        var ref = null, refThrew = null, refHasBeat = false;
+        if (b._csSchemeFn) {
+            try {
+                ref = b._csSchemeFn();
+                if (ref) {
+                    var comp = XoneK3.compileScheme(ref);
+                    if (comp && comp.beat) refHasBeat = true;
+                }
+            } catch (e) { refThrew = e.message; }
+        }
+
+        var beatScheme = null;
+        if (b._csCompiledMemo && b._csCompiledMemo.beat) beatScheme = b._csCompiledMemo;
+        else if (b._csScheme && b._csScheme.beat) beatScheme = b._csScheme;
+        else if (ref) {
+            var comp2 = XoneK3.compileScheme(ref);
+            if (comp2 && comp2.beat) beatScheme = comp2;
+        }
+
+        var deckCh = beatScheme ? this._resolveDeckRef(beatScheme.beat.deck) : null;
+
+        print('');
+        print('== why: ' + name + ' ==');
+
+        row('bound:', b._rawCfg ? 'yes' : 'NO — not in the active stack');
+        row('idx:', b.idx >= 0
+            ? (b.idx + ' (0x' + b.idx.toString(16) + ')')
+            : (b.idx + ' — no LED'));
+        row('type:', b.type);
+        row('group:', b.group);
+        row('inKey:', b.inKey);
+        row('outKey:', b.outKey);
+        row('func:', XoneK3._funcName(b._func));
+        row('noLED:', b._noLED);
+        row('k2:', b._k2);
+        row('rate class:', b._rateClass
+            ? (typeof b._rateClass === 'string' ? b._rateClass : 'inline')
+            : '—');
+
+        print('');
+        print('  colorScheme:');
+        row('  active:', b._csActive ? 'yes' : 'NO');
+        row('  failed:', b._csFailed ? 'YES — see the console warning' : 'no');
+        row('  deviation:', b._csDeviation
+            ? 'yes (knob: ' + (b._csKnob ? b._csKnob._name : '?') + ')'
+            : 'no');
+
+        var src;
+        if (b._csScheme && b._csSchemeFn) src = 'base + function';
+        else if (b._csScheme)             src = 'base (static)';
+        else if (b._csSchemeFn)           src = 'function only';
+        else                              src = '—';
+        row('  scheme source:', src);
+        if (b._csScheme && b._csScheme.beat) row('  base has beat:', 'yes');
+
+        if (b._csSchemeFn) {
+            if (refThrew)                         row('  fn() →', 'THREW: ' + refThrew);
+            else if (ref === undefined)           row('  fn() →', 'undefined');
+            else if (ref === null)                row('  fn() →', 'null');
+            else if (typeof ref === 'string')     row('  fn() →', "'" + ref + "'");
+            else if (typeof ref === 'object')     row('  fn() →', 'object' +
+                (Array.isArray(ref.colors)
+                    ? (' colors[' + ref.colors.length + ']')
+                    : ''));
+            else                                  row('  fn() →', typeof ref);
+            if (refHasBeat) row('  fn has beat:', 'yes');
+        }
+
+        if (b._csOn !== null && b._csOn !== undefined) {
+            row('  on:', JSON.stringify(b._csOn));
+        }
+
+        if (b._csDeviation && b._csKnob) {
+            row('  knob.group:', b._csKnob.group);
+            row('  knob.inKey:', b._csKnob.inKey);
+            row('  knob.pos:', b._csKnob._normalized === undefined
+                ? 'NEVER REPORTED — LED shows boot-white'
+                : b._csKnob._normalized.toFixed(3));
+        }
+
+        print('');
+        print('  state:');
+        if (onThrew) row('  isOn:', 'THREW: ' + onThrew);
+        else         row('  isOn:', isOn);
+        if ((b._csOn === null || b._csOn === undefined) && b.group && b.outKey) {
+            row('  raw outKey:', engine.getValue(b.group, b.outKey));
+        }
+
+        print('');
+        print('  clocks:');
+        var clocksOpen = this._beatConns.length > 0;
+        row('  open:', clocksOpen
+            ? ('yes (' + this._beatConns.length + ' channels)')
+            : 'NO — no beat LED attached');
+        row('  attached LEDs:', this._beatLeds.length);
+
+        if (beatScheme) {
+            print('');
+            print('  beat:');
+            var rawDeck = beatScheme.beat.deck;
+            row('  scheme.beat.deck:',
+                (rawDeck === undefined ? '(default)' : String(rawDeck)) +
+                (deckCh ? (' → channel ' + deckCh) : ' (unresolved)'));
+            if (deckCh) {
+                var st = this._decks[deckCh];
+                row('  ch' + deckCh + '.hasBeat:', st.hasBeat);
+                row('  ch' + deckCh + '.playing:', st.playing);
+                row('  ch' + deckCh + '.active:',  st.active);
+                row('  ch' + deckCh + '.count:',   st.count);
+                row('  ch' + deckCh + '.source:',  st.displaySource);
+            }
+        }
+
+        print('');
+        print('  last LED write:');
+        if (b.idx < 0) {
+            row('  idx:', 'no LED mapped');
+        } else if (this._ledCache[b.idx] !== undefined) {
+            row('  idx ' + b.idx + ':', this._ledCache[b.idx] + '  (r:g:b:hw)');
+        } else {
+            row('  idx ' + b.idx + ':', 'nothing written yet');
+        }
+
+        print('');
+        print('  verdict:');
+        print('    ' + this._verdictFor(name, b, isOn, onThrew, beatScheme, deckCh));
+        print('');
+    };
+
+    XoneK3.K3Controller.prototype._verdictFor = function(name, b, isOn, onThrew, beatScheme, deckCh) {
+        if (!b._rawCfg) return 'binding is not in the active stack — check the patch tree.';
+        if (b.idx < 0) return 'no physical LED is mapped to this control.';
+        if (b._noLED) return 'noLED: true — this binding never sends LED frames.';
+        if (b._csFailed) return 'colorScheme setup failed — check the console warning.';
+        if (!b._csActive && !b.outKey) return 'no colorScheme and no outKey — nothing to render.';
+        if (b._csDeviation && b._csKnob && b._csKnob._normalized === undefined)
+            return 'deviation LED; knob has never reported, so it shows boot-white.';
+        if (onThrew) return '_isOn() threw: ' + onThrew;
+
+        if (isOn === 0) {
+            if (b._csOn === false) return 'on: false — LED is intentionally off-ramp.';
+            if (b.outKey) return 'outKey "' + b.outKey + '" reads 0 — logicalOn is 0, LED is off.';
+            if (b._csOn && b._csOn.state) return 'on.state "' + b._csOn.state + '" is falsy.';
+            if (b._csOn && b._csOn.co)    return 'on.co "' + b._csOn.co + '" reads 0.';
+            if (b._csOn && b._csOn.patchActive)
+                return 'none of on.patchActive are active.';
+            return 'logicalOn is 0 with no obvious on/off source.';
+        }
+
+        if (beatScheme && deckCh) {
+            var st = this._decks[deckCh];
+            if (!st.hasBeat)
+                return 'LED is on; beat has never fired on channel ' + deckCh +
+                    '. Play the deck or check beat.deck.';
+            if (!st.playing)
+                return 'LED is on; beat has fired at least once, but deck is paused — ' +
+                    'colour is parked, no pulse until play.';
+        }
+
+        return 'all preconditions met — LED should be lit. ' +
+            'If not, check sysex throttle and _ledCache.';
+    };
+
+    // ---- helpers ----
+    function padRight(s, n) {
+        s = String(s);
+        while (s.length < n) s += ' ';
+        return s;
+    }
+
+    function intervalStats(arr) {
+        if (!arr || arr.length === 0) return { min: '—', p50: '—', max: '—' };
+        var sorted = arr.slice().sort(function(a, b) { return a - b; });
+        var min = sorted[0];
+        var max = sorted[sorted.length - 1];
+        var p50 = sorted[Math.floor(sorted.length / 2)];
+        return { min: String(min), p50: String(p50), max: String(max) };
+    }
+})();

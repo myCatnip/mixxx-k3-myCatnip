@@ -1,0 +1,32 @@
+'use strict';
+
+var H = require('./helpers');
+
+// _closeBeatClocks tears down per-channel timeline state, but
+// must leave _phraseOrigin alone — it's user intent, set by
+// setPhraseOriginHere / phraseOffsetStep / hotcueWithPhraseCheck.
+
+test('_closeBeatClocks: preserves _phraseOrigin, resets deck state', function(t) {
+    var c = H.ctrl();
+
+    c._openBeatClocks();
+    t.eq(c._beatConns.length, 4,  'one beat_active per channel');
+    t.eq(c._playConns.length, 20, 'five other connections per channel');
+
+    // Set user intent and pollute derived state.
+    c._phraseOrigin[1] = 42;
+    c._phraseOrigin[2] = 17;
+    c._decks[1].count   = 99;
+    c._decks[1].hasBeat = true;
+
+    c._closeBeatClocks();
+
+    t.eq(c._beatConns.length, 0);
+    t.eq(c._playConns.length, 0);
+
+    t.eq(c._phraseOrigin[1], 42, 'phrase origin 1 must survive teardown');
+    t.eq(c._phraseOrigin[2], 17, 'phrase origin 2 must survive teardown');
+
+    t.eq(c._decks[1].count,   1,     'count must reset to fresh default');
+    t.eq(c._decks[1].hasBeat, false, 'hasBeat must reset to fresh default');
+});
