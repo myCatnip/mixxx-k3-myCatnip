@@ -344,7 +344,7 @@ calibration/                 optional, not loaded by default
 | A knob "does nothing" at first | Soft takeover. Turn it until it catches. |
 | One LED stuck white | Its knob hasn't sent a MIDI value yet. Wiggle it. |
 | Bottom grid doesn't follow your deck | Shift + slip (bottom grid `grid2_1`) flips which of A or B is the active deck. |
-| Chord `pressR` doesn't respond | Shift and layer must be held together first. |
+| Chord `pressR` doesn't respond | Shift then layer must be pressed together first. |
 | Chord `pressL` does nothing in focus mode | `pressL` swaps twoDeck ↔ twoDeckMini. No-op from focus. |
 | `grid2_0` flashes but nothing changes | No loop is running. The display toggle needs the loop clock. |
 | Whole strip frozen | Script error. Check the Mixxx console, then restart Mixxx. |
@@ -354,49 +354,3 @@ calibration/                 optional, not loaded by default
 
 Everything else lives in `CONCEPTS.md` (how it works) and
 `CUSTOMISE.md` (how to change it).
-```
-
----
-
-## Delete `docs/LAYOUT.md`
-
-```bash
-git rm docs/LAYOUT.md
-```
-
----
-
-## Cross-reference check
-
-Searched current docs for `LAYOUT.md` mentions — none. No `_host` / scheme / patch code references docs by name. No fixups needed.
-
----
-
-## Commit
-
-```bash
-git add docs/README.md
-git rm docs/LAYOUT.md
-git commit -F - <<'EOF'
-docs: merge LAYOUT.md into README
-
-The two files overlapped: README held the physical diagram,
-LAYOUT held the diagram plus the per-mode behaviour reference.
-Reading them together was the reader's job; now they're one file.
-
-README gains a "Physical layout and behaviour" section that
-absorbs the full LAYOUT content — diagram, per-mode TOP blocks,
-grid rows 0–3, faders, layer button, bottom L/R pair, shift
-button, and the chord + overlays. The "Where to go" table is
-updated to point at §Physical layout and behaviour first, with
-CONTROLS.md listed as the deeper reference.
-
-LAYOUT.md is deleted. No cross-doc references to fix — no other
-doc named it.
-
-The stale hotcue note ("fires hotcueWithPhraseCheck — sets
-phrase origin") is corrected during the merge. Current behaviour:
-hotcue presses jump; the origin re-derives on the next
-playposition tick via the hotcue observers.
-EOF
-git push
