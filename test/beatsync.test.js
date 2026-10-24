@@ -7,6 +7,12 @@ var H = require('./helpers');
 
 function setup(patches) {
     var c = H.ctrl({patches: patches || {}});
+    // Cat's schemes ship with PHRASE_MARKER_COLORS = [0xF2F2FF],
+    // which wires 32 hotcue observers per channel (color + position
+    // for hotcues 1..16). These tests only verify base connection
+    // counts, so clear the marker list — otherwise _playConns grows
+    // to 148 (37 × 4) and the count assertions break.
+    XoneK3.PHRASE_MARKER_COLORS = [];
     engine._set('[Channel1]', 'duration', 300);
     engine._set('[Channel1]', 'file_bpm', 120);
     engine._set('[Channel1]', 'track_samples', 1000);
@@ -52,8 +58,9 @@ test('connection counts: 4 beat + 20 play', function(t) {
     withBeat(c);
     // 1 beat_active per channel = 4
     t.eq(c._beatConns.length, 4);
-    // 5 others per channel (playposition, play_indicator,
-    // track_loaded, loop_enabled, slip_enabled) × 4 = 20
+    // 5 base play connections per channel × 4 = 20.
+    // (Hotcue marker observers add 32 per channel when
+    // PHRASE_MARKER_COLORS is non-empty; setup() clears it.)
     t.eq(c._playConns.length, 20);
 });
 
@@ -165,14 +172,28 @@ test('play_indicator=1 resyncs clock anchors', function(t) {
 
 // ── track_loaded handler ───────────────────────────────────
 
-test('track_loaded clears _trackMetaCache', function(t) {
+test('track_loaded clears _trackMetaCache, picks up fresh values', function(t) {
     var c = setup();
     withBeat(c);
-    c._trackMeta(1);
-    t.ok(c._trackMetaCache[1]);
 
+    // Warm cache with the initial metadata.
+    c._trackMeta(1);
+    t.eq(c._trackMetaCache[1].duration, 300);
+
+    // Change metadata without triggering track_loaded. The cache
+    // still holds the old value.
+    engine._set('[Channel1]', 'duration', 999);
+    engine._set('[Channel1]', 'track_samples', 2000);
+    t.eq(c._trackMeta(1).duration, 300);
+
+    // track_loaded clears the cache. The next _trackMeta call
+    // re-reads — whether the clear happened before
+    // _deriveOriginFromPosition ran (which may re-populate the
+    // cache with fresh values) doesn't matter; either path yields
+    // the new metadata.
     engine._trigger('[Channel1]', 'track_loaded', 1);
-    t.eq(c._trackMetaCache[1], undefined);
+    t.eq(c._trackMeta(1).duration, 999);
+    t.eq(c._trackMeta(1).samples, 2000);
 });
 
 test('track_loaded resets beat state', function(t) {

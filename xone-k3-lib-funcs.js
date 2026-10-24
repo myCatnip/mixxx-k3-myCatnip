@@ -604,39 +604,6 @@
         },
 
         // ----------------------------------------------------------
-        // Phrase origin
-        // ----------------------------------------------------------
-        setPhraseOriginHere: function(args, ch, c, v, s) {
-            if (!this._ctrl._isPress(v, s)) return;
-            var chNum = this._ctrl._channelOf(this.group);
-            if (!chNum) return;
-            var pos = engine.getValue(this.group, 'playposition');
-            this._ctrl._setPhraseOriginAt(chNum, pos);
-        },
-        hotcueWithPhraseCheck: function(args, ch, c, v, s) {
-            var n = args[0];
-            if (!n) return;
-            if (this._ctrl._isPress(v, s)) {
-                engine.setValue(this.group, this.inKey, 1);
-
-                var color = engine.getValue(this.group, 'hotcue_' + n + '_color');
-                if (!this._ctrl._isPhraseColor(color)) return;
-
-                var chNum = this._ctrl._channelOf(this.group);
-                if (!chNum) return;
-
-                var samples = engine.getValue(this.group, 'track_samples');
-                if (!(samples > 0)) return;
-
-                var hotcueSamples = engine.getValue(this.group, 'hotcue_' + n + '_position');
-                var pos = hotcueSamples / samples;
-                this._ctrl._setPhraseOriginAt(chNum, pos, { rawPos: true });
-            } else {
-                engine.setValue(this.group, this.inKey, 0);
-            }
-        },
-
-        // ----------------------------------------------------------
         // Timelines
         // ----------------------------------------------------------
         // Two readings: track and loop. Toggles the active deck's

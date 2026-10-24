@@ -41,7 +41,7 @@ explanation, the doc it lives in is linked.
 | **Patch** | A named bag of bindings. Can inherit from other patches. CONCEPTS §3. |
 | **Patch family** | A group of patches that share a base and differ by index (`fxLayout1..4`, `fxMini1..4`). |
 | **Phrase** | One full cycle of the beat cascade. Default: 4 bars × 4 beats = 16 beats. |
-| **PHRASE_MARKER_COLORS** | List of hotcue colour hexes. Pressing a hotcue whose colour is in the list sets the phrase origin. `xone-k3-cat-schemes.js`. |
+| **PHRASE_MARKER_COLORS** | List of hotcue colour hexes. A hotcue whose colour is in the list defines a phrase-start position; the origin at any playhead position is the last such marker at or before it (extended backwards from the first marker if none precede). `xone-k3-cat-schemes.js`. |
 | **Preset** | A `.midi.xml` + a boot init. Five ship: Cat, Kitten, oneK3, oneK3 miniFX, colorLab. |
 | **QFX** | Mixxx Quick Effect Rack. One per deck. |
 | **Ramp** | A multi-stop scheme. Deviation LEDs sample it; static LEDs pick `ramp[0]`. |
@@ -57,7 +57,7 @@ explanation, the doc it lives in is linked.
 | **Timeline** | One of two sources for the beat count: track or loop clock. |
 | **Token** | A `$NAME$` placeholder in a binding field that resolves at bind time. `$DECK_ACTIVE$`, `$FX_ALT_N$`, etc. CONCEPTS §6. |
 | **Top-half mode** | `focus`, `twoDeck`, or `twoDeckMini`. Selected by which base patch is in `activePatches`. CONCEPTS §7. |
-| **Track** | The default timeline: `playposition`, with the intro marker as beat 0. |
+| **Track** | The default timeline: `playposition`, with beat 0 = file start. |
 | **Virtual clock** | The loop clock. Advances independently of the playhead. |
 
 ---

@@ -257,15 +257,18 @@ All fields optional except `beat`.
 **Deck must be playing.** `beat_active` only fires on a running
 deck.
 
-**Marker + beat are a bad combination.** The marker band fires
-*before* the ramp sample: while the knob is inside
-`markerPosition ± markerWidth`, the marker colour owns the LED
-and the beat cascade (including the base beat colour) never
-runs. The marker still pulses on/off with the beat because
-`isOn` toggles — bright on the on-phase, off-brightness on the
-off-phase — but the cascade accents never reach it. If you want
-beat colours visible at that knob position, don't put a marker
-on the same scheme.
+**Marker + beat compose.** When the knob sits inside
+`markerPosition ± markerWidth`, the marker colour is the base
+and the beat cascade applies on top of it exactly as it does
+for a static LED. On a phrase beat, the marker shows the phrase
+colour; on a bar, the bar colour; on a regular beat, the base
+beat colour (or the marker colour if `beat.color` isn't set).
+Off-phase shows the marker's off-brightness. Half-beat skip
+(`beat.half: true`) returns `BEAT_HOLD` — marker hit is
+consumed, LED holds previous frame.
+
+Co-match is the exception: `skipBeat=true` on co-match means
+the steering gradient is never replaced by cascade colours.
 
 ## 1.7 Add a scheme
 
@@ -312,11 +315,36 @@ Mixxx hotcue colour hexes you want to treat as phrase markers.
 XoneK3.PHRASE_MARKER_COLORS = [0xC50A08, 0x0044FF];
 ```
 
-Put a hotcue down at the white-phrase downbeat. Set its colour to
-red (`0xC50A08`) in Mixxx. Press it — phrase origin moves there.
-Same hotcue doubles as a jump.
+Put a hotcue down at the phrase-start beat. Set its colour to
+red (`0xC50A08`) in Mixxx. The origin derives on the next
+playposition tick — pressing, crossing, scrubbing, loading past
+it, and forward beatjump all re-anchor. Same hotcue doubles as
+a jump.
 
 Empty list = feature off.
+
+**Position-derived, not press-only.** Markers define phrase-start
+positions on the track. The origin at any playhead position is
+the beat of the last marker at or before it. If no marker
+precedes, the origin is the beat of the first marker ahead —
+extending the pattern backwards so phrase starts land on the
+same grid across the marker.
+
+Playing across, scrubbing past, jumping via the pad, forward
+beatjump, load landing past a marker, and placing or recolouring
+a hotcue all re-anchor immediately. Frozen during an active
+loop; re-derived on the first tick after the loop stops.
+
+**Place markers on beat boundaries.** A marker mid-beat floors
+to the start of its beat (`Math.floor`, toward −∞).
+
+**Beat 0 is file start.** No Mixxx marker influences it — intro
+is not consulted, not read, not part of the beat math. If no
+colour markers exist, phrase starts from file start by default.
+
+**Up to 16 hotcues scanned** (`HOTCUE_MAX` in
+`lib-controller-beat.js`). Mixxx supports 36; raise the
+constant if you place markers past hotcue 16.
 
 Mixxx default hotcue hexes are documented in the comment above
 the setting in `xone-k3-cat-schemes.js`.
@@ -1043,8 +1071,8 @@ Order in `Binding.input()`: rate gate → accel → dispatch.
 ```js
 XoneK3.RATE_CLASSES = {
     jump:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 120, claimMs: 120 },
-    edit:  { selfCheckMs: 10, selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  },
-    claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 60  },
+    edit:  { selfCheckMs: 0,  selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  },
+    claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   },
     free:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   }
 };
 ```
@@ -1203,12 +1231,12 @@ is a category index.
 | Category | Examples |
 |---|---|
 | Select / focus | `k3Select`, `setActiveDeckTo`, `setActiveFxTo`, `toggleActiveDeck`, `toggleActiveFx` |
-| Timeline | `hotcueWithPhraseCheck`, `cycleDisplaySource` (`setPhraseOriginHere` exists but is unbound in shipped presets) |
+| Timeline | `cycleDisplaySource` |
 | Patch / overlay / mode | `layerButton`, `toggleOverlay`, `toggleTopMode`, `toggleMiniFx` |
 | Encoders | `encPregainStep`, `encLoopMove`, `encLoopMoveAccel`, `encBeatjump` |
 | Buttons | `pressSetValue`, `beatjumpButton`, `reloopToggleResetAnchor`, `shutdownHold` |
 | BPM | `bpmPress` |
-| Hotcues | `hotcueWithPhraseCheck` |
+| Hotcues | *(no custom func — hotcues use the default push handler)* |
 
 ---
 

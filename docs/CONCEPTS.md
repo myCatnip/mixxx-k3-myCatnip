@@ -319,7 +319,7 @@ phrase colouring reads from*; they don't move the playhead.
 ```
                      ┌──────────────────────────────────┐
                      │  TRACK   playposition            │
-                     │  intro marker = beat 0           │
+                     │  beat 0 = file start             │
                      │  origin sets where "count 1" is  │
                      └──────────────────────────────────┘
                                     │
@@ -341,7 +341,7 @@ phrase colouring reads from*; they don't move the playhead.
                           count = abs - origin + 1
 ```
 
-**Track** is the default. Intro marker = beat 0. Origin sets
+**Track** is the default. Beat 0 is file start. Origin sets
 where "count 1" sits.
 
 **Loop clock** starts itself when a loop is enabled, seeded from
@@ -367,12 +367,15 @@ and loop displays. That's what accumulation buys you: the count
 follows the audio, not a wall-clock timer, so nothing drifts.
 
 **Origin** is the beat number where "count 1" sits. Shared by
-both readings — shifting it shifts both. In loop mode "here"
-means here on the displayed timeline, not the raw playhead.
-Writers: `hotcueWithPhraseCheck` for hotcues whose stored colour
-is in `PHRASE_MARKER_COLORS`. A `setPhraseOriginHere` func also
-exists but is unbound by shipped presets (the shift+`grid2_0`
-cell is LED-only).
+both readings — shifting it shifts both. Writer:
+`_deriveOriginFromPosition`, run on every throttled
+playposition tick, once on `track_loaded`, and immediately
+whenever a hotcue is placed, recoloured, deleted, or dragged.
+Marker hotcues (colour in `PHRASE_MARKER_COLORS`) define
+phrase-start positions; the origin at any playhead position is
+the beat of the last such marker at or before it, extended
+backwards from the first marker ahead when none precede.
+Frozen during an active loop.
 
 **The pulse is not the count.** The LED's bright/dim half comes
 from the track position's fractional beat in both modes. The
@@ -409,8 +412,9 @@ The cascade resolves most-specific-first: `prePhrase > phrase >
 bar > beat`. It's driven by `beat_active` edges in track mode, and
 by the fractional phase on `playposition` in the loop reading.
 
-You can't override the "off" colour of a beat pulse, and markers
-don't get beat accents. See CUSTOMISE → What is and isn't possible.
+You can't override the "off" colour of a beat pulse. Markers DO
+get beat accents — marker colour is the base, cascade overrides
+at cascade levels. See CUSTOMISE → What is and isn't possible.
 
 ---
 

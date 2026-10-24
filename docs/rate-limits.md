@@ -58,8 +58,8 @@ above.
 ```js
 XoneK3.RATE_CLASSES = {
     jump:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 120, claimMs: 120 },
-    edit:  { selfCheckMs: 10, selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  },
-    claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 60  },
+    edit:  { selfCheckMs: 0,  selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  },
+    claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   },
     free:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   }
 };
 ```
@@ -67,8 +67,8 @@ XoneK3.RATE_CLASSES = {
 | Class | Use |
 |---|---|
 | `jump` | Both boundaries move (beatjump, reloop, beatloop activate). Mixxx re-anchors on every event — needs the full 120 ms on the shared clock. |
-| `edit` | One boundary moves (loop-point nudge, loop-size set). Mixxx has less state to update — self-gates 10 ms per binding, and leaves a softer 60 ms tail. |
-| `claim` | Doesn't move anything, but the change means a jump shouldn't fire immediately after (beatjump-size step). Leaves a 60 ms tail on the shared clock. |
+| `edit` | One boundary moves (loop-point nudge, loop-size set). Mixxx has less state to update — no self-gate (encoder spins freely), leaves a 60 ms tail on the shared clock so a jump after an edit waits for the loop to settle. |
+| `claim` | Reserved class — no gating in the shipped config (all timers 0). Kept as a name in case a future binding wants a claim-style throttle. |
 | `free` | No gate. Everything else by default. |
 
 **Two timestamps.** `ctrl._lastLoopChangeMs` is the shared clock —
@@ -82,12 +82,15 @@ shared clock by `claimMs`. The floor calculation is
 composable: an `edit` at 60 ms leaves a 60 ms tail; a `jump`
 reads the same clock and waits its full 120 ms from that point.
 
-**Why `edit` self-gates but `jump` doesn't.** `jump` moves both
-boundaries at once. `edit` moves one boundary, using the anchor
-trick (`loop_anchor` set to 1 or 0 before the write). Mixxx has
-less state to reconcile and tolerates a faster event rate, so
-the class trusts the encoder to spin and self-checks at 10 ms
-instead of trusting the shared clock.
+**Why `edit` leaves a tail but `jump` doesn't.** `jump` moves
+both boundaries at once — Mixxx re-anchors on every event, so it
+needs the full 120 ms on the shared clock. `edit` moves one
+boundary (via the anchor trick), so Mixxx has less state to
+update and tolerates a faster event rate. The shipped config
+gives `edit` a 0 ms self-gate (encoder spins freely) and a 60 ms
+tail on the shared clock (a jump after an edit waits for the
+loop to settle). Both `selfCheckMs` and `claimMs` are tunable
+per binding.
 
 ---
 

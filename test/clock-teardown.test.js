@@ -3,17 +3,23 @@
 var H = require('./helpers');
 
 // _closeBeatClocks tears down per-channel timeline state, but
-// must leave _phraseOrigin alone — it's user intent, set by
-// setPhraseOriginHere / phraseOffsetStep / hotcueWithPhraseCheck.
+// must leave _phraseOrigin alone — it's derived from the current
+// playhead and marker hotcues, and the playhead hasn't moved, so
+// the next tick would produce the same value anyway.
 
 test('_closeBeatClocks: preserves _phraseOrigin, resets deck state', function(t) {
     var c = H.ctrl();
 
+    // Clear the shipped marker list so the hotcue observer block
+    // is skipped — otherwise _openBeatClocks wires 32 extra
+    // playConns per channel.
+    XoneK3.PHRASE_MARKER_COLORS = [];
+
     c._openBeatClocks();
     t.eq(c._beatConns.length, 4,  'one beat_active per channel');
-    t.eq(c._playConns.length, 20, 'five other connections per channel');
+    t.eq(c._playConns.length, 20, 'five base connections per channel');
 
-    // Set user intent and pollute derived state.
+    // Set derived state.
     c._phraseOrigin[1] = 42;
     c._phraseOrigin[2] = 17;
     c._decks[1].count   = 99;

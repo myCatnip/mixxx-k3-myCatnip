@@ -45,15 +45,30 @@
     ];
 
     // ============================================================
-    // PHRASE_MARKER_COLORS — hotcue colours that act as phrase
-    // markers. Press a hotcue whose stored colour matches one of
-    // these and the phrase origin moves to that hotcue's position.
-    // Empty list = feature off.
+    // PHRASE_MARKER_COLORS — hotcue colours that define phrase-
+    // start positions on the track. Any hotcue whose stored
+    // colour is in this list acts as a phrase boundary; the
+    // active phrase origin at any playhead position is the beat
+    // of the last such marker at or before that position (or
+    // intro start if none). Empty list = feature off.
+    //
+    // Position-derived, not press-only: playing across a marker,
+    // scrubbing past one, pressing its pad, forward beatjump, and
+    // loading a track past one all re-anchor the origin via the
+    // same code path. Frozen during an active loop; re-derived on
+    // the first tick after the loop stops.
+    //
+    // Place markers on beat boundaries. A marker mid-beat floors
+    // to the start of its beat (floor, not round), so a marker at
+    // beat 3.8 anchors origin to beat 3.
+    //
+    // All 36 hotcues are scanned. That's Mixxx's hotcue maximum,
+    // so no hotcue is left out. Scan cost is nil.
     //
     // Values are integer RGB hexes, exactly what Mixxx stores on
     // [ChannelN],hotcue_X_color.
     // ============================================================
-    XoneK3.PHRASE_MARKER_COLORS = [];
+    XoneK3.PHRASE_MARKER_COLORS = [0xF2F2FF];
 
     // ============================================================
     // SCHEMES — Cat's colour ramps.

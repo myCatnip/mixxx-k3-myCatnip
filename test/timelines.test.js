@@ -38,14 +38,16 @@ test('_channelOf: non-channel → null', function(t) {
 
 // ── _getContentBounds ───────────────────────────────────────
 
-test('_getContentBounds: reads intro/outro', function(t) {
+test('_getContentBounds: start always 0, end from outro', function(t) {
     var c = H.ctrl();
     engine._set('[Channel1]', 'track_samples', 1000);
+    // intro_start_position is deliberately set here — the code
+    // must ignore it. Beat 0 is always file start.
     engine._set('[Channel1]', 'intro_start_position', 200);
     engine._set('[Channel1]', 'outro_end_position',   800);
     var b = c._getContentBounds(1);
-    t.approx(b.start, 0.2, 1e-9);
-    t.approx(b.end,   0.8, 1e-9);
+    t.eq(b.start, 0);
+    t.approx(b.end, 0.8, 1e-9);
 });
 
 test('_getContentBounds: no samples → null', function(t) {
@@ -57,19 +59,24 @@ test('_getContentBounds: no samples → null', function(t) {
 test('_getContentBounds: zero markers → 0..1', function(t) {
     var c = H.ctrl();
     engine._set('[Channel1]', 'track_samples', 1000);
+    engine._set('[Channel1]', 'outro_end_position', 0);
     var b = c._getContentBounds(1);
     t.eq(b.start, 0);
     t.eq(b.end,   1);
 });
 
-test('_getContentBounds: inverted markers → 0..1', function(t) {
+test('_getContentBounds: intro ignored, outro clamps', function(t) {
     var c = H.ctrl();
     engine._set('[Channel1]', 'track_samples', 1000);
+    // Intro is set above outro — previously this hit the
+    // "endN <= startN" fallback. Now start is hard-coded to 0,
+    // so the fallback never triggers and end simply reflects
+    // outro_end_position / samples.
     engine._set('[Channel1]', 'intro_start_position', 900);
     engine._set('[Channel1]', 'outro_end_position',   100);
     var b = c._getContentBounds(1);
     t.eq(b.start, 0);
-    t.eq(b.end,   1);
+    t.approx(b.end, 0.1, 1e-9);
 });
 
 // ── _readFileBpm / _trackMeta ───────────────────────────────
@@ -126,7 +133,7 @@ test('_trackMeta: cache clear picks up new values', function(t) {
     t.eq(c._trackMeta(1).duration, 200);
 });
 
-// ── _beatF / _computeAbsoluteBeat ───────────────────────────
+// ── _beatF ─────────────────────────────────────────────────
 
 test('_beatF: 0.5 into a 300s 120bpm track = 300 beats', function(t) {
     var c = H.ctrl();
@@ -162,7 +169,7 @@ test('_beatF: non-number pos → null', function(t) {
 
 test('_beatF: negative pos returns negative beat (no pos<0 guard)', function(t) {
     // INTERNALS §25: _beatF has no pos<0 guard. A position before
-    // the intro marker returns a negative fractional beat;
+    // file start returns a negative fractional beat;
     // _cascadeCount floors it and beatLevel normalises via modulo,
     // so the cascade shows the previous phrase's colours rather
     // than freezing the pipeline at pos <= 0.
@@ -172,11 +179,13 @@ test('_beatF: negative pos returns negative beat (no pos<0 guard)', function(t) 
     t.approx(c._beatF(1, -1), -600, 1e-6);
 });
 
-test('_computeAbsoluteBeat: floors fractional beat', function(t) {
+test('_beatF: fractional part floors via Math.floor', function(t) {
     var c = H.ctrl();
-    // 0.503 * 600 = 301.8 → floor 301
+    // 0.503 * 600 = 301.8 → floor 301. _computeAbsoluteBeat was
+    // removed; the same floor is applied inline wherever the
+    // absolute beat is needed.
     setupTrack(c, 1, {pos: 0.503});
-    t.eq(c._computeAbsoluteBeat(1, 0.503), 301);
+    t.eq(Math.floor(c._beatF(1, 0.503)), 301);
 });
 
 // ── _computeBeatState ──────────────────────────────────────
@@ -209,20 +218,76 @@ test('_computeBeatState: no metadata → null', function(t) {
     t.eq(c._computeBeatState(1), null);
 });
 
-// ── _setPhraseOriginAt / _resetBeat ────────────────────────
+// ── _deriveOriginFromPosition / _resetBeat ─────────────────
 
-test('_setPhraseOriginAt: sets origin from position', function(t) {
+test('_deriveOriginFromPosition: marker at-or-before sets origin', function(t) {
     var c = H.ctrl();
     setupTrack(c, 1);
-    c._setPhraseOriginAt(1, 0.5);
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+    engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
+    engine._set('[Channel1]', 'hotcue_1_position', 500);
+    c._deriveOriginFromPosition(1, 0.5);
+    // Marker at 0.5 → beat 300; playhead at 0.5 → floor 300.
     t.eq(c._phraseOrigin[1], 300);
+    XoneK3.PHRASE_MARKER_COLORS = [];
 });
 
-test('_setPhraseOriginAt: no metadata no-op', function(t) {
+test('_deriveOriginFromPosition: marker only ahead sets origin to first marker beat', function(t) {
     var c = H.ctrl();
+    setupTrack(c, 1);
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+    engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
+    engine._set('[Channel1]', 'hotcue_1_position', 500);
+    // Playhead at 0.2 — marker at 0.5 is ahead. Origin still
+    // lands on the marker beat so the pattern extends backwards.
+    c._deriveOriginFromPosition(1, 0.2);
+    t.eq(c._phraseOrigin[1], 300);
+    XoneK3.PHRASE_MARKER_COLORS = [];
+});
+
+test('_deriveOriginFromPosition: no matching markers → origin 0', function(t) {
+    var c = H.ctrl();
+    setupTrack(c, 1);
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+    engine._set('[Channel1]', 'hotcue_1_color',    0xFFFFFF);  // not a marker
+    engine._set('[Channel1]', 'hotcue_1_position', 500);
+    c._phraseOrigin[1] = 42;
+    c._deriveOriginFromPosition(1, 0.5);
+    t.eq(c._phraseOrigin[1], 0);   // no matching marker → file start
+    XoneK3.PHRASE_MARKER_COLORS = [];
+});
+
+test('_deriveOriginFromPosition: frozen in loop mode', function(t) {
+    var c = H.ctrl();
+    setupTrack(c, 1);
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+    engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
+    engine._set('[Channel1]', 'hotcue_1_position', 500);
+    c._decks[1].displaySource     = 'loop';
+    c._decks[1].loopClock.running = true;
+    c._phraseOrigin[1] = 42;
+    c._deriveOriginFromPosition(1, 0.5);
+    t.eq(c._phraseOrigin[1], 42);  // unchanged while looping
+    XoneK3.PHRASE_MARKER_COLORS = [];
+});
+
+test('_deriveOriginFromPosition: no metadata no-op', function(t) {
+    var c = H.ctrl();
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+    engine._set('[Channel1]', 'track_samples', 0);   // no metadata
     c._phraseOrigin[1] = 5;
-    c._setPhraseOriginAt(1, 0.5);
+    c._deriveOriginFromPosition(1, 0.5);
     t.eq(c._phraseOrigin[1], 5);
+    XoneK3.PHRASE_MARKER_COLORS = [];
+});
+
+test('_deriveOriginFromPosition: empty marker list short-circuits', function(t) {
+    var c = H.ctrl();
+    setupTrack(c, 1);
+    XoneK3.PHRASE_MARKER_COLORS = [];
+    c._phraseOrigin[1] = 42;
+    c._deriveOriginFromPosition(1, 0.5);
+    t.eq(c._phraseOrigin[1], 42);
 });
 
 test('_resetBeat: clears origin and state', function(t) {
@@ -417,6 +482,7 @@ test('_needsBeatClocks: false with no beat LEDs', function(t) {
 });
 
 test('_syncBeatClocks: opens clocks when beat LED attached', function(t) {
+    XoneK3.PHRASE_MARKER_COLORS = [];
     XoneK3.SCHEMES.tBeat = {colors: [[127,0,0]], beat: {color: 'blue'}};
     var c = H.ctrl();
     c._applyBinding('button0_0', {
@@ -428,6 +494,7 @@ test('_syncBeatClocks: opens clocks when beat LED attached', function(t) {
 });
 
 test('_syncBeatClocks: closes clocks when beat LED removed', function(t) {
+    XoneK3.PHRASE_MARKER_COLORS = [];
     XoneK3.SCHEMES.tBeat = {colors: [[127,0,0]], beat: {color: 'blue'}};
     var c = H.ctrl();
     c._applyBinding('button0_0', {
@@ -499,66 +566,30 @@ test('cycleDisplaySource: loop → track', function(t) {
     t.eq(c._decks[1].displaySource, 'track');
 });
 
-// ── setPhraseOriginHere ────────────────────────────────────
+// ── hotcue press (default push handler) ────────────────────
 //
-// The func exists in XoneK3.FUNCS, but no shipped binding wires
-// it — the shift+grid2_0 cell in shiftPhraseCells() has its
-// `func:` line commented out. This test exercises the func
-// directly against a hand-built binding, so it stays valid even
-// though the shipped config no longer uses it.
+// hotcueWithPhraseCheck was removed; hotcues use the default
+// push handler. Origin re-derives on the next playposition tick
+// via the hotcue observers wired by _openBeatClocks. These tests
+// verify the press/release wiring — the derivation logic itself
+// is covered by the _deriveOriginFromPosition tests above.
 
-test('setPhraseOriginHere: sets origin to current playpos', function(t) {
+test('hotcue press: writes 1 to activate CO on press', function(t) {
     var c = H.ctrl();
     setupTrack(c, 1);
-    c._applyBinding('grid2_0', {
-        func: XoneK3.FUNCS.setPhraseOriginHere, group: '[Channel1]'
-    });
-    H.press(c, 'grid2_0');
-    t.eq(c._phraseOrigin[1], 300);
-});
-
-// ── hotcueWithPhraseCheck ──────────────────────────────────
-
-test('hotcueWithPhraseCheck: non-matching colour → no origin change', function(t) {
-    var c = H.ctrl();
-    setupTrack(c, 1);
-    engine._set('[Channel1]', 'hotcue_1_position', 500);
-    engine._set('[Channel1]', 'hotcue_1_color', 0xFFFFFF);
-    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
     c._applyBinding('grid0_2', {
-        func: XoneK3.FUNCS.hotcueWithPhraseCheck, args: [1],
-        group: '[Channel1]', inKey: 'hotcue_1_activate'
+        group: '[Channel1]', inKey: 'hotcue_1_activate', type: 'push'
     });
     H.press(c, 'grid0_2');
     t.eq(engine.getValue('[Channel1]', 'hotcue_1_activate'), 1);
-    t.eq(c._phraseOrigin[1], 0);
-    XoneK3.PHRASE_MARKER_COLORS = [];
+    t.eq(c._phraseOrigin[1], 0);   // no marker on this channel
 });
 
-test('hotcueWithPhraseCheck: matching colour sets origin', function(t) {
+test('hotcue press: release writes 0 to activate CO', function(t) {
     var c = H.ctrl();
     setupTrack(c, 1);
-    engine._set('[Channel1]', 'hotcue_1_position', 500);
-    engine._set('[Channel1]', 'hotcue_1_color', 0xC50A08);
-    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
     c._applyBinding('grid0_2', {
-        func: XoneK3.FUNCS.hotcueWithPhraseCheck, args: [1],
-        group: '[Channel1]', inKey: 'hotcue_1_activate'
-    });
-    H.press(c, 'grid0_2');
-    t.eq(c._phraseOrigin[1], 300);
-    XoneK3.PHRASE_MARKER_COLORS = [];
-});
-
-test('hotcueWithPhraseCheck: release sends 0', function(t) {
-    var c = H.ctrl();
-    setupTrack(c, 1);
-    engine._set('[Channel1]', 'hotcue_1_position', 500);
-    engine._set('[Channel1]', 'hotcue_1_color', 0xFFFFFF);
-    XoneK3.PHRASE_MARKER_COLORS = [];
-    c._applyBinding('grid0_2', {
-        func: XoneK3.FUNCS.hotcueWithPhraseCheck, args: [1],
-        group: '[Channel1]', inKey: 'hotcue_1_activate'
+        group: '[Channel1]', inKey: 'hotcue_1_activate', type: 'push'
     });
     H.release(c, 'grid0_2');
     t.eq(engine.getValue('[Channel1]', 'hotcue_1_activate'), 0);

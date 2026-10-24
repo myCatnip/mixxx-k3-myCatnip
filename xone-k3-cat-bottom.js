@@ -61,7 +61,6 @@
     // Hotcues and loop / beatjump size buttons.
     function hotcue(n) {
         return {
-            func: F.hotcueWithPhraseCheck, args: [n],
             group: '$DECK_ACTIVE$',
             inKey: 'hotcue_' + n + '_activate',
             outKey: 'hotcue_' + n + '_status',
@@ -95,10 +94,8 @@
     // parent chain, and re-declares the other two for clarity.
     function shiftPhraseCells() {
         return {
-            //UNCOMMENT TO ENABLE PHRASE SETTING ON SHIFTED!
-            grid2_0: { //func: F.setPhraseOriginHere,
-                    group: '$DECK_ACTIVE$',
-                    colorScheme: { knob: 'fader2', scheme: eqRamp(), on: false } },
+            grid2_0: { group: '$DECK_ACTIVE$',
+                       colorScheme: { knob: 'fader2', scheme: eqRamp(), on: false } },
             grid2_1: { func: F.toggleActiveDeck,
                        group: '$DECK_ACTIVE$',
                        outKey: 'slip_enabled',

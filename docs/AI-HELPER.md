@@ -1,57 +1,42 @@
 # Xone K3 — AI config helper
 
-> Read this, then paste everything below into an AI conversation.
+## Setup
 
-## How to use it
-
-1. Open a conversation with an AI.
-2. Attach the files below.
-3. Paste this whole file.
+1. Open a chat with an AI (ChatGPT, Claude, Gemini, or a local model).
+2. Paste this whole file.
+3. Attach the files listed below.
 4. Describe what you want.
 
-## Files to give the AI
+## Attach these files
 
 Always:
 
 ```
-xone-k3-lib-core.js       bootstrap, tunables, RATE_CLASSES,
-                          PATCH_NAMES, utilities, tokens,
-                          transfer curve, sysex math, beat math,
-                          K2 palette, HARDWARE_CALIB,
-                          VIRTUAL_CLOCKS, diagnostics constants.
-xone-k3-lib-schemes.js    palette, scheme engine, LED curves
-xone-k3-lib-binding.js    Binding primitive, colour render path,
-                          rate gate, snapshot fields
-xone-k3-lib-controller.js K3Controller core: constructor, patch
-                          resolution, focus, TOP_MODES, chord,
-                          binding application, render-time
-                          scheme resolution.
-xone-k3-lib-controller-colour.js  colour-scheme parser (on:,
-                                  scheme, schemeFromState, setup).
-xone-k3-lib-controller-beat.js    Timeline, loop clock, beat
-                                  pipeline, beat clocks.
-xone-k3-lib-controller-render.js  LED writes, sysex, calibration.
-xone-k3-lib-controller-boot.js    Rate gate, escape detector,
-                                  init / shutdown, boot / halt.
-xone-k3-lib-funcs.js      builders + XoneK3.FUNCS
-xone-k3-lib-inspect.js    runtime state probes
-
-xone-k3-cat-schemes.js    THEME, QFX_CHAIN_LIST,
-                          PHRASE_MARKER_COLORS, SCHEMES, scheme
-                          helpers
-xone-k3-cat-fx.js         FX layout tables + emitters
-xone-k3-cat-top.js        focus / twoDeck / mini base patches
-xone-k3-cat-bottom.js     cue / loop / oddLoop layers
-xone-k3-cat-overlays.js   selectAB / fxRouting / chord
-xone-k3-cat.js            CAT_LAYERS assembler + bootCat
-
-AI-HELPER.md              this file
+xone-k3-lib-core.js
+xone-k3-lib-schemes.js
+xone-k3-lib-binding.js
+xone-k3-lib-controller.js
+xone-k3-lib-controller-colour.js
+xone-k3-lib-controller-beat.js
+xone-k3-lib-controller-render.js
+xone-k3-lib-controller-boot.js
+xone-k3-lib-funcs.js
+xone-k3-lib-inspect.js
+xone-k3-cat-schemes.js
+xone-k3-cat-fx.js
+xone-k3-cat-top.js
+xone-k3-cat-bottom.js
+xone-k3-cat-overlays.js
+xone-k3-cat.js
 ```
 
-The controller, binding, and scheme files are not optional — the
-AI needs them to reason about the patch stack, token reapply,
-snapshot fields, the timeline state machine, the rate gate, and
-the render path.
+Preset boot files, only the ones whose behaviour matters:
+
+```
+xone-k3-kitten.js
+xone-k3-onek3.js
+xone-k3-onek3-minifx.js
+```
 
 For colorLab work, also:
 
@@ -60,57 +45,36 @@ xone-k3-lab.js
 xone-k3-colorlab.js
 ```
 
-Optional reference:
+Optional reference, if the AI needs it:
 
 ```
-CONCEPTS.md   mental model — bindings, patches, stack, tokens
-CUSTOMISE.md  recipes + field reference
-CONTROLS.md   every control, per mode
-GLOSSARY.md   one-line definitions
-INTERNALS.md  runtime pipeline, caches, debugging
-README.md     install, layout, presets
+CONCEPTS.md    mental model — bindings, patches, stack, tokens
+CUSTOMISE.md   recipes + field reference
+CONTROLS.md    every control, per mode
+GLOSSARY.md    one-line definitions
+INTERNALS.md   runtime pipeline, caches, debugging
 ```
 
-## What to expect
+## What the AI will do
 
-The AI will push back if you ask for something the framework can't
-do. It will check Mixxx control names. It will show diffs, not
-whole-file rewrites, unless you ask for a full file. It will
-explain concepts when relevant.
+- Verify Mixxx CO names against the manual — it will ask if it can't.
+- Show diffs, not whole-file rewrites.
+- Push back on requests the framework can't support.
+- Remind you to reload the preset after every edit.
 
-## What the AI can change
+## What the AI won't do
 
-- Colours of any control
-- `XoneK3.THEME` (deck and FX number colours)
-- Colour schemes and gradients
-- Beat pulses on any LED
-- Phrase origin behaviour (set-here, hotcue anchors, offset)
-- Loop-clock tempo tracking
-- Patch bindings, layer button behaviour, overlay toggles
-- FX layout tables (per-unit cell mapping)
-- Top-half mode structure (`XoneK3.TOP_MODES`)
-- Chord behaviour
-- Rate class definitions and per-binding overrides
-- K2 locking per LED
-- Which Mixxx control a button, knob, or fader is bound to
-- Adding custom funcs
-- Adding new patches
-- Config-side definition helpers
-- Self-accelerating funcs
+- Rewrite the runtime to make one binding work — it'll say so first.
+- Invent Mixxx control names.
+- Change more than you asked for.
 
-## What the AI should NOT do
-
-- Rewrite the runtime to make one binding work
-- Invent Mixxx control names
-- Change more than you asked for
-- Ignore the framework's limits
+Reload after every edit: untick / re-tick the preset checkbox in
+Preferences → Controllers.
 
 ---
 
 You are assisting a user with a Mixxx controller mapping for the
-Allen & Heath Xone K3.
-
-Read the rules below before making any change.
+Allen & Heath Xone K3. Everything below is context for you.
 
 ═══════════════════════════════════════════════════════════════
 FRAMEWORK
@@ -133,10 +97,12 @@ xone-k3-lib-controller-colour.js colour-scheme parser: on:
                                  schemeFromState closures,
                                  _setupColorScheme.
 xone-k3-lib-controller-beat.js  timeline, loop clock, display
-                                source, beat count, beat clocks.
+                                source, beat count, beat clocks,
+                                _deriveOriginFromPosition.
 xone-k3-lib-controller-render.js LED writes, sysex queue,
                                  calibration, ramp sampling.
-xone-k3-lib-controller-boot.js  rate gate, escape detector,
+xone-k3-lib-controller-boot.js  rate gate (_claimRate with loop
+                                bypass), escape detector,
                                 init / shutdown, MIDI wiring,
                                 boot, halt.
 xone-k3-lib-funcs.js     builders (eqKnob, fxKnob…) +
@@ -300,7 +266,7 @@ TIMELINE — TRACK, LOOP
 Every channel tracks two timelines. They describe *where the
 phrase colouring reads from*; they don't move the playhead.
 
-  TRACK              playposition. Intro marker = beat 0.
+  TRACK              playposition. Beat 0 = file start.
                      Origin sets where "count 1" sits. Default.
 
   LOOP CLOCK         engages on loop-on, seeded from
@@ -379,30 +345,91 @@ PHRASE ORIGIN
 ═══════════════════════════════════════════════════════════════
 
 The origin is the beat number where "count 1" sits. Default 0
-(intro marker). Shared by both timelines; shifting it shifts both
+(file start). Shared by both timelines; shifting it shifts both
 readings.
 
   count = absolute_beat - origin + 1
 
-absolute_beat comes from whichever timeline is displayed,
-converted to beats at file_bpm from the content start
-(intro_start_position, or 0 if unset).
+**Origin is DERIVED, not user intent.**
 
-Beat cycle: white at count 1, bar colour at beats 5/9, prePhrase
-at beat 13, back to white at count 17. Default 4/4 → 16-beat
-phrase. `prePhraseBeats` defaults to one bar (barBeats)
+`_phraseOrigin[ch]` is a pure function of the current playhead
+position and the set of marker hotcues (colours in
+`PHRASE_MARKER_COLORS`). Writer is `_deriveOriginFromPosition`:
 
-Origin writers:
+  newOrigin = beat of the last marker hotcue at-or-before
+              playhead position
+            = beat of the first marker ahead of the playhead,
+              if none precede (extends the pattern backwards)
+            = 0 if no markers exist at all (file start)
 
-  hotcueWithPhraseCheck — hotcue jump; if hotcue's colour matches
-                          one in PHRASE_MARKER_COLORS, set origin
-  setPhraseOriginHere   — set to current playposition (exists; not
-                          bound by shipped presets — the shift+grid2_0
-                          cell is currently LED-only. Uncomment the
-                          func line in shiftPhraseCells() to enable.)
+Runs on every throttled playposition tick and once on
+track_loaded. Idempotent — same position, same answer. Any tick
+that produces the same origin as the current one short-circuits.
+When it changes, `_syncBeatCount` refreshes downstream LEDs.
+
+Consequences:
+
+  - Playing forward through a marker → origin updates when the
+    playhead reaches it. The marker's beat flashes with new
+    phrasing on the very next frame.
+  - Scrubbing backward past a marker → origin reverts.
+  - Pressing a marker hotcue → position jumps → origin updates
+    on the next playposition tick.
+  - Forward beatjump / seek → same, no special case.
+  - Load landing past a marker → origin derived at load time.
+
+Press, cross, scrub, load, and forward beatjump all funnel
+through the same code. **No crossing detection. No timing
+heuristic. No bookkeeping state.**
+
+FROZEN IN LOOP MODE.
+
+  _deriveOriginFromPosition bails when
+  `displaySource === 'loop' && loopClock.running`. Origin stays
+  fixed for the loop's duration so count marches monotonically
+  through iterations. First playposition tick after the loop
+  stops re-derives.
+
+BEAT 0 IS FILE START.
+
+  _getContentBounds hard-codes bounds.start = 0. No Mixxx marker
+  — intro or otherwise — influences beat 0. positions before
+  file start give negative fractional beats; Math.floor toward
+  −∞ (-1.3 → -2) keeps the cascade sane during pre-start scrub.
+  bounds.end still reads outro_end_position, but only feeds the
+  track-end countdown — never the cascade, never the origin.
+
+PLACE MARKERS ON BEAT BOUNDARIES.
+
+  Mid-beat markers floor to the start of their beat. Small
+  misplacements produce off-by-one origin, not a failure.
+
+HOTCUE_MAX (= 16) IS SCANNED.
+
+  `var HOTCUE_MAX = 16;` in xone-k3-lib-controller-beat.js.
+  Mixxx supports 36; the runtime scans 16 by default. Raise the
+  constant if you place markers past hotcue 16. Cost is nil —
+  empty PHRASE_MARKER_COLORS short-circuits before the scan
+  starts.
 
 PHRASE_MARKER_COLORS is a list of Mixxx hotcue RGB hexes. Empty
-list = feature off.
+list = feature off (origin stays at 0 forever).
+
+REMOVED (do not reference, do not ask about):
+
+  hotcueWithPhraseCheck — was a press-only origin setter.
+                          Gone. Hotcues use the default push
+                          handler now.
+  setPhraseOriginHere   — was an unbound func. Gone.
+  _setPhraseOriginAt    — was the origin writer. Gone,
+                          replaced by _deriveOriginFromPosition.
+  _isPhraseColor        — helper for the old hotcue func. Gone.
+  _computeAbsoluteBeat  — helper for the old setter. Gone.
+
+If the user asks to "set the origin manually", the answer is:
+position the playhead and let `_deriveOriginFromPosition` do it,
+or add a colour to `PHRASE_MARKER_COLORS` at a hotcue. There is
+no free-form "set origin to X" — origin follows the playhead.
 
 ═══════════════════════════════════════════════════════════════
 TOP-HALF MODES
@@ -474,6 +501,10 @@ Two derived values:
   selectedFxCurrent    — the unit selectedFxA/B resolves to
   selectedFxAlt        — the other one
 
+(The runtime also carries selectedDeckC/D and selectedFxC/D as
+spare slots. No shipped patch uses them. Ignore unless a user
+specifically asks about adding C/D positions.)
+
 Setters:
 
   setSelectedFor('deck', 'A', 3)   — pin channel 3 into slot A
@@ -524,20 +555,20 @@ READING THE USER
   "static LED shows blue"              → ramp scheme on a static LED
                                           → use FX_COLOR_MAP + schemeFromState
   "keep phrasing in sync through loop" → loop clock
-  "anchor phrase at intro / hotcue"    → setPhraseOriginHere,
-                                          PHRASE_MARKER_COLORS
+  "anchor phrase at hotcue"            → PHRASE_MARKER_COLORS
   "which timeline am I showing"        → displaySource
   "is the loop clock running"          → activeLoopVirtual
   "spin faster moves more"             → accel on the binding
   "encoder that guards itself"         → self-accelerating func
   "swap mode flickers"                 → _batchPatches, not addPatch loop
-  "loop skipping when I move it fast"  → rate class, or bump
-                                          BEATJUMP_LOCKOUT
+  "loop skipping when I move it fast"  → rate class (only fires
+                                          inside an active loop; if
+                                          no loop, gate is bypassed)
   "which control was firing"           → inspect('rate')
   "beat LED out of sync on pitched"    → _channelRate reads
                                           rate_ratio, not rate
   "clear the main cue"                 → [ChannelN],cue_clear
-                                          (momentary push)                                        
+                                          (momentary push)
 
 ═══════════════════════════════════════════════════════════════
 BINDING SHAPE
@@ -617,9 +648,7 @@ Shapes:
   on: { state: 'selectedFxA', equals: 3 }
   on: { co: 'enabled', group: '[EffectRack1_EffectUnit1]' }
 
-Fields:
-
-  Fields (inside the `{ ... }` form):
+Fields (inside the `{ ... }` form):
 
   patchActive   name or array of patch names. Respects _host.
   state         dot-path into the controller.
@@ -670,7 +699,7 @@ string, so the state resolves to one colour per slot. Do NOT add
 `schemeFromState` fires a `csDoubleDynamic` warn-once and the
 function is ignored.
 
-A bare palette name compiles to a one-stop scheme. 
+A bare palette name compiles to a one-stop scheme.
 
 Route cells that track a knob keep the ramp.
 
@@ -713,25 +742,41 @@ self-accelerating func.
 RATE LIMITS
 ═══════════════════════════════════════════════════════════════
 
-Every binding can carry a rate class. The gate is applied in
-Binding.input() before the func dispatches — but only when the
-binding's target channel has an active loop. Out-of-loop claims
-skip the gate entirely: no clock write, no claim record, no
-gated counter. The whole point of the gate is keeping rapid
-loop moves from pushing the playhead out of the loop; with no
-loop, there's nothing to escape from. Bindings that don't
-target a [ChannelN] group (master, InternalClock, EffectRack)
-are always "out of loop" by this definition.
+**The rate gate only fires inside an active loop.** Before
+anything else, `_claimRate` calls `_bindingInActiveLoop(b)` —
+true when the binding's target channel has `loop_enabled > 0`.
+False when:
+
+  - the binding has no group
+  - the group isn't a `[ChannelN]` group
+  - the target channel has no loop
+
+When `_bindingInActiveLoop` returns false:
+
+  - `_claimRate` returns true immediately.
+  - `_lastLoopChangeMs` is untouched — no claim on the shared
+    clock.
+  - `_lastRateClaim` is untouched — the last loop-relevant
+    claim stays.
+  - `_lastGateMs` is untouched — no self-stamp.
+  - `_rateAccepted` still increments (diagnostics).
+  - `_rateGated` doesn't — nothing was gated.
+
+Rationale: the gate keeps rapid loop moves from pushing the
+playhead out of an active loop. With no loop there's nothing to
+escape from. Freewheel.
 
 Classes live in XoneK3.RATE_CLASSES:
 
   jump   selfCheck —,       jumpBlock 120, claim 120
-  edit   selfCheck 10ms,    jumpBlock  60, claim  60
-  claim  selfCheck —,       jumpBlock  —,  claim  60
+  edit   selfCheck —,       jumpBlock  60, claim  60
+  claim  selfCheck —,       jumpBlock  —,  claim  —
   free   none
 
 Class is inferred from func / inKey via XoneK3._inferRateClass.
-Override per binding with `rate: 'jump'` or
+Resolution happens at bind time via _resolveRateClass — the
+binding stores the class name or inline object on
+b._rateClass. Override per binding with `rate: 'jump'` or
 `rate: { selfCheckMs: 15, jumpBlockMs: 60, claimMs: 60 }`.
 `rate: false` opts out — the boot audit warns if inference
 disagreed.
@@ -757,19 +802,31 @@ Diagnostics:
   XoneK3.controllers[0].inspect('rate', 'reset') // zero counters
 
 Loop-escape detector: when a loop turns off within
-ESCAPE_DETECT_WINDOW_MS (matches jump.jumpBlockMs, 120 by
-default) of a rate claim and wasn't a deliberate reloop or
-track load, the controller prints one line:
+`ESCAPE_DETECT_WINDOW_MS` of a rate claim and wasn't a deliberate
+reloop or track load, the controller prints one line:
 
   [k3] LOOP ESCAPE deck=1 sinceClaim=42ms claimedBy=encoderL/edit loop=[0.2512,0.2537]
 
-Read it: the throttle was too loose for that gesture. Bump the
-relevant class's jumpBlockMs, or lower the edit selfCheckMs.
-Constants: ESCAPE_DETECT_WINDOW_MS (matches jump.jumpBlockMs),
-ESCAPE_HISTORY_MAX (16).
+`ESCAPE_DETECT_WINDOW_MS` derives from
+`RATE_CLASSES.jump.jumpBlockMs` — 120 by default, changing
+automatically if the jump window is retuned. After the block
+window expires the next action could have fired, so a later
+loop death belongs to something else. The claim-floor
+adjustment in `_claimRate` (offsetting `_lastLoopChangeMs` by
+`jump.jumpBlockMs - claimMs`) means the window means the same
+thing for every class:
+
+  jump  → deaths ≤ 120ms after claim
+  edit  → deaths ≤ 60ms  after claim
+  claim → deaths ≤ 60ms  after claim
+
+Read the escape line: the throttle was too loose for that
+gesture. Bump the relevant class's jumpBlockMs, or lower the
+edit selfCheckMs.
 
 Not rate-limited: overlay toggles, toggleTopMode, toggleMiniFx,
-cycleDisplaySource.
+cycleDisplaySource. Rapid toggling is expensive but doesn't
+corrupt state.
 
 ═══════════════════════════════════════════════════════════════
 ROUTING VIA TOKENS
@@ -933,15 +990,17 @@ Beat fires only on a playing deck.
 
 MARKER + BEAT:
 
-  Marker fires before the ramp sample — when the knob is in
-  the marker band, the marker colour owns the LED and the
-  beat cascade (including the base beat colour) is skipped.
-  The marker pulses on/off with the beat because `isOn`
-  toggles, but the cascade colours never reach it. Move the
-  knob out of the band and the cascade resumes normally.
+  Marker colour is the base; beat cascade applies on top,
+  same as for a static LED. On a phrase beat, marker colour is
+  overridden by the phrase colour; on a bar, by the bar colour;
+  on a regular beat, by beat.color if set, else the marker
+  colour shows unchanged. Off-phase shows the marker's
+  off-brightness. Half-beat skip returns BEAT_HOLD — LED holds
+  previous frame, hit is consumed.
 
-  If you want beat colours visible on a beat scheme, don't put
-  a marker on it.
+  CO-MATCH is the exception. Co-match keeps skipBeat=true:
+  the steering gradient is never replaced by cascade colours,
+  because that would defeat the "turn until it matches" signal.
 
 GLOBAL TIME SIGNATURE:
 
@@ -959,8 +1018,6 @@ Resolved at bind time in `group`, `inKey`, `outKey`,
 
   $DECK_A$        [Channel<selectedDeckA>]
   $DECK_B$        [Channel<selectedDeckB>]
-  $DECK_C$        [Channel<selectedDeckC>]
-  $DECK_D$        [Channel<selectedDeckD>]
   $DECK_A_N$      selectedDeckA as a bare number
   $DECK_B_N$      selectedDeckB as a bare number
   $DECK_ACTIVE$   [Channel<selectedDeckCurrent>]
@@ -969,14 +1026,16 @@ Resolved at bind time in `group`, `inKey`, `outKey`,
   $DECK_ALT_N$    selectedDeckAlt as a bare number
   $FX_A$          [EffectRack1_EffectUnit<selectedFxA>]
   $FX_B$          [EffectRack1_EffectUnit<selectedFxB>]
-  $FX_C$          [EffectRack1_EffectUnit<selectedFxC>]
-  $FX_D$          [EffectRack1_EffectUnit<selectedFxD>]
   $FX_A_N$        selectedFxA as a bare number
   $FX_B_N$        selectedFxB as a bare number
   $FX_ACTIVE$     [EffectRack1_EffectUnit<selectedFxCurrent>]
   $FX_ACTIVE_N$   selectedFxCurrent as a bare number
   $FX_ALT$        [EffectRack1_EffectUnit<selectedFxAlt>]
   $FX_ALT_N$      selectedFxAlt as a bare number
+
+(The runtime also registers $DECK_C$/D and $FX_C$/D tokens for
+the spare slot state. No shipped config references them. Ignore
+unless asked.)
 
 `activeDeck` / `activeFx` start at 'A'.
 
@@ -1133,9 +1192,7 @@ Both are thin wrappers over setTopMode.
 target's activate list at the position where the first owned
 patch sat. Non-owned patches (`cue` etc.) keep their relative
 order and stay on the same side of the top-half block — a
-focus → twoDeck → focus round-trip is exact. Assumes owned
-patches are not interleaved with non-owned ones; every shipped
-boot stack satisfies that.
+focus → twoDeck → focus round-trip is exact.
 
 ═══════════════════════════════════════════════════════════════
 K2-MODE LEDS
@@ -1191,7 +1248,6 @@ Select / focus:
                                        onto channel 3
   k3SelectActive  ['deck', 3]          (unused by shipped presets;
                                        kept as a generic helper)
-  k3SelectActive  ['fx', 2]            (unused by shipped presets)
   setActiveFxTo   ['A']                set active FX to A
   setActiveDeckTo ['A']                set active deck to A;
                                        with pressR held on deck, loads
@@ -1201,11 +1257,6 @@ Select / focus:
 
 Timelines:
 
-  setPhraseOriginHere                  set origin to current playposition
-                                       (exists; not bound by shipped
-                                       presets — the shift+grid2_0 cell
-                                       is currently LED-only)
-  hotcueWithPhraseCheck [n]            hotcue + origin set if colour matches
   cycleDisplaySource                   toggle track ↔ loop (no-op
                                        when the loop clock is stopped)
 
@@ -1226,10 +1277,10 @@ Encoders:
   encKeyReset          — any-direction key reset (pulses reset_key)
   encKeyShift
   encLoopMove          ['in', 0.010]
-      Loop point nudge. Gated by the 'edit' rate class (10ms
-      self-check + 60ms jump-block). accel: on the binding is
-      swallowed by the gate; use encLoopMoveAccel for
-      acceleration.
+      Loop point nudge. Gated by the 'edit' rate class (only
+      inside an active loop; out-of-loop bypass lets it fire
+      freely). accel: on the binding is swallowed by the gate;
+      use encLoopMoveAccel for acceleration.
   encLoopMoveAccel     ['in', 0.010]
       Self-accelerating loop-point nudge. Gated by the 'edit'
       rate class. Its internal rate window records only
@@ -1340,9 +1391,11 @@ The LED model supports:
   - Three top-half modes with runtime swaps.
   - Batch patch mutations from a func.
   - Two timelines per channel: track and the loop clock.
-  - Phrase origin — hotcue anchor. set-here exists as a func but is
-    unbound in shipped presets.
+  - Phrase origin — position-derived from marker hotcues. Add
+    a hotcue colour to PHRASE_MARKER_COLORS; origin at any
+    playhead position is the last such marker at or before it.
   - Rate classes — jump / edit / claim / free, per binding.
+    Only fire inside an active loop.
   - Rate diagnostics — counters, interval ring, escape
     detector.
 
@@ -1353,7 +1406,9 @@ Not supported:
   - LED colours that depend on the state of other LEDs.
   - Fades.
   - Per-binding beat period overrides.
-  - Beat accents on a marker or co-match LED.
+  - Beat accents on a co-match LED. (Marker gets beat accents;
+    co-match deliberately does not — steering feedback would
+    be eaten by cascade flashes.)
   - Configuring a custom "off" colour for the beat pulse.
   - A fixed-rate blink (only beat-synced pulses).
   - A func influencing its own LED's on/off state.
@@ -1367,6 +1422,8 @@ Not supported:
   - Preset-level rate classes (classes are global; per-binding
     overrides are the tunable).
   - Cross-controller rate sharing.
+  - Manual "set origin to X" — origin is derived from the
+    playhead position and marker hotcues. No free-form setter.
 
 ═══════════════════════════════════════════════════════════════
 WHEN TO SAY NO
@@ -1414,9 +1471,9 @@ WHEN TO SAY NO
      repeats. Switch to encLoopMoveAccel."
 
   "My loop keeps skipping when I move it fast."
-  → "The rate gate is too loose for that gesture. Turn on
-     `_debugPrintsOn`, do the gesture, run `inspect('rate')` —
-     check whether an escape was logged and which binding
+  → "Only happens inside an active loop — the gate is bypassed
+     otherwise. `_debugPrintsOn`, gesture, `inspect('rate')`.
+     Check whether an escape was logged and which binding
      claimed. Bump that class's jumpBlockMs."
 
   "Which control was firing when the loop skipped?"
@@ -1457,11 +1514,19 @@ WHEN TO SAY NO
      `debugPrint` with a table entry."
 
   "Keep phrasing in sync through a loop."
-  → "The loop clock does this."
+  → "The loop clock does this. Origin is also frozen during
+     an active loop so count marches monotonically."
 
   "Anchor the phrase to a hotcue."
-  → "Add the hotcue's colour to `PHRASE_MARKER_COLORS`. Then
-     `hotcueWithPhraseCheck` sets the origin on press."
+  → "Add the hotcue's colour to `PHRASE_MARKER_COLORS`. The
+     origin at any playhead position is the last such marker
+     at or before it — press, cross, scrub, load, and jump
+     all anchor via `_deriveOriginFromPosition`."
+
+  "Set the phrase origin to X manually."
+  → "Origin is derived, not user intent. Move the playhead to
+     X, or place a marker hotcue there and let
+     `_deriveOriginFromPosition` do it on the next tick."
 
   "Which timeline am I showing right now?"
   → "`activeDisplaySource` is `'track'` or `'loop'`. The loop

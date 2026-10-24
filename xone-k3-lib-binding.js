@@ -413,7 +413,9 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
 
     XoneK3.Binding.prototype._renderMarker = function(scheme, isOn, devDir) {
         if (!XoneK3.markerHit(scheme, devDir)) return false;
-        this._sendColor(scheme.marker, isOn);
+        var entry = this._applyBeatStatic(scheme.marker, scheme, isOn);
+        if (entry === XoneK3.BEAT_HOLD) return true;
+        this._sendColor(entry, isOn);
         return true;
     };
 

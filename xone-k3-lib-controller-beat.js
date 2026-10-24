@@ -29,6 +29,14 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
 (function() {
     var freshDeckState = XoneK3._freshDeckState;
 
+    // Mixxx's hotcue ceiling — 36 per deck since 1.9.1. Reading
+    // a hotcue CO on a build with fewer is safe: the colour
+    // won't be in the marker list, so the entry is skipped
+    // before the position is read. One source of truth for the
+    // two loops that touch every hotcue slot — the origin
+    // derivation scan and the hotcue observers.
+    var HOTCUE_MAX = 16;
+
     // Loop-wrap adjustment to a position delta. Applied when the
     // loop clock is in tempo-tracking mode.
     //
@@ -200,19 +208,21 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // ============================================================
     // TRACK METADATA / BEAT MATH
     // ============================================================
+    // Content bounds for the beat math and the track-end
+    // countdown. Start is always 0 (file start) — intro_start
+    // is never read here, never influences beat 0, never
+    // influences phrase origin, never influences anything. End
+    // is outro_end_position / samples (or 1 when unset) so the
+    // countdown can still count down to the end of the track.
     XoneK3.K3Controller.prototype._getContentBounds = function(ch) {
         var samples = this._trackMeta(ch).samples;
         if (!(samples > 0)) return null;
 
         var grp = '[Channel' + ch + ']';
-        var introS = engine.getValue(grp, 'intro_start_position');
         var outroS = engine.getValue(grp, 'outro_end_position');
 
-        var startN = (introS > 0 && introS < samples) ? (introS / samples) : 0;
-        var endN   = (outroS > 0 && outroS <= samples) ? (outroS / samples) : 1;
-
-        if (endN <= startN) return { start: 0, end: 1 };
-        return { start: startN, end: endN };
+        var endN = (outroS > 0 && outroS <= samples) ? (outroS / samples) : 1;
+        return { start: 0, end: endN };
     };
 
     XoneK3.K3Controller.prototype._readFileBpm = function(ch) {
@@ -253,12 +263,6 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var bounds = this._getContentBounds(ch);
         if (!bounds) return null;
         return (pos - bounds.start) * meta.duration * meta.fileBpm / 60;
-    };
-
-    XoneK3.K3Controller.prototype._computeAbsoluteBeat = function(ch, pos) {
-        var beatF = this._beatF(ch, pos);
-        if (beatF === null) return null;
-        return Math.floor(beatF);
     };
 
     // Track-only position, for the pulse phase.
@@ -329,22 +333,67 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         return true;
     };
 
-    XoneK3.K3Controller.prototype._setPhraseOriginAt = function(ch, pos, opts) {
+    // Derive the phrase origin from the current position and the
+    // set of phrase-marker hotcues. Any hotcue whose stored colour
+    // is in PHRASE_MARKER_COLORS defines a phrase-start position;
+    // the origin at any playhead position is the beat of the last
+    // such marker at or before that position, or 0 if there is
+    // none.
+    //
+    // Position-derived, not crossing-derived. No state is tracked
+    // across ticks — any tick with the same playhead produces the
+    // same answer, and forward / backward movement is handled by
+    // the `markerPos > pos` comparison. Press, cross, scrub, load,
+    // and forward beatjump all funnel through the same code.
+    //
+    // Frozen in loop mode. The loop clock accumulates forward as
+    // if the loop played through in sequence; origin should stay
+    // fixed for the loop's duration. First playposition tick after
+    // the loop stops re-derives.
+    //
+    // Fast path: empty marker list, or no track metadata — return
+    // without reading any COs.
+    XoneK3.K3Controller.prototype._deriveOriginFromPosition = function(ch, pos) {
+        var markers = XoneK3.PHRASE_MARKER_COLORS;
+        if (!Array.isArray(markers) || markers.length === 0) return;
+
         var st = this._decks[ch];
-        // In loop mode the cascade reads clock.pos, so "here"
-        // means here on the displayed timeline — unless the
-        // caller passes { rawPos: true }. Hotcue jumps use that:
-        // a hotcue is a physical position, and the origin must
-        // land on that beat, not on the accumulated virtual count.
-        var refPos = pos;
-        if (!(opts && opts.rawPos) &&
-            st.displaySource === 'loop' && st.loopClock.running) {
-            refPos = st.loopClock.pos;
+        if (st.displaySource === 'loop' && st.loopClock.running) return;
+
+        var meta = this._trackMeta(ch);
+        if (!(meta.samples > 0)) return;
+
+        var grp = '[Channel' + ch + ']';
+        var best = null;
+        var bestAhead = null;
+
+        for (var n = 1; n <= HOTCUE_MAX; n++) {
+            var color = engine.getValue(grp, 'hotcue_' + n + '_color');
+            if (markers.indexOf(color) === -1) continue;
+            var posFrames = engine.getValue(grp, 'hotcue_' + n + '_position');
+            if (!(posFrames >= 0) || posFrames > meta.samples) continue;
+            var markerPos = posFrames / meta.samples;
+            if (markerPos <= pos) {
+                if (best === null || markerPos > best) best = markerPos;
+            } else {
+                if (bestAhead === null || markerPos < bestAhead) bestAhead = markerPos;
+            }
         }
-        var abs = this._computeAbsoluteBeat(ch, refPos);
-        if (abs === null) return;
-        this._phraseOrigin[ch] = abs;
-        this._syncBeatCount(ch);
+
+        var refPos = (best !== null) ? best : bestAhead;
+        var newOrigin;
+        if (refPos !== null) {
+            var beatF = this._beatF(ch, refPos);
+            if (beatF === null) return;
+            newOrigin = Math.floor(beatF);
+        } else {
+            newOrigin = 0;
+        }
+
+        if (this._phraseOrigin[ch] !== newOrigin) {
+            this._phraseOrigin[ch] = newOrigin;
+            this._syncBeatCount(ch);
+        }
     };
 
     XoneK3.K3Controller.prototype._resetBeat = function(ch) {
@@ -355,12 +404,6 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             this._refreshAllLeds('reset-beat');
         }
         this._refreshBeatLeds(ch);
-    };
-
-    XoneK3.K3Controller.prototype._isPhraseColor = function(color) {
-        var list = XoneK3.PHRASE_MARKER_COLORS;
-        if (!Array.isArray(list) || list.length === 0) return false;
-        return list.indexOf(color) !== -1;
     };
 
     XoneK3.K3Controller.prototype._repaintBeat = function(ch) {
@@ -455,6 +498,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
                     if (now - st.lastPositionSync < XoneK3.BEAT_REPAINT_THROTTLE_MS) return;
                     st.lastPositionSync = now;
 
+                    // Derive origin from marker hotcues before any
+                    // cascade / repaint reads it. No-op when the
+                    // marker list is empty or the channel is in an
+                    // active loop (origin frozen for the loop's
+                    // duration).
+                    self._deriveOriginFromPosition(ch, newPos);
+
                     var playing   = engine.getValue(grp, 'play_indicator') > 0;
                     var reversing = engine.getValue(grp, 'reverse') > 0;
                     if (playing && !reversing && (now - st.lastBeatEdge < 1500)) {
@@ -490,6 +540,15 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
                     if (self._decks[ch].loopActive) {
                         self._startVirtualClock(ch);
                     }
+                    // _resetBeat set origin to 0 (intro start).
+                    // Derive from markers for the current position
+                    // so a load landing past a marker anchors
+                    // immediately, without waiting for a
+                    // playposition tick. Bails harmlessly when
+                    // metadata isn't settled yet — the next tick
+                    // catches it.
+                    var pos = engine.getValue(grp, 'playposition');
+                    self._deriveOriginFromPosition(ch, pos);
                 });
 
                 wire(self._playConns, 'loop_enabled', function() {
@@ -507,6 +566,34 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
                 wire(self._playConns, 'slip_enabled', function() {
                     self._syncBeatCount(ch);
                 });
+
+                // Observe every hotcue slot so a hotcue that is
+                // placed, recoloured, deleted, or dragged re-
+                // derives the origin immediately. Without this,
+                // placing a marker while paused doesn't update
+                // origin until the playhead moves (playposition
+                // is the only other trigger).
+                //
+                // Colour catches the "recolour to marker" step
+                // (the common workflow: place → recolour). Pos-
+                // ition catches place, delete, and drag. Both
+                // are cheap; neither fires when the deck is
+                // idle. Skipped entirely when no marker colours
+                // are configured — no cost to users who don't
+                // use the feature.
+                if (Array.isArray(XoneK3.PHRASE_MARKER_COLORS) &&
+                    XoneK3.PHRASE_MARKER_COLORS.length > 0) {
+                    for (var hn = 1; hn <= HOTCUE_MAX; hn++) {
+                        wire(self._playConns, 'hotcue_' + hn + '_color', function() {
+                            var pos = engine.getValue(grp, 'playposition');
+                            self._deriveOriginFromPosition(ch, pos);
+                        });
+                        wire(self._playConns, 'hotcue_' + hn + '_position', function() {
+                            var pos = engine.getValue(grp, 'playposition');
+                            self._deriveOriginFromPosition(ch, pos);
+                        });
+                    }
+                }
             })(ch);
         }
         for (var ch2 = 1; ch2 <= 4; ch2++) {

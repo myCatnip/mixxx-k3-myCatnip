@@ -55,7 +55,7 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // live) — harmless, because the user keeps turning until the
     // LED matches, at which point control has been live all along.
     XoneK3.TAKEOVER_EPSILON = 2 / 127;
-
+    
     XoneK3.DEFAULT_CO_SCHEME = 'coMatch';
 
     XoneK3.K2_RG_THRESHOLD = 60;

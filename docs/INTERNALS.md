@@ -646,7 +646,7 @@ colouring reads from*; they don't move the playhead.
 ```
                      ┌──────────────────────────────────┐
                      │  TRACK    playposition           │
-                     │  intro marker = beat 0           │
+                     │  beat 0 = file start             │
                      │  origin sets where "count 1" is  │
                      └──────────────────────────────────┘
                                     │
@@ -699,38 +699,53 @@ _phraseOrigin = { 1: 0, 2: 0, 3: 0, 4: 0 };
 subtracts the same origin, shifting it shifts both readings
 automatically.
 
-Writers, all through `_setPhraseOriginAt(ch, pos, opts)`:
+Writer: `_deriveOriginFromPosition(ch, pos)`.
 
-| Func | Source of position |
-|---|---|
-| `hotcueWithPhraseCheck` | `hotcue_N_position / track_samples`, gated on `hotcue_N_color` being in `PHRASE_MARKER_COLORS`. Passes `{ rawPos: true }` — a hotcue is a physical position, and the origin must land on that beat, not on the accumulated virtual count |
-| `setPhraseOriginHere` | Displayed timeline: `playposition` in track mode, `loopClock.pos` in loop mode. Exists but is unbound in shipped presets — the shift+`grid2_0` cell in `shiftPhraseCells()` has its `func:` line commented out. |
+`_phraseOrigin` is **derived state**. At any playhead position
+it equals:
 
-`_setPhraseOriginAt` picks the reference position based on
-`displaySource` and `loopClock.running` — "here" means here on
-the displayed timeline, not the raw playhead — **unless the
-caller passes `{ rawPos: true }`.** In that case the passed `pos`
-is used verbatim, regardless of display mode. Hotcue jumps use
-this; a user who pressed a phrase-marker hotcue wants the origin
-at that hotcue's beat, not at whatever the accumulated loop clock
-happens to read.
+- The beat of the **last** marker hotcue (colour in
+  `PHRASE_MARKER_COLORS`) at or before that position
+- Otherwise, the beat of the **first** marker hotcue ahead of
+  the playhead — extending the pattern backwards so phrase
+  starts land on the same grid across the marker
+- Otherwise, 0 (file start)
 
-It floors the fractional beat and syncs the count.
+`_deriveOriginFromPosition` runs on:
 
-`_phraseOrigin` is **user intent**, not derived state. It survives
-every non-load event: rebind, mode swap, shift, chord, clock
-teardown, shutdown. Only two things reset it:
+- Every throttled playposition tick (≤33/sec/channel)
+- `track_loaded`
+- Any `hotcue_N_color` / `hotcue_N_position` change (place,
+  recolour, delete, drag)
 
-- `track_loaded` → `_resetBeat` → origin = 0 (intro start).
-- The user hits a phrase-marker hotcue (or, if the
-  `setPhraseOriginHere` binding is enabled, presses set-here).
+**Frozen in loop mode.** The loop clock accumulates forward
+through wraps; origin stays fixed for the loop's duration. First
+playposition tick after the loop stops re-derives.
+
+**Idempotent.** The same playhead position always produces the
+same origin. The derivation short-circuits when the value equals
+the current one, so downstream LEDs only repaint on actual
+changes.
+
+**`_resetBeat` (from `track_loaded`) is the only hard reset.**
+It sets origin to 0; the `_deriveOriginFromPosition` call in the
+`track_loaded` handler re-derives from markers at the current
+playhead. Rebind, mode swap, shift, chord, clock teardown, and
+shutdown do not touch the origin — the playhead hasn't moved.
+
+There is **no manual "set origin to X"** — no
+`hotcueWithPhraseCheck`, no `setPhraseOriginHere`, no
+`_setPhraseOriginAt`. Origin follows the playhead. The only way
+to change it is to change the playhead position (scrub, jump,
+play) or to add/move/recolour a marker hotcue.
 
 ## Beat maths
 
 **Track metadata is cached per channel.** Duration, file BPM, and
 `track_samples` are fixed for a loaded track — only
-`track_loaded` changes them. Content bounds (intro / outro) are
-*not* cached: markers can move mid-playback from the Mixxx UI.
+`track_loaded` changes them. Content bounds are *not* cached:
+`bounds.end` (outro) can move mid-playback from the Mixxx UI,
+and `bounds.start` is always 0 (intro is never read).
 
 **Incomplete reads are not cached.** The first `_trackMeta` call
 can run during `init`, before the CO tree has populated
@@ -761,9 +776,12 @@ _trackBeatF(ch)      convenience: _beatF(ch, playposition).
 (pos - bounds.start) * meta.duration * meta.fileBpm / 60
 ```
 
-`bounds.start` = `intro_start_position / track_samples`, or 0 if
-unset/nonsensical. `bounds.end` = `outro_end_position /
-track_samples`, or 1.
+`bounds.start` = 0 unconditionally — `_getContentBounds` does
+not read any Mixxx marker. Beat 0 is file start.
+
+`bounds.end` = `outro_end_position / track_samples`, or 1.
+Only consumed by the track-end countdown (`countdownScheme`);
+has no effect on beat math, cascade, or phrase origin.
 
 `_computeAbsoluteBeat(ch, pos)` floors `_beatF`. Floor not round.
 
@@ -2276,14 +2294,15 @@ disable with a comment explaining why.
 
 - **Track is the default.**
 - **The origin is shared between both readings.**
-- **`_beatF` has no `pos < 0` guard.** A position before the intro
-  marker returns a negative fractional beat. `_cascadeCount` floors
-  it to a negative count, `beatLevel` normalises via modulo, and the
-  cascade shows the previous phrase's colours. Pre-start scrub
-  cycles backward through the phrase instead of freezing the LED.
-  The old `pos < 0 → null` guard froze the whole pipeline at
-  `pos ≤ 0` (the tick handler returned early, no count update), which
-  is what produced the "two whites at boot" bug — boot rendered
+- **`_beatF` has no `pos < 0` guard.** A position before file
+  start (negative playposition) returns a negative fractional
+  beat. `_cascadeCount` floors it to a negative count,
+  `beatLevel` normalises via modulo, and the cascade shows the
+  previous phrase's colours. Pre-start scrub cycles backward
+  through the phrase instead of freezing the LED. The old
+  `pos < 0 → null` guard froze the whole pipeline at `pos ≤ 0`
+  (the tick handler returned early, no count update), which is
+  what produced the "two whites at boot" bug — boot rendered
   `ramp[0]`, the pipeline went dead, then the first real tick
   rendered the same colour as count 1. One white, not two.
 - **The loop clock accumulates, it doesn't read the playhead
@@ -2360,8 +2379,9 @@ disable with a comment explaining why.
   to `1 + rate` for older builds.
 - **`_closeBeatClocks` preserves `_phraseOrigin`.** It resets
   per-channel timeline state (`count`, `hasBeat`, `active`,
-  clock position, throttles) but leaves the origin alone — the
-  origin is user intent.
+  clock position, throttles) but leaves the origin alone. The
+  playhead hasn't moved, so the derivation would produce the
+  same value on the next tick anyway.
 - **`hasBeat` means "position is meaningful",** not "deck is
   playing". Set by `beat_active` edges, position ticks, and
   `_syncBeatCount`. It latches on the first beat and is only
@@ -2453,8 +2473,16 @@ disable with a comment explaining why.
 - **`BEAT_HOLD` is not a colour.**
 - **The beat gate sits above ramp selection.**
 - **`half` thins the beat level only.**
-- **Marker bypasses the flat solve and does not beat-apply.**
-- **Co-match rendering does not beat-apply.**
+- **Marker bypasses the flat solve but DOES beat-apply.**
+  `_renderMarker` routes the marker entry through
+  `_applyBeatStatic` before sending — same cascade mechanism as
+  `_renderStatic`. Marker colour is the base; phrase / bar /
+  beat colours override at cascade levels; half-beat skip
+  returns `BEAT_HOLD`. Flat-solve bypass unchanged — marker
+  brightness is not calibrated against the ramp.
+- **Co-match rendering does not beat-apply.** `skipBeat=true`
+  on the co-match ramp sample. Deliberate — cascade flashes on
+  a steering gradient defeat its purpose.
 - **Beat counters are 1-based.**
 - **The beat path has no timers.**
 - **`st.hasBeat` is that channel's "deck is producing beats"
@@ -2785,8 +2813,8 @@ Every binding can carry a rate class. The gate sits in
 ```js
 XoneK3.RATE_CLASSES = {
     jump:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 120, claimMs: 120 },
-    edit:  { selfCheckMs: 10, selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  },
-    claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 60  },
+    edit:  { selfCheckMs: 0,  selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  },
+    claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   },
     free:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   }
 };
 ```
@@ -2930,11 +2958,16 @@ unresolved string still allows the event through.
 `_warnOnce('rateBadType:' + typeof cfg.rate)`. `rate: true` is
 treated as "use inference" and does not warn.
 
-## Why `edit` self-gates but `jump` doesn't
+## Why `edit` leaves a tail but `jump` doesn't
 
 `jump` moves both loop boundaries at once — Mixxx re-anchors on
-every event. `edit` moves one boundary (via the anchor trick), so
-Mixxx has less state to update and tolerates a faster event rate.
+every event, so it needs the full 120 ms on the shared clock.
+`edit` moves one boundary (via the anchor trick), so Mixxx has
+less state to update and tolerates a faster event rate. The
+shipped config gives `edit` a 0 ms self-gate (encoder spins
+freely) and a 60 ms tail on the shared clock (a jump after an
+edit waits for the loop to settle). Both `selfCheckMs` and
+`claimMs` are tunable per binding.  
 
 ## `encLoopMoveAccel`
 
@@ -3006,8 +3039,8 @@ corrupt state.
 
 - `chain_selector` only steps ±1 through the QuickFX chain
   preset list. Not a readable index.
-- Markers bypass the flat solve.
-- Marker and co-match do not get beat cascades.
+- Markers bypass the flat solve but DO get beat cascades.
+- Co-match does not get beat cascades.
 - Boot-white is session-scoped.
 - Beat requires a playing deck.
 - `barBeats` / `phraseBars` clamped 1..32 in the lab editors.

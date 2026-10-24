@@ -309,20 +309,19 @@ The marker takes an off-brightness as its last colour field:
 **Marker fires before the ramp sample.** When the deviation
 LED's knob sits inside `markerPosition ± markerWidth`,
 `markerHit` returns true and the render path paints the marker
-colour — the ramp sample and the beat cascade never run for
-that frame. Move the knob out of the band and the ramp resumes.
+colour — the ramp sample never runs for that frame.
 
-This is true in the lab preview and in normal runtime
-(`Binding._renderDeviation`). On a beat-carrying scheme, the
-marker band pulses on/off with the beat — bright when `isOn`
-is true, off-brightness on the dark half — but the bar / phrase
-/ prePhrase accents never reach it. The cascade colours do not
-paint the marker band.
+In the runtime, the marker colour then goes through the beat
+cascade (same as a static LED) — phrase/bar/beat colours
+override the marker colour at cascade levels, off-phase shows
+the marker's off-brightness, half-beat skip holds the previous
+frame. Co-match stays masked (`skipBeat=true`).
 
-Consequence: a marker plus a beat block on the same scheme means
-the beat cascade is masked while the knob is in the marker band.
-If you want to see the beat colours at that knob position, don't
-put a marker there.
+The lab preview LED shows the marker colour **raw** — no beat
+applied. Deliberate: when editing a scheme, you want to see the
+marker's actual colour while it's in the band, not a cascade-
+coloured version. The preview and runtime differ only for
+beat-carrying schemes with a marker.
 
 ### Fill gaps
 

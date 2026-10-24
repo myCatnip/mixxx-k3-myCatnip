@@ -101,8 +101,10 @@ Shift + layer enters the chord.
 | `grid0_2`..`grid3_2` | Hotcues 1–4 | per-hotcue colour (Mixxx) |
 | `grid0_3`..`grid3_3` | Hotcues 5–8 | per-hotcue colour (Mixxx) |
 
-Hotcue presses set the phrase origin if the hotcue's stored colour
-is in `PHRASE_MARKER_COLORS` (empty by default — feature off).
+Hotcue presses jump to the hotcue. If the hotcue's stored colour
+is in `PHRASE_MARKER_COLORS`, the phrase origin follows
+automatically on the next playposition tick (empty list by
+default — feature off).
 
 **Encoders and presses**
 

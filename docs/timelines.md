@@ -14,7 +14,7 @@ where each piece lives in code.
 ```
                      ┌──────────────────────────────────┐
                      │  TRACK    playposition           │
-                     │  intro marker = beat 0           │
+                     │  beat 0 = file start             │
                      │  origin sets where "count 1" is  │
                      └──────────────────────────────────┘
                                     │
@@ -38,7 +38,7 @@ where each piece lives in code.
                           count = abs - origin + 1
 ```
 
-**Track** is the default. Intro marker = beat 0. Origin sets
+**Track** is the default. Beat 0 is file start. Origin sets
 where "count 1" sits.
 
 **Loop clock** engages when a loop is enabled, seeded from
@@ -103,8 +103,8 @@ count = absolute_beat - origin + 1
 ```
 
 `absolute_beat` is `floor((pos - bounds.start) * duration *
-file_bpm / 60)`. `bounds.start` is the intro start marker, or 0
-if unset. That's beat 0.
+file_bpm / 60)`. `bounds.start` is always 0 — beat 0 is file
+start, unconditionally.
 
 In loop mode the position that feeds this is `loopClock.pos`, so
 "here" means here on the displayed timeline — not the raw
@@ -112,45 +112,82 @@ playhead. `_setPhraseOriginAt` handles that.
 
 ### Lifecycle
 
-| Trigger | New origin |
-|---|---|
-| Track load | Intro start beat, or 0 if no intro |
-| Special-colour hotcue press | That hotcue's beat |
-| Everything else | Unchanged |
+`_phraseOrigin` is **derived state**. At any playhead position it
+equals:
+
+- The beat of the **last** phrase marker at or before that
+  position, if one exists
+- Otherwise, the beat of the **first** marker ahead — extending
+  the pattern backwards so phrase starts fall on the same grid
+  across the marker
+- Otherwise, 0 (file start)
+
+Recomputed by `_deriveOriginFromPosition` on:
+
+- Every throttled playposition tick (≤33/sec)
+- `track_loaded`
+- Any `hotcue_N_color` / `hotcue_N_position` change (place,
+  recolour, delete, drag)
 
 Rebind, mode swaps, shift, chord, scheme changes, clock teardown,
 and shutdown do not touch the origin. The **outro end marker**
 doesn't affect it — the outro only feeds the bars-left countdown,
 not the phrase cascade.
 
-`_phraseOrigin` is user intent. Only a track load or a user action
-changes it.
+**Frozen during an active loop.** The loop clock accumulates
+forward through wraps; origin stays fixed for the loop's
+duration. First playposition tick after the loop stops
+re-derives.
 
-**`setPhraseOriginHere` is currently unbound in shipped presets.**
-The func exists in `XoneK3.FUNCS`, but the only binding that
-referenced it — `grid2_0` in `shiftPhraseCells()` — has its
-`func:` line commented out. The cell is currently LED-only
-(deviation ramp on `fader2`). Uncomment the `func:` line to
-re-enable set-here on shift + `grid2_0`.
+**Idempotent.** Same playhead position always produces the same
+origin. The derivation short-circuits when unchanged, so
+downstream LEDs only repaint on actual changes.
 
-**`phraseOffsetStep` and `beatReset` are gone.** Both funcs were
-removed from `XoneK3.FUNCS`. There is no shipped nudge-by-±1 path
-and no alias for set-here.
+**`_resetBeat` (from `track_loaded`) is the only hard reset.**
+It sets origin to 0; the `_deriveOriginFromPosition` call in the
+`track_loaded` handler re-derives from markers at the current
+playhead.
+
+**`setPhraseOriginHere` and `hotcueWithPhraseCheck` are gone.**
+Both removed from `XoneK3.FUNCS`. Hotcue presses use the default
+`type: 'push'` handler; origin re-derives on the next
+playposition tick after the jump. There is no manual
+"set origin to X" — origin follows the playhead.
 
 ### Special-colour hotcues
 
 `XoneK3.PHRASE_MARKER_COLORS` (in `xone-k3-cat-schemes.js`) lists
-Mixxx hotcue RGB hexes. A hotcue whose stored colour is in the
-list sets the origin on press. Empty list = feature off.
+Mixxx hotcue RGB hexes. Any hotcue whose stored colour is in the
+list defines a **phrase-start position** on the track. Empty
+list = feature off.
 
-Purpose: drop a phrase-marker hotcue at a known downbeat, press
-it mid-set, whole cascade re-anchors. No manual offset hunting.
+**Position-derived, not event-driven.** The origin at any
+playhead position is the beat of the last marker at or before
+that position. If no marker precedes, the origin is the beat of
+the first marker ahead — extending the pattern backwards so
+phrase starts land on the same grid across the marker.
 
-This is the only origin-writing path bound in shipped presets.
-Hotcues press through `hotcueWithPhraseCheck`, which passes
-`{ rawPos: true }` to `_setPhraseOriginAt` — a hotcue is a
-physical position, and the origin must land on that beat, not on
-the accumulated virtual count.
+Recomputed on every throttled playposition tick, once on
+`track_loaded`, and immediately on any hotcue colour/position
+change. Press, cross, scrub, load, and forward beatjump all
+funnel through the same code.
+
+**Frozen in loop mode.** The loop clock accumulates forward as
+if the loop played through in sequence, so the origin stays
+fixed for the loop's duration.
+
+**Place markers on beat boundaries.** A marker mid-beat floors
+to the start of its beat (`Math.floor`, toward −∞).
+
+**Up to 16 hotcues are scanned** (`HOTCUE_MAX` in
+`lib-controller-beat.js`). Mixxx supports 36; the shipped
+runtime scans 16. Cost is nil — empty `PHRASE_MARKER_COLORS`
+short-circuits before the scan starts.
+
+**`hotcueWithPhraseCheck` / `setPhraseOriginHere` are gone.**
+Hotcue presses use the default push handler; the phrase origin
+re-derives automatically on the next playposition tick after
+the jump.
 
 ---
 
@@ -342,16 +379,14 @@ reintroduced by accident.
   `[ChannelN],rate` directly — that CO is the rate slider
   position (~−0.08..+0.08), and a `<= 0` guard on it silently
   turns the multiplier into unity.
-- **Intro marker = beat 0, by definition of `bounds.start`.** If
-  you move the intro, `abs` for every position changes. The
-  origin is a stored number, so it lands on a different physical
-  beat — the cascade follows where the number lands, not where
-  the intro used to be. It resets on the next track load.
-- **`count 1` is where the origin sits, not the intro.** These
-  coincide right after load. They diverge as soon as the user
-  hits a phrase-marker hotcue (or, if enabled, presses set-here).
-  There is no shipped ±1 nudge — the `phraseOffsetStep` func is
-  gone.
+- **Beat 0 is always file start.** `bounds.start` is hard-coded
+  to 0 in `_getContentBounds`. No Mixxx marker influences it —
+  not intro, not anything. `abs` for a given position is fixed
+  by the track's metadata; moving the intro in the Mixxx UI has
+  zero effect on the beat cascade.
+- **`count 1` is where the origin sits.** Position-derived from
+  marker hotcues (see "Special-colour hotcues" above). No ±1
+  nudge exists — the `phraseOffsetStep` func is gone.
 - **Wrap detection is direction-based, not boundary-based.** A
   jump opposite to playback direction is a wrap, regardless of
   how close the endpoints are to the loop boundaries. The old
@@ -377,9 +412,7 @@ reintroduced by accident.
 | Display source resolution | `lib-controller-beat.js`, `_resolveDisplaySource` |
 | Cascade count | `lib-controller-beat.js`, `_cascadeCount` |
 | Beat maths | `lib-controller-beat.js`, `_beatF`, `_computeBeatState` |
-| Origin writer (bound) | `lib-funcs.js` — `hotcueWithPhraseCheck` |
-| Origin writer (unbound in shipped presets) | `lib-funcs.js` — `setPhraseOriginHere` |
-| Origin setter | `lib-controller-beat.js`, `_setPhraseOriginAt` |
+| Origin writer | `lib-controller-beat.js`, `_deriveOriginFromPosition` |
 | Track-load origin reset | `lib-controller-beat.js`, `_resetBeat` |
 | Lifecycle state | `lib-controller.js`, `freshDeckState` |
 | Clock connections | `lib-controller-beat.js`, `_openBeatClocks`, `_syncBeatClocks` |
