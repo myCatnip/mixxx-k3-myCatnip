@@ -4,7 +4,9 @@ var H = require('./helpers');
 
 // Every remaining func. Rate-gated funcs are tested with
 // `rate: false` or on their first event — see rate-gate.test.js
-// for the gate itself.
+// for the gate itself. Tests that assert on `_lastLoopChangeMs`
+// need an active loop on the channel (the gate bypasses
+// out-of-loop bindings entirely).
 
 // ── k3Select / k3SelectActive ──────────────────────────────
 
@@ -461,9 +463,28 @@ test('pressSetValue: beatloop_size claims shared clock via rate gate', function(
         func: XoneK3.FUNCS.pressSetValue, args: ['1/4'],
         group: '[Channel1]', inKey: 'beatloop_size'
     });
+    // Gate is only active with an active loop on the target
+    // channel. Without this the out-of-loop bypass short-
+    // circuits before _lastLoopChangeMs is touched.
+    engine._set('[Channel1]', 'loop_enabled', 1);
     t.eq(c.bindings.grid0_2._rateClass, 'edit');
     H.press(c, 'grid0_2');
     t.ok(c._lastLoopChangeMs > 0);
+});
+
+test('pressSetValue: beatloop_size does NOT claim out-of-loop', function(t) {
+    var c = H.ctrl();
+    c._lastLoopChangeMs = 0;
+    c._applyBinding('grid0_2', {
+        func: XoneK3.FUNCS.pressSetValue, args: ['1/4'],
+        group: '[Channel1]', inKey: 'beatloop_size'
+    });
+    // no loop_enabled set — bypass fires
+    H.press(c, 'grid0_2');
+    t.eq(c._lastLoopChangeMs, 0,
+         'out-of-loop bypass must not touch the shared clock');
+    t.eq(engine.getValue('[Channel1]', 'beatloop_size'), 0.25,
+         'func must still run');
 });
 
 test('pressSetValue: beatjump_size uses "claim" class', function(t) {
@@ -473,6 +494,7 @@ test('pressSetValue: beatjump_size uses "claim" class', function(t) {
         func: XoneK3.FUNCS.pressSetValue, args: ['1/2'],
         group: '[Channel1]', inKey: 'beatjump_size'
     });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     t.eq(c.bindings.grid0_2._rateClass, 'claim');
     H.press(c, 'grid0_2');
     t.ok(c._lastLoopChangeMs > 0);

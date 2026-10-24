@@ -301,7 +301,7 @@ K3Controller
 | `sendLED`, `_sendSysExLED`, `_blankLeds`, `_pulseCo` | `lib-controller-render.js` |
 | `_wbRGB`, `_channelEmit`, `_emitAt`, `_flatTarget`, `_calibratedHw`, `_solveHw`, `_sampleRamp` | `lib-controller-render.js` |
 | `init`, `shutdown`, `_initExtra`, `_shutdownExtra` | `lib-controller-boot.js` |
-| `_resolveRateClass`, `_claimRate`, `_checkLoopEscape` | `lib-controller-boot.js` |
+| `_resolveRateClass`, `_claimRate`, `_bindingInActiveLoop`, `_checkLoopEscape` | `lib-controller-boot.js` |
 | `XoneK3._wireInputs`, `XoneK3._bootWith`, `XoneK3.boot`, `XoneK3.bootLab`, `XoneK3.halt` | `lib-controller-boot.js` |
 
 ## The recompute cycle is self-contained
@@ -2532,6 +2532,14 @@ disable with a comment explaining why.
 - **Rate gating is per binding, not per func.**
 - **`edit` and `jump` compose via the claim floor.**
 - **`_lastLoopChangeMs` is the shared clock.**
+- **The rate gate only fires inside an active loop.**
+  `_claimRate` short-circuits via `_bindingInActiveLoop` when
+  the binding's target channel has `loop_enabled = 0`, or when
+  the binding doesn't target a `[ChannelN]` group at all.
+  Out-of-loop claims don't touch `_lastLoopChangeMs` or
+  `_lastRateClaim`, so the escape detector only sees claims
+  that could actually have disturbed a loop. `_rateAccepted`
+  still increments for diagnostics; `_rateGated` does not.
 - **`rate: false` opts out of inference.**
 - **`accel` does nothing on the default input path.**
   `_auditBindingCfg` warns once per binding per boot when `accel`
@@ -2834,6 +2842,17 @@ K3Controller._claimRate(b, rateSpec) {
     if !cls: return true
 
     now = Date.now()
+
+    // 0. out-of-loop bypass. The gate's whole purpose is to
+    //    keep rapid loop moves from destabilising an active
+    //    loop. With no loop there is nothing to escape from —
+    //    skip the gate, skip the clock and _lastRateClaim
+    //    writes, don't record a gate. _rateAccepted still
+    //    increments so inspect('rate') sees the event.
+    if !this._bindingInActiveLoop(b):
+        b._recordRateAccept(now)
+        return true
+
     gated = false
 
     // 1. self-check
@@ -2873,6 +2892,21 @@ K3Controller._claimRate(b, rateSpec) {
     return true
 }
 ```
+
+**Step 0 — the out-of-loop bypass.** `_bindingInActiveLoop(b)`
+reads `loop_enabled` on the binding's target channel. Returns
+false when the binding has no group, the group isn't a
+`[ChannelN]` group, or the channel's loop is off. True when the
+loop is on.
+
+Reads the CO directly rather than `_decks[ch].loopActive`
+because the cached state is only fresh while beat clocks are
+open — a custom config that drops every beat scheme closes the
+clocks and leaves the cache stale. The CO is always accurate.
+
+With the bypass in place, `_lastLoopChangeMs` only ever
+reflects in-loop activity, so the escape detector never fires
+on a claim made before the loop existed.
 
 The `floor` calculation makes the classes composable: an `edit`
 at 60 ms leaves a 60 ms tail; a `jump` reads the same clock and

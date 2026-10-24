@@ -714,8 +714,16 @@ RATE LIMITS
 ═══════════════════════════════════════════════════════════════
 
 Every binding can carry a rate class. The gate is applied in
-Binding.input() before the func dispatches. Classes live in
-XoneK3.RATE_CLASSES:
+Binding.input() before the func dispatches — but only when the
+binding's target channel has an active loop. Out-of-loop claims
+skip the gate entirely: no clock write, no claim record, no
+gated counter. The whole point of the gate is keeping rapid
+loop moves from pushing the playhead out of the loop; with no
+loop, there's nothing to escape from. Bindings that don't
+target a [ChannelN] group (master, InternalClock, EffectRack)
+are always "out of loop" by this definition.
+
+Classes live in XoneK3.RATE_CLASSES:
 
   jump   selfCheck —,       jumpBlock 120, claim 120
   edit   selfCheck 10ms,    jumpBlock  60, claim  60
@@ -748,15 +756,17 @@ Diagnostics:
   XoneK3.controllers[0].inspect('rate')          // gate state
   XoneK3.controllers[0].inspect('rate', 'reset') // zero counters
 
-Loop-escape detector: when a loop turns off within 500ms of a
-rate claim and wasn't a deliberate reloop or track load, the
-controller prints one line:
+Loop-escape detector: when a loop turns off within
+ESCAPE_DETECT_WINDOW_MS (matches jump.jumpBlockMs, 120 by
+default) of a rate claim and wasn't a deliberate reloop or
+track load, the controller prints one line:
 
   [k3] LOOP ESCAPE deck=1 sinceClaim=42ms claimedBy=encoderL/edit loop=[0.2512,0.2537]
 
 Read it: the throttle was too loose for that gesture. Bump the
 relevant class's jumpBlockMs, or lower the edit selfCheckMs.
-Constants: ESCAPE_DETECT_WINDOW_MS (500), ESCAPE_HISTORY_MAX (16).
+Constants: ESCAPE_DETECT_WINDOW_MS (matches jump.jumpBlockMs),
+ESCAPE_HISTORY_MAX (16).
 
 Not rate-limited: overlay toggles, toggleTopMode, toggleMiniFx,
 cycleDisplaySource.

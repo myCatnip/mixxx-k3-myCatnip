@@ -25,9 +25,31 @@ still updates `_normalized`; every binding still repaints its
 observing LEDs. But the write that could destabilise the loop
 never happens.
 
+**The gate only runs inside an active loop.** Before anything
+else, `_claimRate` checks the binding's target channel for
+`loop_enabled`. If it's 0 — or if the binding doesn't target a
+`[ChannelN]` group at all (`[Master]`, `[InternalClock]`,
+`[EffectRack…]`) — the claim returns immediately and the func
+fires:
+
+- `_lastLoopChangeMs` is untouched, so the shared clock keeps
+  the timestamp of the last *in-loop* claim. Subsequent events
+  on a loop-active channel measure the block window from that
+  in-loop claim, not from your out-of-loop activity.
+- `_lastRateClaim` is untouched, so `inspect('rate')` shows the
+  last loop-relevant claim — not the last encoder tick.
+- `_rateAccepted` still increments, so the interval ring in
+  `inspect('rate')` keeps a record of the event. `_rateGated`
+  does not, because nothing was gated.
+
+Rationale: the gate exists so a rapid loop-point move can't
+push the playhead past a loop boundary. With no loop, there is
+no boundary to cross. Freewheel.
+
 The gate applies to the *action edge only*. For buttons, that's
 `v > 0`. Release is cleanup, not a state change worth
-throttling.
+throttling. And the gate only fires inside an active loop — see
+above.
 
 ---
 
@@ -221,9 +243,11 @@ the playhead landed outside.
 - If the escape fires from a custom func, it's `free` — the
   warning at boot would have flagged it.
 
-Escapes outside `ESCAPE_DETECT_WINDOW_MS` (500 ms) are not
-logged. Late UI clicks and track loads land outside the window
-by design.
+Escapes outside `ESCAPE_DETECT_WINDOW_MS` are not logged. The
+window matches `jump.jumpBlockMs` (120 ms by default) — after
+that block expires the next action could have fired, so a later
+loop death belongs to something else. Late UI clicks and track
+loads land outside the window by design.
 
 A deliberate loop-off — `reloopToggleResetAnchor` and
 `beatloopActivateResetAnchor` mark `_expectingLoopOff[ch]` before

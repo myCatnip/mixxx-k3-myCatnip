@@ -1059,13 +1059,23 @@ XoneK3.RATE_CLASSES = {
 The class is inferred from the binding's `func` or `inKey`. See
 `XoneK3._inferRateClass` in `xone-k3-lib-core.js`.
 
+**The gate only fires inside an active loop.** `_claimRate`
+returns immediately when the binding's target channel has
+`loop_enabled = 0`, or when the binding doesn't target a
+`[ChannelN]` group at all. Out-of-loop events don't touch
+`_lastLoopChangeMs` or `_lastRateClaim`, so the escape detector
+only sees claims that could actually have disturbed a loop. The
+class is still resolved and stored on the binding — it just
+doesn't gate anything while the loop is off.
+
 **Diagnostics.** `XoneK3.controllers[0].inspect('rate')` prints
 gate state, per-class aggregates, per-binding stats, and any
 recorded escapes. `inspect('rate', 'reset')` zeroes every counter.
 
 **Escape detector.** A loop turning off within
-`ESCAPE_DETECT_WINDOW_MS` (500) of a rate claim — and not a
-deliberate reloop or track load — logs a single line:
+`ESCAPE_DETECT_WINDOW_MS` (matches `jump.jumpBlockMs`, 120 by
+default) of a rate claim — and not a deliberate reloop or track
+load — logs a single line:
 
 ```
 [k3] LOOP ESCAPE deck=1 sinceClaim=42ms claimedBy=encoderL/edit loop=[0.2512,0.2537]

@@ -24,7 +24,7 @@ explanation, the doc it lives in is linked.
 | **Curve** | A scheme field. Warps the boundaries between stops. |
 | **Deviation LED** | An LED with a `knob:` reference in its `colorScheme`. Samples a ramp at the knob's position. |
 | **Display source** | Which timeline feeds the beat count: `track` or `loop`. CONCEPTS §9, timelines.md. |
-| **Escape** | A loop turning off unexpectedly, within `ESCAPE_DETECT_WINDOW_MS` (500) of a rate claim. Logged to the console. CUSTOMISE → Diagnostics. |
+| **Escape** | A loop turning off unexpectedly, within `ESCAPE_DETECT_WINDOW_MS` (matches `jump.jumpBlockMs`, 120 by default) of a rate claim. Logged to the console. CUSTOMISE → Diagnostics. |
 | **Focus** | Which slot (A or B) the top half points at. Two axes: deck focus and FX focus. CONCEPTS §7. |
 | **Func** | A JavaScript function that replaces a binding's default input handling. `XoneK3.FUNCS.*`. |
 | **FX layout table** | The per-unit cell mapping for the middle cells, one table per mode. CONTROLS §7. |
@@ -46,7 +46,7 @@ explanation, the doc it lives in is linked.
 | **QFX** | Mixxx Quick Effect Rack. One per deck. |
 | **Ramp** | A multi-stop scheme. Deviation LEDs sample it; static LEDs pick `ramp[0]`. |
 | **Rate class** | A throttle profile: `jump`, `edit`, `claim`, or `free`. Applied at `Binding.input()`. CONCEPTS §11. |
-| **Rate gate** | The check that reads a rate class and allows or rejects an event. |
+| **Rate gate** | The check that reads a rate class and allows or rejects an event. Only fires inside an active loop. |
 | **Scheme** | An LED's appearance. Static (one colour) or deviation (a ramp sampled by position). CONCEPTS §8. |
 | **Scheme registry** | `XoneK3.SCHEMES`. Named schemes usable by string. |
 | **Shift companion** | A patch paired with a base via `_shift`. Applies while shift is held. CONCEPTS §5. |

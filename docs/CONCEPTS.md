@@ -421,15 +421,18 @@ loop. Every binding that touches a loop carries a **rate class**,
 which throttles its fire rate.
 
 The gate is applied in `Binding.input()` *before* the func runs,
-so a throttled event never reaches the func body.
+so a throttled event never reaches the func body — but **only
+when the binding's target channel has an active loop**. With no
+loop there is nothing to escape from, so out-of-loop claims pass
+freely and don't touch the shared clock.
 
 Four classes, in `XoneK3.RATE_CLASSES`:
 
 | Class | Self-gate | Blocks jumps for | Leaves a tail |
 |---|---|---|---|
 | `jump`  | —          | 120 ms | 120 ms |
-| `edit`  | 10 ms / binding | 60 ms | 60 ms |
-| `claim` | —          | —      | 60 ms |
+| `edit`  |  | 60 ms | 60 ms |
+| `claim` | —          | —      | — |
 | `free`  | —          | —      | — |
 
 `jump` = both boundaries move (beatjump, reloop, beatloop

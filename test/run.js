@@ -135,7 +135,7 @@ function resetGlobals() {
     X.BEAT_REPAINT_THROTTLE_MS = 0;
     X.BEATJUMP_MIN             = 1 / 32;
     X.BEATJUMP_MAX             = 16;
-    X.ESCAPE_DETECT_WINDOW_MS  = 500;
+    X.ESCAPE_DETECT_WINDOW_MS  = XoneK3.RATE_CLASSES.jump.jumpBlockMs;
     X.ESCAPE_HISTORY_MAX       = 16;
     X.RATE_INTERVAL_SAMPLES    = 32;
     // Deep copy so a test mutating a class doesn't leak into the

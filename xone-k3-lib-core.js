@@ -129,17 +129,20 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         // activate). Full 120 ms on the shared clock.
         jump:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 120, claimMs: 120 },
 
+        // ABSOLUTELY NEEDED. I Still jump out at 50ms, 60ms not had any jump out.
+        // SELF CHECK MAY NOT BE. Was 10ms. Seems fine at 0ms.
         // One boundary moves (loop-point nudge, size set). Self-
         // gates spin at 10 ms per encoder; leaves a softer 60 ms
         // tail on the jump clock so a jump after an edit doesn't
         // try to fire before the loop is stable.
-        edit:  { selfCheckMs: 10, selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  },
+        edit:  { selfCheckMs: 0, selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  }, //was 60
 
+        // THIS SEEMS NOT TO BE NEEDED
         // Doesn't move anything, but the change means a jump
         // shouldn't fire right after. Used by beatjump-size
         // stepping — the next jump reads the new size, so wait
         // for the user to settle.
-        claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 60  },
+        claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0  },
 
         // No gate.
         free:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   }
@@ -187,11 +190,18 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         return null;
     };
 
-    // Escape detector constants. Only log an escape when it
-    // happens within this many ms of the last shared-clock claim.
-    // Escapes outside this window are usually UI clicks or
-    // track_loaded, not throttle misses.
-    XoneK3.ESCAPE_DETECT_WINDOW_MS = 500;
+    // How long after the last shared-clock claim a loop-off is
+    // still attributed to that claim. Matches jump.jumpBlockMs:
+    // after the block window expires the next action could have
+    // fired, so a later death belongs to something else. Derived
+    // so the two stay in lockstep if the jump window is retuned.
+    //
+    // The offset math in _claimRate makes this equivalent to each
+    // class's own block window:
+    //   jump  → deaths ≤ 120ms after claim
+    //   edit  → deaths ≤ 60ms  after claim
+    //   claim → deaths ≤ 60ms  after claim
+    XoneK3.ESCAPE_DETECT_WINDOW_MS = XoneK3.RATE_CLASSES.jump.jumpBlockMs;
 
     // Bounded ring of escape records kept on the controller.
     XoneK3.ESCAPE_HISTORY_MAX = 16;

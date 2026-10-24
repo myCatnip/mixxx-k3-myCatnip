@@ -55,6 +55,24 @@ XoneK3._requireLoad('xone-k3-lib-controller-boot.js',
         return XoneK3._inferRateClass(cfg);
     };
 
+    // True when the binding's target channel has an active loop.
+    // Rate gating exists to keep rapid loop moves from pushing the
+    // playhead outside the loop — with no loop, there is nothing to
+    // escape from. Bindings that don't target a Channel group
+    // (master, InternalClock, EffectRack) are always "out of loop"
+    // by this definition.
+    //
+    // Reads loop_enabled directly rather than _decks[ch].loopActive:
+    // the cached state only exists while beat clocks are open, and a
+    // custom config that drops every beat scheme closes the clocks
+    // and leaves the cache fresh. The CO stays accurate either way.
+    XoneK3.K3Controller.prototype._bindingInActiveLoop = function(b) {
+        if (!b.group) return false;
+        var ch = this._channelOf(b.group);
+        if (!ch) return false;
+        return engine.getValue('[Channel' + ch + ']', 'loop_enabled') > 0;
+    };
+
     XoneK3.K3Controller.prototype._claimRate = function(b, rateSpec) {
         // _resolveRateClass validated this at bind time — an
         // unresolvable string name warned there via
@@ -70,6 +88,21 @@ XoneK3._requireLoad('xone-k3-lib-controller-boot.js',
         if (!cls) return true;
 
         var now = Date.now();
+
+        // Out-of-loop bypass. The gate's whole purpose is to keep
+        // rapid loop moves from destabilising an active loop. With
+        // no loop, skip the gate and leave _lastLoopChangeMs and
+        // _lastRateClaim untouched — they stay pinned to the last
+        // in-loop event, so the escape detector only considers
+        // claims that could actually have disturbed a loop.
+        //
+        // _recordRateAccept still runs so inspect('rate') sees the
+        // event — the interval ring is diagnostic-only.
+        if (!this._bindingInActiveLoop(b)) {
+            b._recordRateAccept(now);
+            return true;
+        }
+
         var gated = false;
 
         if (cls.selfCheckMs > 0 && cls.selfScope === 'binding') {

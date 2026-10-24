@@ -7,9 +7,22 @@ var H = require('./helpers');
 // either declared on the binding (`rate:`) or inferred by
 // XoneK3._inferRateClass from cfg.func / cfg.inKey.
 //
-// These tests exercise the shipped design. Earlier versions of
-// the runtime imagined per-func claim methods (XoneK3._claimBeatjump
-// etc.) — that design never shipped.
+// The gate only runs when the binding's target channel has an
+// active loop. Without a loop, _claimRate short-circuits and
+// leaves _lastLoopChangeMs / _lastRateClaim untouched — with
+// nothing to escape from, there is nothing to protect.
+
+// Small helper — arm the gate on a channel-bound binding.
+function armGate(c, name, ch) {
+    ch = ch || 1;
+    c._applyBinding(name, {
+        func: function() {},
+        group: '[Channel' + ch + ']',
+        inKey: 'beatloop_size'
+    });
+    engine._set('[Channel' + ch + ']', 'loop_enabled', 1);
+    return c.bindings[name];
+}
 
 // ── _inferRateClass ─────────────────────────────────────────
 
@@ -110,18 +123,105 @@ test('_resolveRateClass: inferred from func when rate: absent', function(t) {
     t.eq(c._resolveRateClass({ func: XoneK3.FUNCS.encBeatjump }), 'jump');
 });
 
-// ── _claimRate ──────────────────────────────────────────────
+// ── _bindingInActiveLoop ────────────────────────────────────
+
+test('_bindingInActiveLoop: no group → false', function(t) {
+    var c = H.ctrl();
+    t.eq(c._bindingInActiveLoop(c.bindings.encoderL), false);
+});
+
+test('_bindingInActiveLoop: non-Channel group → false', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('encoderL', {
+        func: function() {}, group: '[Master]', inKey: 'gain'
+    });
+    t.eq(c._bindingInActiveLoop(c.bindings.encoderL), false);
+});
+
+test('_bindingInActiveLoop: Channel group, no loop → false', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('encoderL', {
+        func: function() {}, group: '[Channel1]', inKey: 'beatloop_size'
+    });
+    t.eq(c._bindingInActiveLoop(c.bindings.encoderL), false);
+});
+
+test('_bindingInActiveLoop: Channel group, loop on → true', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('encoderL', {
+        func: function() {}, group: '[Channel1]', inKey: 'beatloop_size'
+    });
+    engine._set('[Channel1]', 'loop_enabled', 1);
+    t.eq(c._bindingInActiveLoop(c.bindings.encoderL), true);
+});
+
+// ── _claimRate: out-of-loop bypass ──────────────────────────
+
+test('_claimRate bypass: no loop → returns true even with a recent self-stamp', function(t) {
+    var c = H.ctrl();
+    var b = c.bindings.encoderL;
+    b._rateClass = 'edit';
+    b._lastGateMs = Date.now();
+    t.eq(c._claimRate(b, 'edit'), true);
+});
+
+test('_claimRate bypass: no loop → shared clock untouched', function(t) {
+    var c = H.ctrl();
+    var b = c.bindings.encoderL;
+    b._rateClass = 'edit';
+    c._lastLoopChangeMs = 0;
+    c._claimRate(b, 'edit');
+    t.eq(c._lastLoopChangeMs, 0);
+});
+
+test('_claimRate bypass: no loop → _lastRateClaim untouched', function(t) {
+    var c = H.ctrl();
+    var b = c.bindings.encoderL;
+    b._rateClass = 'edit';
+    c._lastRateClaim = null;
+    c._claimRate(b, 'edit');
+    t.eq(c._lastRateClaim, null);
+});
+
+test('_claimRate bypass: no loop → accepted counter still increments', function(t) {
+    var c = H.ctrl();
+    var b = c.bindings.encoderL;
+    b._rateClass = 'edit';
+    b._rateAccepted = 0;
+    c._claimRate(b, 'edit');
+    t.eq(b._rateAccepted, 1);
+});
+
+test('_claimRate bypass: no loop → gated counter untouched', function(t) {
+    var c = H.ctrl();
+    var b = c.bindings.encoderL;
+    b._rateClass = 'edit';
+    b._rateGated = 0;
+    b._lastGateMs = Date.now();
+    c._claimRate(b, 'edit');
+    t.eq(b._rateGated, 0);
+});
+
+// ── _claimRate (with active loop) ───────────────────────────
 
 test('_claimRate: first call always succeeds', function(t) {
     var c = H.ctrl();
-    c._applyBinding('pressL', { func: XoneK3.FUNCS.beatjumpButton });
+    c._applyBinding('pressL', {
+        func: XoneK3.FUNCS.beatjumpButton,
+        group: '[Channel1]', inKey: 'beatjump_forward'
+    });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     var b = c.bindings.pressL;
     t.eq(c._claimRate(b, b._rateClass), true);
 });
 
 test('_claimRate: jump-class blocks within jumpBlockMs of the shared clock', function(t) {
     var c = H.ctrl();
-    c._applyBinding('pressL', { func: XoneK3.FUNCS.beatjumpButton });
+    c._applyBinding('pressL', {
+        func: XoneK3.FUNCS.beatjumpButton,
+        group: '[Channel1]', inKey: 'beatjump_forward'
+    });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     var b = c.bindings.pressL;
 
     c._lastLoopChangeMs = Date.now();
@@ -130,16 +230,24 @@ test('_claimRate: jump-class blocks within jumpBlockMs of the shared clock', fun
 
 test('_claimRate: jump-class passes after jumpBlockMs', function(t) {
     var c = H.ctrl();
-    c._applyBinding('pressL', { func: XoneK3.FUNCS.beatjumpButton });
+    c._applyBinding('pressL', {
+        func: XoneK3.FUNCS.beatjumpButton,
+        group: '[Channel1]', inKey: 'beatjump_forward'
+    });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     var b = c.bindings.pressL;
 
     c._lastLoopChangeMs = Date.now() - 200;   // > 120
     t.eq(c._claimRate(b, b._rateClass), true);
 });
 
-test('_claimRate: claim forward-sets the shared clock', function(t) {
+test('_claimRate: jump claim forward-sets the shared clock', function(t) {
     var c = H.ctrl();
-    c._applyBinding('pressL', { func: XoneK3.FUNCS.beatjumpButton });
+    c._applyBinding('pressL', {
+        func: XoneK3.FUNCS.beatjumpButton,
+        group: '[Channel1]', inKey: 'beatjump_forward'
+    });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     var b = c.bindings.pressL;
 
     var before = Date.now();
@@ -157,6 +265,7 @@ test('_claimRate: edit self-gates within selfCheckMs', function(t) {
         func: XoneK3.FUNCS.encLoopMove, args: ['in', 0.01],
         group: '[Channel1]', inKey: 'beatloop_size'
     });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     var b = c.bindings.encoderL;
 
     t.eq(c._claimRate(b, b._rateClass), true,
@@ -171,6 +280,7 @@ test('_claimRate: edit passes after selfCheckMs elapses', function(t) {
         func: XoneK3.FUNCS.encLoopMove, args: ['in', 0.01],
         group: '[Channel1]', inKey: 'beatloop_size'
     });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     var b = c.bindings.encoderL;
 
     c._claimRate(b, b._rateClass);
@@ -186,6 +296,7 @@ test('_claimRate: edit blocked by recent jump on the shared clock', function(t) 
         func: XoneK3.FUNCS.encLoopMove, args: ['in', 0.01],
         group: '[Channel1]', inKey: 'beatloop_size'
     });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     var b = c.bindings.encoderL;
 
     c._lastLoopChangeMs = Date.now();   // just claimed by a jump
@@ -194,7 +305,10 @@ test('_claimRate: edit blocked by recent jump on the shared clock', function(t) 
 
 test('_claimRate: free class never gates', function(t) {
     var c = H.ctrl();
-    c._applyBinding('pressL', { rate: 'free' });
+    c._applyBinding('pressL', {
+        rate: 'free', group: '[Channel1]', inKey: 'beatloop_size'
+    });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     var b = c.bindings.pressL;
 
     c._lastLoopChangeMs = Date.now();
@@ -203,7 +317,11 @@ test('_claimRate: free class never gates', function(t) {
 
 test('_claimRate: records accepted/gated counters', function(t) {
     var c = H.ctrl();
-    c._applyBinding('pressL', { func: XoneK3.FUNCS.beatjumpButton });
+    c._applyBinding('pressL', {
+        func: XoneK3.FUNCS.beatjumpButton,
+        group: '[Channel1]', inKey: 'beatjump_forward'
+    });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     var b = c.bindings.pressL;
 
     c._claimRate(b, b._rateClass);          // accepted
@@ -221,9 +339,10 @@ test('Binding.input: gated event never reaches the func', function(t) {
     var calls = 0;
     c._applyBinding('pressL', {
         func: function() { calls++; },
+        group: '[Channel1]', inKey: 'beatjump_forward',
         rate: { selfCheckMs: 0, jumpBlockMs: 100, claimMs: 100 }
     });
-
+    engine._set('[Channel1]', 'loop_enabled', 1);
     c._lastLoopChangeMs = Date.now();   // block the gate
     H.press(c, 'pressL');
 
@@ -235,13 +354,29 @@ test('Binding.input: accepted event reaches the func', function(t) {
     var calls = 0;
     c._applyBinding('pressL', {
         func: function() { calls++; },
+        group: '[Channel1]', inKey: 'beatjump_forward',
         rate: { selfCheckMs: 0, jumpBlockMs: 100, claimMs: 100 }
     });
-
+    engine._set('[Channel1]', 'loop_enabled', 1);
     c._lastLoopChangeMs = Date.now() - 500;
     H.press(c, 'pressL');
 
     t.eq(calls, 1);
+});
+
+test('Binding.input: out-of-loop event reaches the func regardless of shared clock', function(t) {
+    var c = H.ctrl();
+    var calls = 0;
+    c._applyBinding('pressL', {
+        func: function() { calls++; },
+        group: '[Channel1]', inKey: 'beatjump_forward',
+        rate: { selfCheckMs: 0, jumpBlockMs: 100, claimMs: 100 }
+    });
+    // no loop_enabled — bypass
+    c._lastLoopChangeMs = Date.now();   // would gate if loop were active
+    H.press(c, 'pressL');
+
+    t.eq(calls, 1, 'out-of-loop bypass must let the func fire');
 });
 
 test('Binding.input: release is not gated (only action edge)', function(t) {
@@ -249,9 +384,10 @@ test('Binding.input: release is not gated (only action edge)', function(t) {
     var calls = 0;
     c._applyBinding('pressL', {
         func: function() { calls++; },
+        group: '[Channel1]', inKey: 'beatjump_forward',
         rate: { selfCheckMs: 0, jumpBlockMs: 100, claimMs: 100 }
     });
-
+    engine._set('[Channel1]', 'loop_enabled', 1);
     c._lastLoopChangeMs = Date.now();   // gate would block
 
     H.press(c, 'pressL');
@@ -266,9 +402,10 @@ test('Binding.input: rate: false skips the gate entirely', function(t) {
     var calls = 0;
     c._applyBinding('pressL', {
         func: function() { calls++; },
+        group: '[Channel1]', inKey: 'beatloop_size',
         rate: false
     });
-
+    engine._set('[Channel1]', 'loop_enabled', 1);
     c._lastLoopChangeMs = Date.now();
     H.press(c, 'pressL');
 
@@ -279,10 +416,27 @@ test('Binding.input: rate: false skips the gate entirely', function(t) {
 
 test('_claimRate: records last claim', function(t) {
     var c = H.ctrl();
-    c._applyBinding('pressL', { func: XoneK3.FUNCS.beatjumpButton });
+    c._applyBinding('pressL', {
+        func: XoneK3.FUNCS.beatjumpButton,
+        group: '[Channel1]', inKey: 'beatjump_forward'
+    });
+    engine._set('[Channel1]', 'loop_enabled', 1);
     var b = c.bindings.pressL;
 
     c._claimRate(b, b._rateClass);
     t.eq(c._lastRateClaim.binding, 'pressL');
     t.eq(c._lastRateClaim.className, 'jump');
+});
+
+// ── Escape detector window ─────────────────────────────────
+
+test('ESCAPE_DETECT_WINDOW_MS matches jump.jumpBlockMs', function(t) {
+    t.eq(XoneK3.ESCAPE_DETECT_WINDOW_MS, XoneK3.RATE_CLASSES.jump.jumpBlockMs,
+         'window must derive from the jump block window — after it ' +
+         'expires the next action could have fired, so later loop ' +
+         'deaths are not attributable to the claim');
+});
+
+test('ESCAPE_DETECT_WINDOW_MS is 120 (jump.jumpBlockMs default)', function(t) {
+    t.eq(XoneK3.ESCAPE_DETECT_WINDOW_MS, 120);
 });
