@@ -174,8 +174,9 @@ Whenever the preview changes to an editable source, four slots
 are rewritten:
 
 - **12 — source** — raw clone of the preview.
-- **13 — structural** — ratio, curve, pole, position absorbed
-  into the stops.
+- **13 — structural** — one stop per segment, with `ratio`,
+  `curve`, and `schemePosition` carried on the output so
+  recompiling reproduces the same spans and shifts.
 - **14 — sampled** — the above, plus interp sampled into 23 stops.
 - **15 — wire** — the above, plus the calibration solve
   pre-computed into hw. Marks `calibration: false`.
@@ -297,8 +298,9 @@ Press a target to select it. The four targets work like stops:
   increment by ±1.
 - **Absolute edit** — faders set R, G, B, brightness directly.
 
-Targets show mid grey when unset, brightening when selected, and
-the colour you set otherwise.
+Targets show dim when unset and the colour you set otherwise.
+Selection is not indicated on the grid — the preview LED is the
+reference for what you're editing.
 
 **Shift + press** a target to clear it.
 

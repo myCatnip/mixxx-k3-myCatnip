@@ -202,9 +202,9 @@ pressR: hold: arm track load
        channel instead of switching focus
 
 LOOP  (diffs from CUE)
-encL:  loop in-point nudge             +shift: beatjump
+encL:  loop resize (IN point moves)    +shift: beatjump
 pressL: reloop (anchor→0)              +shift: inherit
-encR:  loop out-point nudge            +shift: halve/double beatjump_size
+encR:  loop resize (OUT point moves)   +shift: halve/double beatjump_size
 pressR: beatloop activate              +shift: inherit
 
 ODD  (inherits LOOP, no diffs for these four)

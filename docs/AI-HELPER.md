@@ -978,12 +978,14 @@ Encoders:
   encKeyReset          — any-direction key reset (pulses reset_key)
   encKeyShift
   encLoopMove          ['in', 0.010]
-      Loop point nudge. Ungated. Stamps _lastLoopTouchMs after
-      the write.
+      Loop resize. 'in' moves the IN point (OUT anchored);
+      'out' moves the OUT point (IN anchored). Ungated.
+      Stamps _lastLoopTouchMs after the write.
   encLoopMoveAccel     ['in', 0.010]
-      Self-accelerating loop-point nudge. Args:
-      [side, step, cap?, divisor?]. Must NOT also carry accel:
-      on the binding. Also stamps _lastLoopTouchMs.
+      Self-accelerating loop resize. Args:
+      [side, step, cap?, divisor?]. Same anchor semantics as
+      encLoopMove. Must NOT also carry accel: on the binding.
+      Also stamps _lastLoopTouchMs.   
   encBeatjump
       Beatjump forward/back. Gated by _beatjumpAllowed when in
       loop. Uses _pulseCo.

@@ -359,8 +359,11 @@ marker hotcues (`PHRASE_MARKER_COLORS`) by
 playposition tick, `track_loaded`, and any hotcue colour /
 position change.
 
-Derivation: beat of the last marker at-or-before the playhead, or
-0 when none precede.
+Derivation: beat of the last marker at-or-before the playhead. If
+no marker precedes but one exists ahead, origin anchors to the
+first upcoming marker — pre-marker playback runs negative counts,
+which `beatLevel` modulos through the phrase. If no marker exists
+at all, origin is 0.
 
 Frozen in loop mode. `_resetBeat` (from `track_loaded`) is the
 only hard reset. No manual setter — origin follows the playhead.
@@ -1133,7 +1136,9 @@ asks for its cells by func reference via `_findCellsByFunc`.
 Three levels, sampled at 23 points (structural samples at the
 segment count):
 
-- **structural** — sample at the segment count, tmap applied
+- **structural** — one stop per segment; `ratio`, `curve`, and
+  `schemePosition` emitted alongside so `compileScheme`
+  reproduces the source spans and shifts.
 - **sampled** — sample at 23 uniform points, tmap applied
 - **wire** — the above, plus the calibration solve. Marks
   `calibration: false`
@@ -1163,7 +1168,7 @@ Flipped on by colorLab's boot config (`modePrints: true`).
 | Channel | Gate | Reset on boot |
 |---|---|---|
 | `debugPrint` | `_debugPrintsOn` | no (persists) |
-| `modePrint` / `modePrintFirst` | `MODE_PRINTS` | via `_modeSeen` |
+| `modePrint` / `modePrintFirst` | `MODE_PRINTS` | `MODE_PRINTS = false` in `_bootWith`; `_modeSeen` reset |
 | `_warnOnce` | none — fires first occurrence | via `_warned` |
 
 `debugPrint` walks `PRINT_TABLES`, uses the first table that has
@@ -1491,6 +1496,14 @@ XoneK3` in `lib-core.js` carries an inline disable.
   are accepted regardless of step size. `TAKEOVER_EPSILON = 2/127`
   is deliberately larger than `CO_MATCH_EPSILON = 1/127` — LED
   "matched" implies control is live.
+- **First bind also rearms soft takeover.** `type` is fixed at
+  construction, so `_snapshotBinding` sets `wasPot = true`; on
+  first bind `prev.group` is `undefined` while `b.group` is set,
+  so the `b.group === prev.group && b.inKey === prev.inKey`
+  short-circuit fails and `engine.softTakeover(g, k, false)` +
+  `true` runs. Soft takeover is enabled from the first bind. The
+  bridge is skipped because `_normalized` is `undefined` at that
+  moment.
 - **`valueCurve` doesn't touch `_normalized`.**
 - **`_trimTrailingZeros` protects the selected segment.**
 - **LED on/off state comes from `colorScheme.on`, `outKey`, or
@@ -1548,7 +1561,8 @@ XoneK3` in `lib-core.js` carries an inline disable.
 - Beat requires a playing deck.
 - `barBeats` / `phraseBars` clamped 1..32 in the lab.
 - `prePhraseBeats` clamped 0..`phraseLen - 1`.
-- Bake samples at 23 points.
+- Bake: structural samples at segment count; sampled / wire at
+- 23 points.
 - No BPM read for the pulse.
 - THEME changes propagate live for every shipped emitter.
 - The four `fxLayout*` / `fxMini*` patterns are the only top-half

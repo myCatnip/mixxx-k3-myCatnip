@@ -463,14 +463,12 @@
             this._ctrl._touchLoop(this.group);
         },
 
-        // Single-boundary move. "anchor" names the side that stays
-        // put, not the side that moves — setting loop_anchor before
-        // the write is what makes the write move the opposite
-        // boundary.
+        // Single-boundary move. "anchor" names the side that MOVES —
+        // the opposite side stays put via loop_anchor.
         //
         // args: [anchor, step]
-        //   anchor  'in'  — pin the in-point; OUT-point moves
-        //           'out' — pin the out-point; IN-point moves
+        //   anchor  'in'  — IN-point moves; OUT-point anchored
+        //           'out' — OUT-point moves; IN-point anchored
         encLoopMove: function(args, ch, c, v, s) {
             var inSide = (args[0] === 'in');
             var step = XoneK3.parseNum(args[1]); if (isNaN(step)) step = 0.010;

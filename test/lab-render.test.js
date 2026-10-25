@@ -75,6 +75,13 @@ test('_claimedCells: returns union of painter-owned cells', function(t) {
 
 test('_renderSegmentGrid: paints each stop', function(t) {
     var c = setupLab();
+    // The real colorLab config binds every CALIB_TARGET via
+    // ledSelectTarget. _renderSegmentGrid treats "not in
+    // _applied" as "paint black" (overlay-null contract), so
+    // bind the cells this test paints.
+    H.bind(c, 'grid0_0', {func: XoneK3.FUNCS.ledSelectTarget, args: ['grid0_0']});
+    H.bind(c, 'grid1_0', {func: XoneK3.FUNCS.ledSelectTarget, args: ['grid1_0']});
+    H.bind(c, 'grid2_0', {func: XoneK3.FUNCS.ledSelectTarget, args: ['grid2_0']});
     setEdit(c, {colors: [[127,0,0], [0,127,0], [0,0,127]]});
     H.clearLeds(c);
     c._renderSegmentGrid();

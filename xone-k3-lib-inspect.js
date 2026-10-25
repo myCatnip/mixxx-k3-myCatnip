@@ -287,24 +287,18 @@
         var isOn = 0, onThrew = null;
         try { isOn = b._isOn(); } catch (e) { onThrew = e.message; }
 
-        var ref = null, refThrew = null, refHasBeat = false;
+        var ref = null, refThrew = null, refCompiled = null;
         if (b._csSchemeFn) {
             try {
                 ref = b._csSchemeFn();
-                if (ref) {
-                    var comp = XoneK3.compileScheme(ref);
-                    if (comp && comp.beat) refHasBeat = true;
-                }
+                if (ref) refCompiled = XoneK3.compileScheme(ref);
             } catch (e) { refThrew = e.message; }
         }
 
         var beatScheme = null;
         if (b._csCompiledMemo && b._csCompiledMemo.beat) beatScheme = b._csCompiledMemo;
         else if (b._csScheme && b._csScheme.beat) beatScheme = b._csScheme;
-        else if (ref) {
-            var comp2 = XoneK3.compileScheme(ref);
-            if (comp2 && comp2.beat) beatScheme = comp2;
-        }
+        else if (refCompiled && refCompiled.beat) beatScheme = refCompiled;
 
         var deckCh = beatScheme ? this._resolveDeckRef(beatScheme.beat.deck) : null;
 
@@ -349,7 +343,7 @@
                     ? (' colors[' + ref.colors.length + ']')
                     : ''));
             else                                  row('  fn() →', typeof ref);
-            if (refHasBeat) row('  fn has beat:', 'yes');
+            if (refCompiled && refCompiled.beat) row('  fn has beat:', 'yes');
         }
 
         if (b._csOn !== null && b._csOn !== undefined) {

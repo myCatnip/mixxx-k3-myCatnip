@@ -194,6 +194,22 @@
             out.brightnessScale = raw.brightnessScale;
         }
         if (level === 'wire') out.calibration = false;
+
+        // Structural bake emits one stop per segment. Without
+        // ratio / schemePosition / curve on the output, recompiling
+        // reproduces equal-weight spans at the default position and
+        // curve — three independent visual regressions. Preserve
+        // them so paste-reload renders identically.
+        if (level === 'structural') {
+            out.ratio = segs.map(function(s) { return s.end - s.start; });
+            if (typeof raw.schemePosition === 'number' && raw.schemePosition !== 63.5) {
+                out.schemePosition = raw.schemePosition;
+            }
+            if (typeof raw.curve === 'number' && raw.curve !== 0) {
+                out.curve = raw.curve;
+            }
+        }
+
         return out;
     };
 
@@ -739,10 +755,20 @@
         this.sendLED(bind.idx, r, g, b, hw);
     };
 
-    XoneK3.LabController.prototype._paintLED = function(name, colorSpec, hwOverride) {
+    XoneK3.LabController.prototype._paintLED = function(name, colorSpec, onOrHw) {
         var entry = XoneK3.resolveColorEntry(colorSpec);
         if (!entry || !entry.rgb) return;
-        var hw = (typeof hwOverride === 'number') ? hwOverride : entry.brightness;
+        var hw;
+        if (typeof onOrHw === 'number') {
+            hw = onOrHw;
+        } else if (typeof onOrHw === 'boolean') {
+            hw = onOrHw
+                ? entry.brightness
+                : ((entry.brightnessOff !== undefined && entry.brightnessOff !== null)
+                    ? entry.brightnessOff : XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF);
+        } else {
+            hw = entry.brightness;
+        }
         this._paintRGB(name, entry.rgb[0], entry.rgb[1], entry.rgb[2], hw);
     };
 
@@ -806,6 +832,18 @@
         for (var i = 0; i < targets.length; i++) {
             var name = targets[i];
             if (claimed[name]) continue;
+
+            // An overlay may null this cell with {}. Honour it —
+            // otherwise the segment colour from the layer below
+            // bleeds through. "Not bound at all" gets the same
+            // treatment: nothing is providing a colour, so don't
+            // paint a stale one.
+            var applied = this._applied[name];
+            if (applied === undefined || Object.keys(applied).length === 0) {
+                this._paintRGB(name, 0, 0, 0, 0);
+                continue;
+            }
+
             if (!compiled || i >= compiled.on.length) {
                 this._paintRGB(name, 0, 0, 0, 0);
                 continue;
@@ -923,21 +961,14 @@
         for (var cell in targetCells) {
             var level = targetCells[cell][0];
             var sub = (level === 'beat') ? beat : beat[level];
-            var color = sub && sub.color;
-            var selected = (this._lab.beatTarget === level);
-            if (!color) {
-                var g = selected ? 100 : 50;
-                this._paintRGB(cell, g, g, g, 127);
-                continue;
-            }
-            var entry = XoneK3.resolveColorEntry(color);
+            var entry = sub && sub.color
+                ? XoneK3.resolveColorEntry(sub.color)
+                : null;
             if (!entry || !entry.rgb) {
-                this._paintRGB(cell, 50, 50, 50, 127);
+                this._paintLED(cell, 'white', false);
                 continue;
             }
             // Show actual brightness so live edits are visible.
-            // Selection indicator is the preview LED, which shows
-            // the target's colour solid when the beat is stopped.
             var br = (typeof sub.brightness === 'number') ? sub.brightness : entry.brightness;
             this._paintRGB(cell, entry.rgb[0], entry.rgb[1], entry.rgb[2], br);
         }
