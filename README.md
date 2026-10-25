@@ -33,7 +33,7 @@ over outputs — Cat, oneK3, oneK3 miniFX, and colorLab all ship on
 | I want to… | Read |
 |---|---|
 | Understand how the system works | `CONCEPTS.md` |
-| See the physical layout and what each control does | this file, §Physical layout and behaviour, §LAB layout and behaviour |
+| See the physical layout and what each control does | this file |
 | Look up an FX cell by unit and mode | this file, §FX cell layouts |
 | Change a colour, rebind a button, add a mode | `CUSTOMISE.md` |
 | Understand the runtime, tune internals | `INTERNALS.md` |
@@ -72,19 +72,9 @@ assumes it.
                     └───────────┴───────────┴───────────┴───────────┘
 ```
 
-`encoderL`/`encoderR` are separate from `encoder0`–`encoder3`, and
-`pressL`/`pressR` are separate from `press0`–`press3` — the L/R
-pair sit at the bottom, beside the layer and shift buttons, with
-each press-switch directly under its encoder.
-
-Section labels (TOP / FADERS / GRID / BOTTOM) match the blocks in
-the layout table. `row N` on the right names the physical row
-(`knobX_N` / `buttonX_N` / `gridX_N`). `layer` and `shift` cycle
-and hold respectively; the L/R encoders and presses are the
-performance pair described in the bottom section.
-
-The blocks below describe what each physical control does in each
-mode.
+`encoderL`/`encoderR` and `pressL`/`pressR` are separate from
+`encoder0`–`encoder3` and `press0`–`press3` — the L/R pair sit at
+the bottom, beside layer and shift.
 
 ```
 ════════════════════════════════════════════════════════════
@@ -163,22 +153,14 @@ LEDs
   ODD sizes           cyan · sky2  (grid3_2 / grid3_3)
   ODD shift sizes     sky2 · cyan  (grid3_2 / grid3_3)
 
-Notes
-  CUE hotcue press jumps to the hotcue. If the hotcue's colour is in
-  PHRASE_MARKER_COLORS, the phrase origin follows automatically on the
-  next playposition tick.
-  Shift + hotcue = hotcue_N_clear (clears the hotcue slot).
-  Loop-size and beatjump-size cells: pressSetValue writes the CO
-  (beatloop_size / beatjump_size) on press-release edge.
-
 
 ════════════════════════════════════════════════════════════
 FADERS
 ════════════════════════════════════════════════════════════
 
 FOCUS  (Cat / Kitten)
-fader0: pregain act.deck — actually volume act.deck   (inKey: volume)
-fader1: FX-act mix                                    (inKey: mix)
+fader0: volume act.deck
+fader1: FX-act mix
 fader2: —
 fader3: —
 
@@ -194,12 +176,6 @@ pinned A/B units, never $FX_ACTIVE_N$.
 
 Shift / chord
 No shift companion, no chord override. Faders are identical in every state.
-
-As LED sources
-fader0..fader3 are the deviation knobs for grid row 0:
-  grid0_0 reads fader0 · grid1_0 reads fader1
-  grid2_0 reads fader2 · grid3_0 reads fader3
-Fader position drives the ramp sample; fader N's own binding writes volume/mix.
 
 
 ════════════════════════════════════════════════════════════
@@ -287,8 +263,6 @@ Every mode's middle cells come from a per-unit layout table. When
 the focused FX unit changes, the runtime swaps the live layout
 patch automatically. You don't rebind by hand.
 
-Three tables:
-
 | Mode | Table | Layout cells | Emitter | Patch family |
 |---|---|---|---|---|
 | focus | `FX_LAYOUTS` | 16 | `fxCells(n)` | `fxLayout1..4` |
@@ -296,30 +270,16 @@ Three tables:
 | mini | `TWO_DECK_MINI_FX_LAYOUTS` | 8 | `twoDeckMiniFxCells(n)` | `fxMini1..4` |
 
 QFX is **not** in these tables. `knob1_2` / `button1_2` are plain
-bindings in the top-half base patch (`TOP_SHARED` / `TWO_DECK`).
-The QFX super knob and rack enable are shared across all layout
-patches, unlike the middle cells which swap per unit.
+bindings in the top-half base patch.
 
-Notation: `FX<n>.p<m>` means effect `n` parameter `m` on the focused
-unit. `meta` means the effect's meta knob. `btn<k>` means
-`button_parameter<k>`. The parenthesised value (`hi` / `mid` /
-`lo`) is the marker band position on the LED's ramp.
-
-`LED→knobN_M` cells are display-only — no press action, LED
-echoes the knob above. In the table: `{ displayOnly: true }`,
-optionally with `on: false` for a dim echo. Tracks the adjacent
-knob automatically; `ledTracks: 'knobX'` only for a non-adjacent
-target.
+Notation: `FX<n>.p<m>` = effect `n` parameter `m` on the focused
+unit. `meta` = the effect's meta knob. `btn<k>` =
+`button_parameter<k>`. `LED→` = display-only cell, no press action.
 
 ### Focus mode — `FX_LAYOUTS`
 
 16 cells: rows 0–1 cols 1–3 (12 cells), plus row 2 cols 2–3 (4
-cells). Row 2 col 1 is QFX and lives in `TOP_SHARED`. Col 0 is
-the EQ/PFL column, also `TOP_SHARED`.
-
-All cells point at the unit whose `fxLayout<n>` is in the active
-stack — the patch hardcodes its own unit number, and
-`_syncFxLayout` keeps the focused one in the stack.
+cells). Row 2 col 1 is QFX; col 0 is the EQ/PFL column.
 
 Unit 1 is the base table, units 2–4 add overrides. **Bold** =
 differs from unit 1.
@@ -356,12 +316,8 @@ differs from unit 1.
 | `button3_2` | FX3.enable | FX3.enable | FX3.enable | FX3.enable |
 
 `button0_2` (alt FX route) comes from `TOP_SHARED`, not this
-table — it doesn't change per unit.
-
-`button2_2` is `fxRoute: true` on every unit: it routes the
-focused FX unit into the active deck. LED on/off follows the
-route CO; deviation position samples `knob2_2`; colour follows
-the focused unit's theme.
+table. `button2_2` is `fxRoute: true` on every unit — it routes
+the focused FX unit into the active deck.
 
 ### twoDeck — `TWO_DECK_FX_LAYOUTS`
 
@@ -378,8 +334,7 @@ row 1  knob   knob1_1      knob2_1
        btn    button1_1    button2_1
 ```
 
-All four units share the same table (`twoDeckFxTable()` returns
-one entry, no overrides):
+All four units share the same table:
 
 | Cell in col 1 | Cell in col 2 | Content |
 |---|---|---|
@@ -405,8 +360,7 @@ row 1  knob   knob1_1      knob2_1
        btn    button1_1    button2_1
 ```
 
-All four units share the same table (`twoDeckMiniFxTable()`
-returns one entry, no overrides):
+All four units share the same table:
 
 | Cell | Content |
 |---|---|
@@ -419,83 +373,58 @@ returns one entry, no overrides):
 | `button1_1` | FX1.enable (lo) |
 | `button2_1` | FX2.enable (lo) |
 
-Col 1 rows 0–1 is effect 1's parameter and meta; col 2 rows 0–1
-is effect 2's. Same visual column split as twoDeck, just with
-effects 1 and 2 instead of two independent units.
-
 Row 2 comes from `TWO_DECK` / `TWO_DECK_MINI` — QFX A and B, plus
 the alt cross-routes. `button0_2` / `button3_2` use `$FX_ALT_N$`
 (the unit that isn't focused), not `$FX_ACTIVE_N$`.
 
 ### Editing a layout
 
-Change the table entry in `xone-k3-cat-fx.js`. See CUSTOMISE → FX
-cell mapping for the field vocabulary and worked examples.
+Change the table entry in `xone-k3-cat-fx.js`. See CUSTOMISE §1.9
+for the field vocabulary and worked examples.
 
 ---
 
 ## LAB layout and behaviour
 
-Same physical layout as above. colorLab replaces the entire
-layer tree — none of the playback bindings above apply. Two
-modes, swapped by the layer button.
+Same physical layout as above. colorLab replaces the entire layer
+tree — none of the playback bindings above apply. Two modes,
+swapped by the layer button.
 
 ```
 ════════════════════════════════════════════════════════════
 EDIT mode — TOP
 ════════════════════════════════════════════════════════════
 
-                           unshifted                        +shift
-enc0:                R ±1                            curve ±0.025
-enc1:                G ±1                            brightness ±1
-enc2:                B ±1                            brightnessScale ±0.05
-enc3:                brightness ±1                   —
-fader0:              R abs (0..127)                   identical
-fader1:              G abs                           identical
-fader2:              B abs                           identical
-fader3:              brightness abs                  identical
-knob0_0:             preview position                preview, no co-match
-                     co-matched to QFX super1
-knob1_0:             markerPosition (0..127)         identical
-knob2_0:             schemePosition (0..127)         identical
-knob3_0:             ratio[0]                        identical
-knob0_1:             ratio[1]     knob1_1: ratio[2]  identical
-knob2_1:             ratio[3]     knob3_1: ratio[4]  identical
-knob0_2:             ratio[5]     knob1_2: ratio[6]  identical
-knob2_2:             ratio[7]     knob3_2: ratio[8]  identical
+                    unshifted                        +shift
+enc0                R ±1                             curve ±0.025
+enc1                G ±1                             brightness ±1
+enc2                B ±1                             brightnessScale ±0.05
+enc3                brightness ±1                    unbound
+fader0..fader3      R/G/B/brightness abs (0..127)    unchanged
+knob0_0             preview, co-matched to QFX       preview, no co-match
+knob1_0             markerPosition                   unchanged
+knob2_0             schemePosition                   unchanged
+all other knobs     ratio[0..8]                      unchanged
+button0_0           toggle preview on/off ramp       unchanged
+button1_0           reset markerPosition → 63.5      reset brightness → 127
+button2_0           reset schemePosition → 63.5      reset brightnessScale → 1
+segment buttons     select segments 0-8              unchanged
+press0              print selection                  dump scheme
+press1              toggle calibration               toggle white balance
+press2              toggle ratio edit                unchanged
+press3              toggle interp                    toggle tuning overlay
 
-button0_0:           toggle preview on/off ramp      identical
-                     no LED
-button1_0:           reset markerPosition → 63.5     reset brightness → 127
-                     LED: dim red                    LED: dim white
-button2_0:           reset schemePosition → 63.5     reset brightnessScale → 1
-                     LED: dim green                  LED: dim white
-button3_0:           select segment 0                identical
-button0_1:           select segment 1                identical
-button1_1:           select segment 2                identical
-button2_1:           select segment 3                identical
-button3_1:           select segment 4                identical
-button0_2:           select segment 5                identical
-button1_2:           select segment 6                identical
-button2_2:           select segment 7                identical
-button3_2:           select segment 8                identical
-
-press0:              print seg / marker to console   dump scheme
-                     LED: dim white                  LED: dim cyan
-press1:              toggle calibration              toggle white balance
-                     LED: green=on, red=off          LED: green=on, red=off
-press2:              toggle ratio edit               identical
-                     LED: green=on, red=off
-press3:              toggle interp                   toggle tuning overlay
-                     LED: green=on, red=off          no LED
+Press LED convention: green = on, red = off (press1/2/3).
+press0 LED: dim white unshifted, dim cyan shifted.
+Segment buttons: LED shows that segment's ramp colour.
 
 
 ════════════════════════════════════════════════════════════
 EDIT mode — GRID
 ════════════════════════════════════════════════════════════
 
-Segment → cell map (segments 0–8 are on top-row buttons, 9–22
-on the grid):
+Segment → cell map (segments 0–8 on the top button row, 9–22 on
+the grid):
 
 button3_0: seg 0   button0_1: seg 1   button1_1: seg 2
 button2_1: seg 3   button3_1: seg 4   button0_2: seg 5
@@ -507,16 +436,14 @@ grid0_2: seg 17   grid1_2: seg 18   grid2_2: seg 19   grid3_2: seg 20
 grid0_3: seg 21   grid1_3: seg 22   grid2_3: toggle beat edit overlay
                                     grid3_3: select marker
 
-LED: each segment cell shows that segment's ramp colour.
-Empty stops render black. Marker cell (grid3_3) shows the marker
-colour, or black when no marker is set. Beat-edit toggle LED is
-cyan@60 when the overlay is on, white@20 when off.
+LEDs: each segment cell shows its ramp colour; empty stops
+render black. grid3_3 shows the marker colour, or black when no
+marker. grid2_3: cyan @60 when the beat overlay is on, white @20
+when off.
 
-+shift
-grid0_0..grid1_3, grid0_3:  shift+press deletes that segment
-grid3_3:                    shift+press clears the marker
-                            (markerColor → null, markerWidth → 0)
-grid2_3:                    no shift override
++shift:
+  segment cells: shift+press deletes that segment
+  grid3_3:       shift+press clears the marker
 
 
 ════════════════════════════════════════════════════════════
@@ -524,17 +451,13 @@ EDIT mode — BOTTOM
 ════════════════════════════════════════════════════════════
 
 layer:   cycle to SLOTS                       LED: dim yellow
-encL:    markerWidth (0..127)                 +shift: scroll registry
-pressL:  fill gaps (interpolate blank stops    +shift: inherit
-         between anchors)
-encR:    — (unbound)                          +shift: —
-pressR:  — (unbound)                          +shift: load preview into edit
-                                                       (no-op if nothing previewed)
+encL:    markerWidth                          +shift: scroll registry
+pressL:  fill gaps                            +shift: inherit
+encR:    unbound                              +shift: unbound
+pressR:  unbound                              +shift: load preview into edit
 
-Grid cells follow the same segment map as EDIT GRID. grid2_3
-and grid3_3 also stay bound here — the beat-edit toggle and the
-marker select are accessible from either the grid rows or the
-bottom row.
+Grid cells use the same segment map as EDIT GRID, including
+grid2_3 (beat edit toggle) and grid3_3 (marker select).
 
 
 ════════════════════════════════════════════════════════════
@@ -542,17 +465,16 @@ SLOTS mode
 ════════════════════════════════════════════════════════════
 
 Entered from EDIT by pressing layer. Top section stays bound but
-every edit func is a no-op (the edit gate returns null because
-colorLab is no longer in the active stack). The preview LED and
-preview sweep still work.
+every edit func is a no-op — the preview LED and preview sweep
+still work.
 
 layer:   cycle back to EDIT                   LED: dim purple
-encL:    — (unbound)                          +shift: scroll registry
+encL:    unbound                              +shift: scroll registry
 pressL:  exit to EDIT, buffer unchanged       +shift: inherit
-encR:    — (unbound)                          +shift: —
-pressR:  arm save                             +shift: load preview
-         LED: bright white when armed,               into edit, exit
-              dim white otherwise                    to EDIT
+encR:    unbound                              +shift: unbound
+pressR:  arm save                             +shift: load preview into
+         LED: bright white when armed,                edit, exit to EDIT
+              dim white otherwise
 
 Grid cells: 16 slots, row-major.
 
@@ -563,22 +485,20 @@ grid3_0 = slot 12   grid3_1 = slot 13   grid3_2 = slot 14   grid3_3 = slot 15
 
 Grid press (unarmed) → preview that slot. Grid stays visible.
 Grid press (armed)   → save current preview into that slot,
-                       load it into edit, exit to EDIT.
+                       load into edit, exit to EDIT.
 
-Cell colours by slot index:
+Cell colours:
   0     green        (on)
   1     red          (off)
   2     white        (co)
   3     soft blue    (co-off)
-  4..11 yellow       (saves)
+  4-11  yellow       (saves)
   12    green        (source bake)
   13    blue         (structural bake)
   14    cyan         (sampled bake)
   15    magenta      (wire bake)
 
-Empty cell:      dark
-Populated:       dim (brightness 20)
-Currently previewed slot: bright (brightness 127)
+Empty: dark. Populated: dim. Currently previewed: bright.
 
 
 ════════════════════════════════════════════════════════════
@@ -587,35 +507,26 @@ OVERLAYS
 
 TUNING overlay (host: colorLabTop, toggle with shift+press3 in EDIT)
 
-The overlay declares no unshifted bindings. Its only effect is
-that, while shift is held, two shift-layer knobs are overridden:
-
-+shift
-enc1:  hkBoost (0..2, step 0.02)          ← replaces `brightness`
-enc2:  lumGamma (0.1..2, step 0.02)       ← replaces `brightnessScale`
-
-Toggle the overlay off to revert enc1/enc2 to their base shift
-bindings.
+While active, two shift-layer knob overrides:
+  enc1: hkBoost (0..2, step 0.02)       ← replaces brightness
+  enc2: lumGamma (0.1..2, step 0.02)    ← replaces brightnessScale
 
 BEAT EDIT overlay (host: colorLab, toggle with grid2_3 in EDIT)
 
-encL:  beat.barBeats (1..32)                  +shift: inherit
-encR:  beat.phraseBars (1..32)                +shift: beat.prePhraseBeats
+encL:  barBeats (1..32)                  +shift: inherit
+encR:  phraseBars (1..32)                +shift: prePhraseBeats
 
-grid0_0:  select target: beat       LED: target colour / dim
-grid1_0:  select target: bar        LED: target colour / dim
-grid2_0:  select target: prePhrase  LED: target colour / dim
-grid3_0:  select target: phrase     LED: target colour / dim
-grid0_1:  toggle beat.enabled       LED: green=on, red=off
-grid1_1, grid2_1, grid3_1:  nulled
-grid0_2, grid1_2, grid2_2, grid3_2:  nulled
-grid0_3, grid1_3, grid3_3:  nulled
+grid0_0:  select beat target        grid1_0:  select bar target
+grid2_0:  select prePhrase target   grid3_0:  select phrase target
+grid0_1:  toggle beat.enabled       green=on, red=off
 
-RGB encoders and faders edit the selected beat target's colour
-and brightness while the overlay is active.
+All other grid cells nulled.
 
-+shift
-grid0_0..grid3_0:  shift+press clears that target's colour
+RGB encoders and faders edit the selected target's colour and
+brightness.
+
++shift:
+  target cells: shift+press clears that target's colour
 
 
 ════════════════════════════════════════════════════════════
@@ -633,56 +544,41 @@ both EDIT and SLOTS.
 ## Files
 
 ```
-xone-k3-lib-core.js          bootstrap, tunables, PATCH_NAMES,
-                             utilities, tokens, transfer curve,
-                             sysex math, beat math, K2 palette,
-                             HARDWARE_CALIB, VIRTUAL_CLOCKS,
-                             BEATJUMP_GAP_MS
-xone-k3-lib-schemes.js       palette, scheme engine, LED curves,
-                             co-matching
-xone-k3-lib-binding.js       Binding primitive, colour render
-                             path, snapshot fields
-xone-k3-lib-controller.js    K3Controller core: constructor,
-                             patch resolution, focus, TOP_MODES,
-                             chord, binding application,
-                             render-time scheme resolution
-xone-k3-lib-controller-colour.js  Colour-scheme parser: on:
-                                  shapes, base scheme resolution,
-                                  schemeFromState closures,
-                                  _setupColorScheme
-xone-k3-lib-controller-beat.js    Timeline, loop clock,
-                                  display-source resolution, beat
-                                  count, beat clock connections
-xone-k3-lib-controller-render.js  LED writes, sysex queue,
-                                  calibration, ramp sampling,
-                                  beatjump gate
-xone-k3-lib-controller-boot.js    Init / shutdown, MIDI wiring,
-                                  boot, halt
-xone-k3-lib-funcs.js         builders + XoneK3.FUNCS
-xone-k3-lib-inspect.js       runtime state probes
+Runtime:
+  xone-k3-lib-core.js
+  xone-k3-lib-schemes.js
+  xone-k3-lib-binding.js
+  xone-k3-lib-controller.js
+  xone-k3-lib-controller-colour.js
+  xone-k3-lib-controller-beat.js
+  xone-k3-lib-controller-render.js
+  xone-k3-lib-controller-boot.js
+  xone-k3-lib-funcs.js
+  xone-k3-lib-inspect.js
 
-xone-k3-cat-schemes.js       THEME, QFX_CHAIN_LIST,
-                             PHRASE_MARKER_COLORS, SCHEMES,
-                             scheme helpers
-xone-k3-cat-fx.js            FX layout tables + emitters
-xone-k3-cat-top.js           focus / twoDeck / mini base patches
-xone-k3-cat-bottom.js        cue / loop / oddLoop layers
-xone-k3-cat-overlays.js      selectAB / fxRouting / chord
-xone-k3-cat.js               CAT_LAYERS assembler + bootCat()
+Cat layer tree (playback presets):
+  xone-k3-cat-schemes.js
+  xone-k3-cat-fx.js
+  xone-k3-cat-top.js
+  xone-k3-cat-bottom.js
+  xone-k3-cat-overlays.js
+  xone-k3-cat.js
 
-xone-k3-kitten.js            boot override (2 lines)
-xone-k3-onek3.js             boot override (2 lines)
-xone-k3-onek3-minifx.js      boot override (2 lines)
-xone-k3-lab.js               colorLab runtime
-xone-k3-colorlab.js          colorLab layers + boot
+Boot overrides (2 lines each):
+  xone-k3-kitten.js
+  xone-k3-onek3.js
+  xone-k3-onek3-minifx.js
 
-xone-k3-cat.midi.xml
-xone-k3-kitten.midi.xml
-xone-k3-onek3.midi.xml
-xone-k3-onek3-minifx.midi.xml
-xone-k3-colorlab.midi.xml
+colorLab runtime:
+  xone-k3-lab.js
+  xone-k3-colorlab.js
 
-calibration/                 optional, not loaded by default
+Preset definitions:
+  xone-k3-cat.midi.xml
+  xone-k3-kitten.midi.xml
+  xone-k3-onek3.midi.xml
+  xone-k3-onek3-minifx.midi.xml
+  xone-k3-colorlab.midi.xml
 ```
 
 ---
@@ -691,17 +587,13 @@ calibration/                 optional, not loaded by default
 
 | | |
 |---|---|
-| A knob "does nothing" at first | Soft takeover. Turn it until it catches. |
 | One LED stuck white | Its knob hasn't sent a MIDI value yet. Wiggle it. |
 | Bottom grid doesn't follow your deck | Shift + slip (bottom grid `grid2_1`) flips which of A or B is the active deck. |
 | Chord `pressR` doesn't respond | Shift then layer must be pressed together first. |
 | Chord `pressL` does nothing in focus mode | `pressL` swaps twoDeck ↔ twoDeckMini. No-op from focus. |
 | `grid2_0` flashes but nothing changes | No loop is running. The display toggle needs the loop clock. |
-| Beatjump doesn't fire in a tight loop | Gated at 130 ms — `XoneK3.BEATJUMP_GAP_MS`. Wait a beat or jump outside the loop. Set `XoneK3._debugPrintsOn = true` for the `beatjump gated` line. |
-| Beatjump immediately exits a short loop | Geometry — a 1-beat jump into a 1/16 beatloop lands past `loop_out`. The gate prevents rapid loop-edit spam, not a single jump. |
-| Whole strip frozen | Script error. Check the Mixxx console, then restart Mixxx. |
+| Beatjump doesn't fire after touching a loop control | Loop touched <130 ms ago (`XoneK3.BEATJUMP_GAP_MS`). |
 | Console silent when you want to see edits | Edit prints are off by default. `XoneK3._debugPrintsOn = true`. |
-| `inspect` doesn't exist | Run from the Mixxx console, on a live controller: `XoneK3.controllers[0].inspect()`. |
 
 Everything else lives in `CONCEPTS.md` (how it works) and
 `CUSTOMISE.md` (how to change it).
