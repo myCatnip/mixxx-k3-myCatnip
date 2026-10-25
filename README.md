@@ -4,8 +4,9 @@ Custom Mixxx mapping for the Allen & Heath Xone K3.
 
 One runtime, two layer trees, five presets. Four playback presets
 share one layer tree and differ only in boot config; colorLab is
-a separate editor preset. All can run side by side on different
-MIDI channels.
+a separate editor preset. Presets on the same MIDI channel fight
+over outputs — Cat, oneK3, oneK3 miniFX, and colorLab all ship on
+0x0E. Change one before running them together.
 
 | Preset | Channel | Boot mode | Layer tree | Use case |
 |---|---|---|---|---|
@@ -13,7 +14,7 @@ MIDI channels.
 | **Kitten** | 0x0D | focus, slot B | CAT_LAYERS | Second unit, opposite slot by default. |
 | **oneK3** | 0x0E | twoDeck | CAT_LAYERS | Single K3, both decks visible. |
 | **oneK3 miniFX** | 0x0E | twoDeckMini | CAT_LAYERS | Both decks, one focused FX unit in the middle. |
-| **colorLab** | 0x0D | n/a | lab | No playback. LED colour ramp editor. |
+| **colorLab** | 0x0E | n/a | lab | No playback. LED colour ramp editor. |
 
 ---
 

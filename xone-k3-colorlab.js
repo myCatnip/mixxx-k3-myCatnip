@@ -247,7 +247,7 @@
     XoneK3.init = function() {
         XoneK3.bootLab([Object.assign({}, XoneK3.HARDWARE_CALIB, {
             label: 'colorLab',
-            midiChannel: 0x0D,
+            midiChannel: 0x0E,
 
             initialPatches: ['colorLabTop', 'colorLab'],
 

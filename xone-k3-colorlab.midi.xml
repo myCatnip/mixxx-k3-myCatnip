@@ -3,7 +3,7 @@
     <info>
         <name>Allen&amp;Heath Xone K3 colorLab</name>
         <author>myCatnip</author>
-        <description>Xone K3 "colorLab" (ch 0x0D) — standalone LED gradient scheme builder.</description>
+        <description>Xone K3 "colorLab" (ch 0x0E) — standalone LED gradient scheme builder.</description>
     </info>
     <controller id="XONE:K3 colorLab MIDI 1">
         <scriptfiles>

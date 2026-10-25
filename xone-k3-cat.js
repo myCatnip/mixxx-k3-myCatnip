@@ -86,6 +86,8 @@
         midiChannel: 0x0E,
         initialDeckA: 1, initialDeckB: 2,
         initialFxA: 1,   initialFxB: 2,
+        initialActiveDeck: 'A',
+        initialActiveFx:   'A',
         initialPatches: ['topShared', 'fxLayout1', 'cue'],
         sysex: true,
         timeSig: null
