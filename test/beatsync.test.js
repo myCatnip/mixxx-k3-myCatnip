@@ -123,11 +123,32 @@ test('track mode guard: recent beat_active suppresses position repaint', functio
 
     c._decks[1].lastBeatEdge = Date.now();
     c._decks[1].active = true;
+    c._decks[1].lastPlayPos = 0.505;
 
     engine._set('[Channel1]', 'playposition', 0.507);
     engine._trigger('[Channel1]', 'playposition', 0.507);
 
     t.eq(c._decks[1].active, true);
+});
+
+test('track mode guard: backward movement bypasses the beat-edge window', function(t) {
+    var c = setup();
+    withBeat(c);
+    engine._set('[Channel1]', 'play_indicator', 1);
+    engine._set('[Channel1]', 'reverse', 0);
+
+    // Simulate: user was playing forward, pulse currently off-phase,
+    // then jogs the playhead backward without stopping. `reverse`
+    // stays 0 — the guard would normally fire on recent beat edge.
+    c._decks[1].lastBeatEdge = Date.now();
+    c._decks[1].active = false;
+    c._decks[1].lastPlayPos = 0.5;
+
+    engine._set('[Channel1]', 'playposition', 0.42);
+    engine._trigger('[Channel1]', 'playposition', 0.42);
+
+    t.eq(c._decks[1].active, true,
+         'backward movement must update pulse phase via _repaintFromPosition');
 });
 
 // ── play_indicator handler ─────────────────────────────────

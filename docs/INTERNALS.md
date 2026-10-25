@@ -761,6 +761,15 @@ the deck is playing forward and a recent `beat_active` edge exists
 It still calls `_syncBeatCount(ch)` before returning so a dropped
 or throttled edge doesn't freeze the cascade colour.
 
+The guard also requires the playhead not to be moving backward.
+`beat_active` fires reliably on forward playback but irregularly
+on backward jog — the guard would leave `st.active` frozen while
+count kept moving (`_syncBeatCount` only touches `count`). Backward
+movement bypasses the guard so `_repaintFromPosition` runs, updating
+both fields from the same source. `st.lastPlayPos` is the per-tick
+`playposition` snapshot; `undefined` until the first tick, so the
+guard behaves normally on boot.
+
 `_refreshBeatLeds(ch)` filters by resolved beat deck.
 
 ## `beatLevel`
@@ -1522,6 +1531,12 @@ XoneK3` in `lib-core.js` carries an inline disable.
 - **The loop clock is the only virtual timeline.**
 - **Boot-time beat-clock reopen.** See §3.
 - **`_openBeatClocks` catches up state on open.** See §10.
+- **`st.lastPlayPos` gates the beat-edge guard.** `_onPlayposition`
+  bypasses the 1.5 s guard when the playhead moved backward since
+  the last tick. Jog-scrub-backward while playing keeps
+  `reverse = 0`, so `reversing` alone isn't enough — the frozen
+  `st.active` symptom is specific to that path. `_repaintFromPosition`
+  runs on the bypass so count *and* pulse both update.
 
 ## Beatjump gate
 

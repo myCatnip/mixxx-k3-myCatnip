@@ -511,6 +511,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var st = this._decks[ch];
         var grp = '[Channel' + ch + ']';
         var newPos = engine.getValue(grp, 'playposition');
+        // Backward movement — jog-scrub leftward while playing, or
+        // a manual reverse. Either way `reverse` may be 0 (jog
+        // doesn't toggle it), so the guard can't rely on it alone.
+        var movingBackward = (st.lastPlayPos !== undefined) && (newPos < st.lastPlayPos);
+        st.lastPlayPos = newPos;
         this._advanceVirtualClock(ch, newPos);
 
         var now = Date.now();
@@ -521,9 +526,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
 
         var playing   = engine.getValue(grp, 'play_indicator') > 0;
         var reversing = engine.getValue(grp, 'reverse') > 0;
-        if (playing && !reversing && (now - st.lastBeatEdge < 1500)) {
-            // Recent beat edge — pulse phase is beat_active's job.
-            // Still sync the count so a dropped edge can catch up.
+        // `beat_active` fires reliably forward but irregularly on
+        // backward jog. With the guard active, st.active (pulse
+        // phase) is left frozen for up to 1.5 s while count keeps
+        // moving via _syncBeatCount — the "held bar" symptom.
+        // Force the position repaint on backward movement so both
+        // st.count and st.active update from the same source.
+        if (playing && !reversing && !movingBackward && (now - st.lastBeatEdge < 1500)) {
             this._syncBeatCount(ch);
             return;
         }
