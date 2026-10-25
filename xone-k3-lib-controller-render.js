@@ -33,6 +33,10 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         ];
     };
 
+    // Per-index dedupe + throttle queue for RGB sysex frames.
+    // Cache is checked first; if the value is unchanged the frame
+    // is dropped. Otherwise the frame is either sent inline (when
+    // the throttle is disabled) or enqueued.
     XoneK3.K3Controller.prototype._sendSysExLED = function(idx, r, g, b, hw) {
         var val = r + ':' + g + ':' + b + ':' + hw;
         if (this._ledCache[idx] === val) return;
@@ -41,6 +45,14 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         var msg = XoneK3.buildSysExLED(idx, r, g, b, hw);
         if (XoneK3.SYSEX_THROTTLE_MS <= 0) { midi.sendSysexMsg(msg, msg.length); return; }
 
+        this._enqueueSysEx(idx, msg);
+        this._startSysExDrain();
+    };
+
+    // Replace-in-queue-or-append. When the same index is already
+    // queued, update its msg in place (same index, fresher value).
+    // Cap at 128 — an overrun drops the oldest entries.
+    XoneK3.K3Controller.prototype._enqueueSysEx = function(idx, msg) {
         for (var i = 0; i < this._sysexQueue.length; i++) {
             if (this._sysexQueue[i].idx === idx) {
                 this._sysexQueue[i].msg = msg;
@@ -48,27 +60,33 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
             }
         }
         this._sysexQueue.push({ idx: idx, msg: msg });
-        if (this._sysexQueue.length > 128)
+        if (this._sysexQueue.length > 128) {
             this._sysexQueue.splice(0, this._sysexQueue.length - 128);
+        }
+    };
 
+    XoneK3.K3Controller.prototype._startSysExDrain = function() {
+        if (this._sysexTimer) return;
         var self = this;
-        if (!this._sysexTimer) {
-            this._sysexTimer = engine.beginTimer(Math.max(1, XoneK3.SYSEX_THROTTLE_MS), function() {
-                // No _shuttingDown bail. The drain runs until the
-                // queue empties or _stopSysExDrain is called.
-                // Shutdown relies on this.
-                if (self._sysexQueue.length === 0) {
-                    engine.stopTimer(self._sysexTimer);
-                    self._sysexTimer = null;
-                    return;
-                }
-                var m = self._sysexQueue.shift();
-                midi.sendSysexMsg(m.msg, m.msg.length);
-                if (self._sysexQueue.length === 0) {
-                    engine.stopTimer(self._sysexTimer);
-                    self._sysexTimer = null;
-                }
-            }, false);
+        this._sysexTimer = engine.beginTimer(
+            Math.max(1, XoneK3.SYSEX_THROTTLE_MS),
+            function() { self._sysExDrainTick(); },
+            false);
+    };
+
+    // One frame per tick. Stops the timer (and nulls it) once the
+    // queue empties. No _shuttingDown bail — the drain runs to
+    // completion on purpose; shutdown polls the queue length and
+    // relies on this.
+    XoneK3.K3Controller.prototype._sysExDrainTick = function() {
+        if (this._sysexQueue.length === 0) {
+            this._stopSysExDrain();
+            return;
+        }
+        var m = this._sysexQueue.shift();
+        midi.sendSysexMsg(m.msg, m.msg.length);
+        if (this._sysexQueue.length === 0) {
+            this._stopSysExDrain();
         }
     };
 
@@ -92,21 +110,31 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
     };
 
     // Short messages inline; sysex goes through the queue so
-    // shutdown can wait for the last blank frame.
+    // shutdown can wait for the last blank frame. Both sweeps run
+    // unconditionally — a previous session may have left K2 notes
+    // lit, and sysex blanks can't reach them.
     XoneK3.K3Controller.prototype._blankLeds = function() {
         this._stopSysExDrain();
         this._sysexQueue = [];
         this._ledCache = {};
 
+        this._blankShortMsgSweep();
+
+        if (this.sysex !== false) {
+            this._blankSysexSweep();
+        }
+    };
+
+    XoneK3.K3Controller.prototype._blankShortMsgSweep = function() {
         for (var n = 0x0C; n <= 0x37; n++) {
             midi.sendShortMsg(0x90 + this.midiChannel, n, 0x00);
         }
+    };
 
-        if (this.sysex !== false) {
-            for (var idx = 0; idx <= 0x21; idx++) {
-                if (this.k2Indices && this.k2Indices[idx]) continue;
-                this._sendSysExLED(idx, 0, 0, 0, 0);
-            }
+    XoneK3.K3Controller.prototype._blankSysexSweep = function() {
+        for (var idx = 0; idx <= 0x21; idx++) {
+            if (this.k2Indices && this.k2Indices[idx]) continue;
+            this._sendSysExLED(idx, 0, 0, 0, 0);
         }
     };
 
@@ -227,6 +255,15 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         var entry = cache[segs._cacheId];
         if (entry && entry.key === this._calibKey) return entry.value;
 
+        var value = this._minSegmentEmit(segs);
+        cache[segs._cacheId] = { key: this._calibKey, value: value };
+        return value;
+    };
+
+    // The flat-target solve's minimum-luminance scan. Skips
+    // black stops (0,0,0) — they can't be the flat target's
+    // reference point.
+    XoneK3.K3Controller.prototype._minSegmentEmit = function(segs) {
         var minEmit = Infinity;
         for (var i = 0; i < segs.length; i++) {
             var c = segs[i].color;
@@ -234,9 +271,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
             var e = this._emitAt(c.rgb, c.brightness);
             if (e < minEmit) minEmit = e;
         }
-        var value = isFinite(minEmit) ? minEmit : null;
-        cache[segs._cacheId] = { key: this._calibKey, value: value };
-        return value;
+        return isFinite(minEmit) ? minEmit : null;
     };
 
     XoneK3.K3Controller.prototype._calibratedHw = function(rgb, targetLum) {
@@ -245,13 +280,8 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         var cached = this._hwCache[key];
         if (cached !== undefined) return cached;
 
-        var lo = 0, hi = 127;
-        for (var i = 0; i < 12; i++) {
-            var mid = (lo + hi) / 2;
-            if (this._emitAt(rgb, mid) < targetLum) lo = mid;
-            else hi = mid;
-        }
-        var value = Math.round((lo + hi) / 2);
+        var value = this._bisectHw(rgb, targetLum);
+
         if (this._hwCacheSize >= 1024) {
             this._hwCache = {};
             this._hwCacheSize = 0;
@@ -259,6 +289,20 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         this._hwCache[key] = value;
         this._hwCacheSize++;
         return value;
+    };
+
+    // Bisect hw over [0, 127] against targetLum. 12 iterations
+    // resolves the interval to < 0.1 — one bit finer than the
+    // 7-bit hw space, so the returned integer is stable under
+    // small luminance perturbations.
+    XoneK3.K3Controller.prototype._bisectHw = function(rgb, targetLum) {
+        var lo = 0, hi = 127;
+        for (var i = 0; i < 12; i++) {
+            var mid = (lo + hi) / 2;
+            if (this._emitAt(rgb, mid) < targetLum) lo = mid;
+            else hi = mid;
+        }
+        return Math.round((lo + hi) / 2);
     };
 
     XoneK3.K3Controller.prototype._sampleRamp = function(ramp, t, compiled, isOn, skipBeat) {

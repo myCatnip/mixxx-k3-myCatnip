@@ -365,6 +365,9 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             for (var j = 0; j < stack.length; j++) {
                 this._collectShiftPatches(stack[j], shiftPatches, seen);
             }
+            // A shift companion can also be independently active in
+            // activePatches (unusual but legal). Skip those so the
+            // final stack has no duplicates.
             for (var k = 0; k < shiftPatches.length; k++) {
                 if (stack.indexOf(shiftPatches[k]) === -1) stack.push(shiftPatches[k]);
             }
@@ -430,41 +433,48 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         var oldCfgs   = this._appliedCfgs   || {};
         var newHashes = {};
         var newCfgs   = {};
-        var ctrl = this;
 
-        for (var oldName in oldHashes) {
-            if (!oldHashes.hasOwnProperty(oldName)) continue;
-            if (oldName.charAt(0) === '_') continue;
-            if (resolved[oldName] === undefined) {
-                this._safeBinding(
-                    ctrl._applyBinding, ctrl, [oldName, null],
-                    'applyUnbindThrow:' + oldName,
-                    '_applyBinding(' + oldName + ', null) threw: ');
-            }
-        }
+        this._unbindRemoved(resolved, oldHashes);
 
         for (var name in resolved) {
             if (!resolved.hasOwnProperty(name)) continue;
             if (name.charAt(0) === '_') continue;
             var cfg = resolved[name];
-            var h;
-            if (oldCfgs[name] === cfg) {
-                h = oldHashes[name];
-            } else {
-                h = XoneK3._hashBinding(cfg);
-            }
+            var h = (oldCfgs[name] === cfg)
+                ? oldHashes[name]
+                : XoneK3._hashBinding(cfg);
             newHashes[name] = h;
             newCfgs[name]   = cfg;
             if (oldHashes[name] === h) continue;
-            this._safeBinding(
-                ctrl._applyBinding, ctrl, [name, cfg],
-                'applyBindThrow:' + name,
-                '_applyBinding(' + name + ') threw: ');
+            this._applyOneSafe(name, cfg);
         }
 
         this._applied = resolved;
         this._appliedHashes = newHashes;
         this._appliedCfgs = newCfgs;
+    };
+
+    XoneK3.K3Controller.prototype._unbindRemoved = function(resolved, oldHashes) {
+        for (var oldName in oldHashes) {
+            if (!oldHashes.hasOwnProperty(oldName)) continue;
+            if (oldName.charAt(0) === '_') continue;
+            if (resolved[oldName] !== undefined) continue;
+            this._applyOneSafe(oldName, null);
+        }
+    };
+
+    // A single throwing binding must not abort the pass. cfg ===
+    // null / undefined means "unbind".
+    XoneK3.K3Controller.prototype._applyOneSafe = function(name, cfg) {
+        try {
+            this._applyBinding(name, cfg);
+        } catch (e) {
+            var isUnbind = (cfg === null || cfg === undefined);
+            var key    = (isUnbind ? 'applyUnbindThrow:' : 'applyBindThrow:') + name;
+            var prefix = '_applyBinding(' + name +
+                         (isUnbind ? ', null' : '') + ') threw: ';
+            XoneK3._warnOnce(key, prefix + (e && e.message ? e.message : e));
+        }
     };
 
     XoneK3.K3Controller.prototype._snapshotBinding = function(b) {
@@ -526,9 +536,14 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         // Bridge. Mixxx uninitialises soft takeover on rearm and
         // drops the next write unless it lands within its own
         // tolerance of the current CO. A physical already near CO
-        // at rearm — the common case — would otherwise get stuck.
+        // at rearm — the common case — would otherwise get stuck
+        // at the endpoint.
+        //
         // A zero-distance write (CO's own value back to itself)
-        // flips initialised without a value change.
+        // flips initialised without a value change. TAKEOVER_EPSILON
+        // is deliberately larger than CO_MATCH_EPSILON, so an LED
+        // showing "matched" always implies control is live — the
+        // extra half-band is a harmless false-negative on the LED.
         if (b._normalized !== undefined) {
             var co = engine.getParameter(b.group, b.inKey);
             if (Math.abs(co - b._normalized) <= XoneK3.TAKEOVER_EPSILON) {
@@ -687,30 +702,48 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         }
         var result = Array.isArray(returned) ? returned : copy;
 
-        var beforeSet = {};
-        for (var i = 0; i < before.length; i++) beforeSet[before[i]] = true;
-        var afterSet = {};
-        for (var j = 0; j < result.length; j++) afterSet[result[j]] = true;
-
-        var anyChange = (before.length !== result.length);
-        if (!anyChange) {
-            for (var k = 0; k < before.length; k++) {
-                if (before[k] !== result[k]) { anyChange = true; break; }
-            }
-        }
-        if (!anyChange) return;
+        var diff = this._diffPatches(before, result);
+        if (!diff) return;
 
         this.activePatches.length = 0;
         for (var m = 0; m < result.length; m++) this.activePatches.push(result[m]);
 
         this._recompute();
 
+        for (var r = 0; r < diff.removed.length; r++) {
+            this._onPatchChange(diff.removed[r], null);
+        }
+        for (var a = 0; a < diff.added.length; a++) {
+            this._onPatchChange(null, diff.added[a]);
+        }
+    };
+
+    // Structural diff between two patch-name arrays. Returns
+    // { added, removed } or null when the arrays are identical
+    // (same length, same element order — a re-order counts as
+    // unchanged because the stack is rebuilt from the same set).
+    XoneK3.K3Controller.prototype._diffPatches = function(before, after) {
+        var same = (before.length === after.length);
+        if (same) {
+            for (var i = 0; i < before.length; i++) {
+                if (before[i] !== after[i]) { same = false; break; }
+            }
+        }
+        if (same) return null;
+
+        var beforeSet = {};
+        for (var b = 0; b < before.length; b++) beforeSet[before[b]] = true;
+        var afterSet = {};
+        for (var a = 0; a < after.length; a++) afterSet[after[a]] = true;
+
+        var added = [], removed = [];
         for (var r = 0; r < before.length; r++) {
-            if (!afterSet[before[r]]) this._onPatchChange(before[r], null);
+            if (!afterSet[before[r]]) removed.push(before[r]);
         }
-        for (var a = 0; a < result.length; a++) {
-            if (!beforeSet[result[a]]) this._onPatchChange(null, result[a]);
+        for (var n = 0; n < after.length; n++) {
+            if (!beforeSet[after[n]]) added.push(after[n]);
         }
+        return { added: added, removed: removed };
     };
 
     XoneK3.K3Controller.prototype.addPatch = function(name) {

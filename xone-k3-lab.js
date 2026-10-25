@@ -32,7 +32,7 @@
     }
 
     if (typeof XoneK3._requireLoad !== 'function') {
-        throw new Error('Xone K3: xone-k3-lab.js — xone-k3-lib-core.js must load first');
+        throw new Error('Xone K3: xone-k3-lib-core.js must load first');
     }
     XoneK3._requireLoad('xone-k3-lab.js',
         ['FUNCS', 'SCHEMES', 'K3Controller', 'compileScheme', 'resolveScheme',
@@ -63,6 +63,35 @@
         SAVE_START: 4, SAVE_END: 11,
         SOURCE: 12, STRUCTURAL: 13, SAMPLED: 14, WIRE: 15
     };
+
+    // Slot-grid cell colours, keyed by LAB_SLOT index. Hoisted out
+    // of the IIFE it used to live in — same shape, easier to inspect
+    // from the console and to override from a boot config.
+    XoneK3.LAB_SLOT_COLOURS = {};
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.ON]         = [0, 127, 0];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.OFF]        = [127, 0, 0];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.CO]         = [127, 127, 127];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.CO_OFF]     = [60, 60, 127];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.SOURCE]     = [0, 127, 0];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.STRUCTURAL] = [0, 0, 127];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.SAMPLED]    = [0, 127, 127];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.WIRE]       = [127, 0, 127];
+
+    // Segment-grid cell names, in segment-index order. Every cell
+    // that displays a scheme segment comes from this list. The
+    // renderer discovers which of these a given config actually
+    // binds via `_findCellsByFunc`; entries not bound are simply
+    // never painted by the lab painter. A preset that rebinds
+    // segment cells moves the LEDs with them automatically.
+    XoneK3.CALIB_TARGETS = [
+        'button3_0',
+        'button0_1','button1_1','button2_1','button3_1',
+        'button0_2','button1_2','button2_2','button3_2',
+        'grid0_0','grid1_0','grid2_0','grid3_0',
+        'grid0_1','grid1_1','grid2_1','grid3_1',
+        'grid0_2','grid1_2','grid2_2','grid3_2',
+        'grid0_3','grid1_3'
+    ];
 
     XoneK3.LAB_DUMP_ON_SHUTDOWN = true;
     XoneK3._modeSeen = { edit: false, slots: false };
@@ -288,11 +317,12 @@
     };
 
     // Cells owned by any lab painter. The segment grid skips
-    // these — each painter paints its own cells.
+    // these — each painter paints its own cells. Returns a Set —
+    // the caller does membership checks per segment cell.
     XoneK3.LabController.prototype._claimedCells = function() {
-        var claimed = {};
+        var claimed = new Set();
         var cells = this._findCellsByFunc(XoneK3.LAB_PAINTER_FUNCS);
-        for (var c in cells) claimed[c] = true;
+        for (var c in cells) claimed.add(c);
         return claimed;
     };
 
@@ -584,7 +614,8 @@
     };
 
     // ============================================================
-    // DUMP
+    // DUMP — per-slot emitters (prototype methods; helper
+    // functions live in XoneK3._dump below)
     // ============================================================
     XoneK3.LabController.prototype._emitOverwriteBackup = function(idx) {
         if (!this._lab.slots[idx]) return;
@@ -613,7 +644,7 @@
             }
         }
 
-        emitSchemeLines(L, baseName, scheme, offScheme, coScheme);
+        _emitSchemeLines(L, baseName, scheme, offScheme, coScheme);
     };
 
     XoneK3.LabController.prototype._dumpSlot = function(slotIdx) {
@@ -633,7 +664,7 @@
         }
         if (!scheme) return;
         var L = [];
-        emitSchemeLines(L, 'NAME', XoneK3.resolveScheme(scheme));
+        _emitSchemeLines(L, 'NAME', XoneK3.resolveScheme(scheme));
         print('\n' + L.join('\n'));
     };
 
@@ -831,7 +862,7 @@
 
         for (var i = 0; i < targets.length; i++) {
             var name = targets[i];
-            if (claimed[name]) continue;
+            if (claimed.has(name)) continue;
 
             // An overlay may null this cell with {}. Honour it —
             // otherwise the segment colour from the layer below
@@ -854,7 +885,7 @@
         }
         if (onColorLab) this._renderMarkerLED(compiled);
     };
-    
+
     XoneK3.LabController.prototype._renderMarkerLED = function(compiled) {
         if (!this._markerTarget) return;
         if (!compiled || !compiled.marker) {
@@ -865,24 +896,6 @@
         this._paintRGB(this._markerTarget, m.rgb[0], m.rgb[1], m.rgb[2], m.brightness);
     };
 
-    // Slot grid LED colour per slot index. On/off/co/co-off get
-    // fixed roles; saves are yellow; the four bake outputs each
-    // get their own colour so the pipeline stage is visible at a
-    // glance.
-    var SLOT_COLOURS = (function() {
-        var S = XoneK3.LAB_SLOT;
-        var m = {};
-        m[S.ON]         = [0, 127, 0];
-        m[S.OFF]        = [127, 0, 0];
-        m[S.CO]         = [127, 127, 127];
-        m[S.CO_OFF]     = [60, 60, 127];
-        m[S.SOURCE]     = [0, 127, 0];
-        m[S.STRUCTURAL] = [0, 0, 127];
-        m[S.SAMPLED]    = [0, 127, 127];
-        m[S.WIRE]       = [127, 0, 127];
-        return m;
-    })();
-
     XoneK3.LabController.prototype._renderSlotLEDs = function() {
         if (!this._patchActive('slots')) return;
         var S = XoneK3.LAB_SLOT;
@@ -892,7 +905,7 @@
             if (isNaN(idx)) continue;
             var slot = this._lab.slots[idx];
             if (!slot) { this._paintRGB(cell, 0, 0, 0, 0); continue; }
-            var col = SLOT_COLOURS[idx];
+            var col = XoneK3.LAB_SLOT_COLOURS[idx];
             if (!col) {
                 col = (idx <= S.SAVE_END) ? [127, 127, 0] : [127, 0, 127];
             }
@@ -1068,6 +1081,9 @@
         this._paintRGB(name, entry.rgb[0], entry.rgb[1], entry.rgb[2], entry.brightness);
     };
 
+    // Thin try/catch wrapper — keeps the catch at the outermost
+    // frame so a body throw's stack trace points at the actual
+    // failing call, not at "somewhere inside _renderPreviewLED".
     XoneK3.LabController.prototype._renderPreviewLED = function() {
         var name = this._labPreviewTarget;
         if (!name) return;
@@ -1078,40 +1094,7 @@
         }
 
         try {
-            var c = this._compiledPreview();
-            var resolved = c.resolved;
-            var compiled = c.compiled;
-            if (!compiled) { this._paintRGB(name, 0, 0, 0, 0); return; }
-
-            var st = compiled.beat ? this._deckStateFor(compiled) : null;
-            var beatPlaying = !!(compiled.beat && st && st.hasBeat);
-
-            if (!beatPlaying && this._renderBeatStoppedTarget(name, resolved)) return;
-
-            // Keep the count fresh even when the beat edge was
-            // throttled — otherwise the cascade can lag a beat.
-            if (beatPlaying) {
-                var ch = this._resolveDeckRef(compiled.beat.deck);
-                if (ch) this._syncBeatCount(ch);
-            }
-
-            var previewPos = this._lab.previewPos;
-            var logicalOn = this._lab.previewOn ? 1 : 0;
-            var beatOffPhase = beatPlaying && st && !st.active;
-
-            // Normal four-case matrix. previewOn == logicalOn.
-            if (beatOffPhase && !logicalOn) {
-                this._paintRGB(name, 0, 0, 0, 0);
-                return;
-            }
-            var isOn = (logicalOn && !beatOffPhase) ? 1 : 0;
-
-            if (this._renderCoMatch(name, compiled, previewPos, isOn)) return;
-
-            var devDir = previewPos * 2 - 1;
-            if (this._renderMarkerBand(name, compiled, isOn, devDir)) return;
-
-            this._renderPreviewRamp(name, compiled, previewPos, isOn);
+            this._renderPreviewLedBody(name);
         } catch (e) {
             XoneK3._warnOnce('labPreviewThrow:' + (e && e.message ? e.message : 'unknown'),
                 'lab preview render threw: ' +
@@ -1119,6 +1102,50 @@
                 ' — preview LED painted black');
             this._paintRGB(name, 0, 0, 0, 0);
         }
+    };
+
+    // Beat/stopped/pulse orchestration: everything up to the
+    // on/off decision. The final three-way (co-match / marker /
+    // ramp) lives in _previewFrame.
+    XoneK3.LabController.prototype._renderPreviewLedBody = function(name) {
+        var c = this._compiledPreview();
+        var resolved = c.resolved;
+        var compiled = c.compiled;
+        if (!compiled) { this._paintRGB(name, 0, 0, 0, 0); return; }
+
+        var st = compiled.beat ? this._deckStateFor(compiled) : null;
+        var beatPlaying = !!(compiled.beat && st && st.hasBeat);
+
+        if (!beatPlaying && this._renderBeatStoppedTarget(name, resolved)) return;
+
+        // Keep the count fresh even when the beat edge was
+        // throttled — otherwise the cascade can lag a beat.
+        if (beatPlaying) {
+            var ch = this._resolveDeckRef(compiled.beat.deck);
+            if (ch) this._syncBeatCount(ch);
+        }
+
+        var previewPos = this._lab.previewPos;
+        var logicalOn = this._lab.previewOn ? 1 : 0;
+        var beatOffPhase = beatPlaying && st && !st.active;
+
+        // Four-case matrix: previewOn == logicalOn.
+        if (beatOffPhase && !logicalOn) {
+            this._paintRGB(name, 0, 0, 0, 0);
+            return;
+        }
+        var isOn = (logicalOn && !beatOffPhase) ? 1 : 0;
+
+        this._previewFrame(name, compiled, previewPos, isOn);
+    };
+
+    // The last three-way in the render pipeline. First branch to
+    // paint wins; the ramp is the unconditional fallback.
+    XoneK3.LabController.prototype._previewFrame = function(name, compiled, previewPos, isOn) {
+        if (this._renderCoMatch(name, compiled, previewPos, isOn)) return;
+        var devDir = previewPos * 2 - 1;
+        if (this._renderMarkerBand(name, compiled, isOn, devDir)) return;
+        this._renderPreviewRamp(name, compiled, previewPos, isOn);
     };
 
     // ============================================================
@@ -1551,38 +1578,35 @@
     // ============================================================
     // DUMP HELPERS
     // ============================================================
-    function fmtDumpValue(v) {
+    // Everything below is a pure function that takes an array
+    // (`L`) and pushes lines onto it. Exposed under XoneK3._dump
+    // for discoverability and console poking; call sites inside
+    // this file still use the module-local names.
+    function _fmtDumpValue(v) {
         if (v === null || v === undefined) return 'null';
         if (Array.isArray(v)) return '[' + v.join(', ') + ']';
         if (typeof v === 'string') return "'" + v + "'";
         if (typeof v === 'object') return JSON.stringify(v);
         return String(v);
     }
-    function fmtDumpColorEntry(e) {
+    function _fmtDumpColorEntry(e) {
         if (e === null || e === undefined) return 'null';
         if (typeof e === 'string') return "'" + e + "'";
         if (Array.isArray(e)) return '[' + e.join(', ') + ']';
         if (typeof e === 'object' && e.color !== undefined) {
-            var parts = ['color: ' + fmtDumpValue(e.color)];
+            var parts = ['color: ' + _fmtDumpValue(e.color)];
             if (e.ratio !== undefined) parts.push('ratio: ' + e.ratio);
             return '{ ' + parts.join(', ') + ' }';
         }
         return JSON.stringify(e);
     }
-
-    // Inline formatter for beat sub-objects (bar / phrase /
-    // prePhrase). { color?, brightness? }.
-    function fmtDumpBeatEntry(sub) {
+    function _fmtDumpBeatEntry(sub) {
         var parts = [];
-        if (sub.color !== undefined)      parts.push('color: ' + fmtDumpValue(sub.color));
+        if (sub.color !== undefined)      parts.push('color: ' + _fmtDumpValue(sub.color));
         if (sub.brightness !== undefined) parts.push('brightness: ' + sub.brightness);
         return '{ ' + parts.join(', ') + ' }';
     }
-
-    // Beat block, one field per line. Returns an array of lines.
-    // `indent` is prepended to each line. Sub-objects go last;
-    // any unknown fields fall through to the tail.
-    function fmtDumpBeatLines(beat, indent) {
+    function _fmtDumpBeatLines(beat, indent) {
         var lines = [];
         var seen = {};
         var scalarKeys = ['color', 'brightness', 'barBeats', 'phraseBars',
@@ -1593,17 +1617,17 @@
             k = scalarKeys[i];
             if (beat[k] === undefined) continue;
             seen[k] = true;
-            lines.push(indent + k + ': ' + fmtDumpValue(beat[k]) + ',');
+            lines.push(indent + k + ': ' + _fmtDumpValue(beat[k]) + ',');
         }
         for (i = 0; i < subKeys.length; i++) {
             k = subKeys[i];
             if (beat[k] === undefined) continue;
             seen[k] = true;
-            lines.push(indent + k + ': ' + fmtDumpBeatEntry(beat[k]) + ',');
+            lines.push(indent + k + ': ' + _fmtDumpBeatEntry(beat[k]) + ',');
         }
         for (k in beat) {
             if (seen[k]) continue;
-            lines.push(indent + k + ': ' + fmtDumpValue(beat[k]) + ',');
+            lines.push(indent + k + ': ' + _fmtDumpValue(beat[k]) + ',');
         }
         return lines;
     }
@@ -1624,13 +1648,23 @@
         }
     }
 
+    // Scalars that emit as `name: value,` with a strict !==
+    // comparison against the scheme default. Special-format fields
+    // (colors, ratio, markerColor, offScheme, coScheme, reverse,
+    // beat) are handled explicitly below so their output shape is
+    // stable across refactors.
+    var _DUMP_SCALARS = [
+        'curve', 'schemePosition', 'interp', 'calibration',
+        'brightness', 'brightnessScale', 'markerPosition', 'markerWidth'
+    ];
+
     function _emitSchemeFields(L, scheme, indent) {
         var D = XoneK3.SCHEME_DEFAULTS;
         function push(x) { L.push(indent + x); }
         push('colors: [');
         var colors = scheme.colors || [];
         for (var i = 0; i < colors.length; i++) {
-            L.push(indent + '    ' + fmtDumpColorEntry(colors[i]) +
+            L.push(indent + '    ' + _fmtDumpColorEntry(colors[i]) +
                 (i < colors.length - 1 ? ',' : ''));
         }
         push('],');
@@ -1639,15 +1673,13 @@
             while (r.length > 0 && r[r.length - 1] === 1) r.pop();
             if (r.length > 0) push('ratio: [' + r.join(', ') + '],');
         }
-        if (scheme.curve !== D.curve) push('curve: ' + scheme.curve + ',');
-        if (scheme.schemePosition !== D.schemePosition) push('schemePosition: ' + scheme.schemePosition + ',');
-        if (scheme.interp !== D.interp) push('interp: ' + scheme.interp + ',');
-        if (scheme.calibration !== D.calibration) push('calibration: ' + scheme.calibration + ',');
-        if (scheme.brightness !== D.brightness) push('brightness: ' + scheme.brightness + ',');
-        if (scheme.brightnessScale !== D.brightnessScale) push('brightnessScale: ' + scheme.brightnessScale + ',');
-        if (scheme.markerColor !== D.markerColor) push('markerColor: ' + fmtDumpValue(scheme.markerColor) + ',');
-        if (scheme.markerPosition !== D.markerPosition) push('markerPosition: ' + scheme.markerPosition + ',');
-        if (scheme.markerWidth !== D.markerWidth) push('markerWidth: ' + scheme.markerWidth + ',');
+        for (var si = 0; si < _DUMP_SCALARS.length; si++) {
+            var f = _DUMP_SCALARS[si];
+            if (scheme[f] !== D[f]) push(f + ': ' + scheme[f] + ',');
+        }
+        if (scheme.markerColor !== D.markerColor) {
+            push('markerColor: ' + _fmtDumpValue(scheme.markerColor) + ',');
+        }
         if (scheme.offScheme !== D.offScheme && scheme.offScheme !== undefined && scheme.offScheme !== null) {
             _emitSchemeField(L, 'offScheme', scheme.offScheme, indent);
         }
@@ -1660,14 +1692,14 @@
             delete dumpBeat.enabled;
             if (Object.keys(dumpBeat).length > 0) {
                 push('beat: {');
-                var beatLines = fmtDumpBeatLines(dumpBeat, indent + '    ');
+                var beatLines = _fmtDumpBeatLines(dumpBeat, indent + '    ');
                 for (var bi = 0; bi < beatLines.length; bi++) L.push(beatLines[bi]);
                 push('},');
             }
         }
     }
 
-    function emitSchemeLines(L, name, scheme, offOverride, coOverride) {
+    function _emitSchemeLines(L, name, scheme, offOverride, coOverride) {
         var flat = Object.assign({}, scheme);
         if (offOverride !== undefined) flat.offScheme = offOverride;
         if (coOverride !== undefined)  flat.coScheme  = coOverride;
@@ -1676,7 +1708,19 @@
         L.push('};');
         L.push('');
     }
-    XoneK3._emitSchemeLines = emitSchemeLines;
+
+    // Public surface. Keep XoneK3._emitSchemeLines as a compat
+    // alias — code outside this file (lab dumps pasted into a
+    // console, extension authors) already calls it by that name.
+    XoneK3._dump = {
+        schemeLines:  _emitSchemeLines,
+        schemeFields: _emitSchemeFields,
+        schemeField:  _emitSchemeField,
+        fmtValue:     _fmtDumpValue,
+        fmtColorEntry:_fmtDumpColorEntry,
+        fmtBeatLines: _fmtDumpBeatLines
+    };
+    XoneK3._emitSchemeLines = _emitSchemeLines;
 
     XoneK3.LAB_PAINTER_FUNCS = [
         XoneK3.FUNCS.labBeatSelect,

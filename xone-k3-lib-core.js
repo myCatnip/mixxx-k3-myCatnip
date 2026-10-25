@@ -241,6 +241,26 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         return id;
     };
 
+    // Recursive helpers, hoisted. Called only at runtime, after
+    // XoneK3._stableStringify has been assigned.
+    function _stableStringifyArray(arr) {
+        var parts = [];
+        for (var i = 0; i < arr.length; i++) {
+            parts.push(XoneK3._stableStringify(arr[i]));
+        }
+        return '[' + parts.join(',') + ']';
+    }
+
+    function _stableStringifyObject(obj) {
+        var keys = Object.keys(obj).sort();
+        var parts = [];
+        for (var k = 0; k < keys.length; k++) {
+            var key = keys[k];
+            parts.push(JSON.stringify(key) + ':' + XoneK3._stableStringify(obj[key]));
+        }
+        return '{' + parts.join(',') + '}';
+    }
+
     XoneK3._stableStringify = function(o) {
         if (o === null) return 'null';
         if (o === undefined) return 'undefined';
@@ -248,22 +268,8 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         if (t === 'number' || t === 'boolean') return String(o);
         if (t === 'string') return JSON.stringify(o);
         if (t === 'function') return 'fn:' + XoneK3._funcId(o);
-        if (Array.isArray(o)) {
-            var arr = [];
-            for (var i = 0; i < o.length; i++) {
-                arr.push(XoneK3._stableStringify(o[i]));
-            }
-            return '[' + arr.join(',') + ']';
-        }
-        if (t === 'object') {
-            var keys = Object.keys(o).sort();
-            var parts = [];
-            for (var k = 0; k < keys.length; k++) {
-                var key = keys[k];
-                parts.push(JSON.stringify(key) + ':' + XoneK3._stableStringify(o[key]));
-            }
-            return '{' + parts.join(',') + '}';
-        }
+        if (Array.isArray(o)) return _stableStringifyArray(o);
+        if (t === 'object')   return _stableStringifyObject(o);
         return String(o);
     };
 
@@ -271,7 +277,10 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         if (v === undefined) return '';
         if (field === 'func') return XoneK3._funcId(v);
         if (typeof v === 'object' && v !== null) return XoneK3._stableStringify(v);
-        // JSON-quote strings so a '|' can't shift a field boundary.
+        // JSON-quote strings so a '\u0001' inside a CO name can't
+        // shift the field boundary in _hashBinding's join. JSON's
+        // encoder escapes \u0001 to "\u0001", so the literal
+        // separator byte never appears in the quoted output.
         if (typeof v === 'string') return JSON.stringify(v);
         return String(v);
     };
@@ -354,6 +363,16 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         ];
     })();
 
+    // Token membership, built once. TOKENS is immutable after the
+    // assignment above. _findUnknownTokens is called per-binding
+    // from _validateBindings, so O(1) lookup beats scanning.
+    var _KNOWN_TOKEN_SET = {};
+    (function() {
+        for (var i = 0; i < XoneK3.TOKENS.length; i++) {
+            _KNOWN_TOKEN_SET[XoneK3.TOKENS[i].token] = true;
+        }
+    })();
+
     XoneK3.resolve = function(str, ctrl) {
         if (typeof str !== 'string') return str;
         for (var i = 0; i < XoneK3.TOKENS.length; i++) {
@@ -367,15 +386,15 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     XoneK3._findUnknownTokens = function(str) {
         if (typeof str !== 'string' || str.indexOf('$') === -1) return [];
         var out = [];
+        var seen = {};
         var re = /\$[A-Z0-9_]+\$/g;
         var m;
         while ((m = re.exec(str)) !== null) {
             var tok = m[0];
-            var known = false;
-            for (var i = 0; i < XoneK3.TOKENS.length; i++) {
-                if (XoneK3.TOKENS[i].token === tok) { known = true; break; }
-            }
-            if (!known && out.indexOf(tok) === -1) out.push(tok);
+            if (_KNOWN_TOKEN_SET[tok]) continue;
+            if (seen[tok]) continue;
+            seen[tok] = true;
+            out.push(tok);
         }
         return out;
     };
@@ -402,34 +421,39 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // ============================================================
     // Monotonic [hw, luminance] table per channel. Non-monotonic
     // input is flattened to the previous value with a warn-once.
+    // Normalised to [0..1] against the channel's own peak.
+    function _normalizeTransferChannel(list, keyName) {
+        var sorted = list.slice().sort(function(a, b) { return a[0] - b[0]; });
+        var maxLum = 0;
+        for (var i = 0; i < sorted.length; i++) {
+            if (sorted[i][1] > maxLum) maxLum = sorted[i][1];
+        }
+        if (maxLum <= 0) return null;
+        var cur = [], prev = -Infinity;
+        for (var j = 0; j < sorted.length; j++) {
+            var hw = Math.max(0, Math.min(127, sorted[j][0]));
+            var lum = sorted[j][1] / maxLum;
+            if (lum < prev) {
+                XoneK3._warnOnce('transferNonMono:' + keyName + ':' + hw,
+                    'transfer curve channel "' + keyName + '" not monotonic at hw=' + hw +
+                    ' — flattening to previous value');
+                lum = prev;
+            }
+            if (lum > 1) lum = 1;
+            cur.push([hw, lum]);
+            prev = lum;
+        }
+        return cur;
+    }
+
     XoneK3._buildTransferRGB = function(obj) {
         if (!obj || !obj.r || !obj.g || !obj.b) return null;
-        var lists = { r: obj.r, g: obj.g, b: obj.b };
         var out = {};
         var keys = ['r', 'g', 'b'];
         for (var k = 0; k < 3; k++) {
-            var list = lists[keys[k]];
-            var sorted = list.slice().sort(function(a, b) { return a[0] - b[0]; });
-            var maxLum = 0;
-            for (var i = 0; i < sorted.length; i++) {
-                if (sorted[i][1] > maxLum) maxLum = sorted[i][1];
-            }
-            if (maxLum <= 0) return null;
-            var cur = [], prev = -Infinity;
-            for (var j = 0; j < sorted.length; j++) {
-                var hw = Math.max(0, Math.min(127, sorted[j][0]));
-                var lum = sorted[j][1] / maxLum;
-                if (lum < prev) {
-                    XoneK3._warnOnce('transferNonMono:' + keys[k] + ':' + hw,
-                        'transfer curve channel "' + keys[k] + '" not monotonic at hw=' + hw +
-                        ' — flattening to previous value');
-                    lum = prev;
-                }
-                if (lum > 1) lum = 1;
-                cur.push([hw, lum]);
-                prev = lum;
-            }
-            out[keys[k]] = cur;
+            var normalized = _normalizeTransferChannel(obj[keys[k]], keys[k]);
+            if (!normalized) return null;
+            out[keys[k]] = normalized;
         }
         return out;
     };
@@ -476,33 +500,47 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         return false;
     }
 
-    XoneK3.beatLevel = function(beat, count) {
-        var bpb, ppb;
-        var sig = XoneK3.TIME_SIG;
-        if (sig) {
-            bpb = sig.barBeats;
-            ppb = sig.phraseBars;
-        } else {
-            bpb = (typeof beat.barBeats === 'number' && beat.barBeats > 0)
-                ? beat.barBeats : XoneK3.DEFAULT_BAR_BEATS;
-            ppb = (typeof beat.phraseBars === 'number' && beat.phraseBars > 0)
-                ? beat.phraseBars : XoneK3.DEFAULT_PHRASE_BARS;
+    // Resolve (barBeats, phraseBars) from TIME_SIG if set, else
+    // from the beat block's own fields, else from the engine
+    // defaults. Extracted so beatLevel reads as music, not as
+    // defaulting rules.
+    function _resolveSig(beat) {
+        if (XoneK3.TIME_SIG) {
+            return {
+                barBeats:   XoneK3.TIME_SIG.barBeats,
+                phraseBars: XoneK3.TIME_SIG.phraseBars
+            };
         }
-        var phraseLen = bpb * ppb;
+        return {
+            barBeats:   (typeof beat.barBeats   === 'number' && beat.barBeats   > 0)
+                        ? beat.barBeats   : XoneK3.DEFAULT_BAR_BEATS,
+            phraseBars: (typeof beat.phraseBars === 'number' && beat.phraseBars > 0)
+                        ? beat.phraseBars : XoneK3.DEFAULT_PHRASE_BARS
+        };
+    }
+
+    XoneK3.beatLevel = function(beat, count) {
+        var sig = _resolveSig(beat);
+        var barBeats = sig.barBeats;
+        var phraseBars = sig.phraseBars;
+        var phraseLen = barBeats * phraseBars;
 
         var preBeats;
         if (typeof beat.prePhraseBeats === 'number') preBeats = beat.prePhraseBeats;
-        else preBeats = bpb;
+        else preBeats = barBeats;
         if (preBeats < 0) preBeats = 0;
         if (preBeats >= phraseLen) preBeats = phraseLen - 1;
-        var preAt = phraseLen - preBeats;
+        var prePhraseStart = phraseLen - preBeats;
 
-        var c = ((count - 1) % phraseLen + phraseLen) % phraseLen;
+        // Modular position within the phrase, 0-based. Negative
+        // counts (pre-marker playback) are handled by the
+        // double-mod.
+        var phrasePos = ((count - 1) % phraseLen + phraseLen) % phraseLen;
         var level;
-        if (preBeats > 0 && c === preAt) level = 'prePhrase';
-        else if (c === 0)                level = 'phrase';
-        else if (c % bpb === 0)          level = 'bar';
-        else                             level = 'beat';
+        if (preBeats > 0 && phrasePos === prePhraseStart) level = 'prePhrase';
+        else if (phrasePos === 0)                         level = 'phrase';
+        else if (phrasePos % barBeats === 0)              level = 'bar';
+        else                                              level = 'beat';
 
         if (beat.half && level === 'beat' && (((count % 2) + 2) % 2 === 1)) {
             return { skip: true };

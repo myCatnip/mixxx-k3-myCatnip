@@ -21,6 +21,12 @@
     XoneK3._requireLoad('xone-k3-lib-controller-colour.js',
         ['K3Controller', 'resolve', '_warnOnce']);
 
+    // Fields recognised inside colorScheme.on's conditional form.
+    // Anything else in the object warns once per binding and is
+    // ignored. Keeping the list at module scope makes it obvious
+    // that adding a new on: field means editing exactly this.
+    var KNOWN_ON = ['patchActive', 'state', 'equals', 'contains', 'co', 'group'];
+
     // ============================================================
     // on: PARSING
     // ============================================================
@@ -36,9 +42,6 @@
                 ' — got ' + (Array.isArray(cs.on) ? 'array' : typeof cs.on));
             return;
         }
-
-        // Known on: fields — anything else is warned and ignored.
-        var KNOWN_ON = ['patchActive', 'state', 'equals', 'contains', 'co', 'group'];
 
         var o = {};
         if (cs.on.patchActive !== undefined) o.patchActive = cs.on.patchActive;
@@ -56,14 +59,9 @@
             o.co = cs.on.co;
             o.group = g;
         }
-        for (var k in cs.on) {
-            if (!cs.on.hasOwnProperty(k)) continue;
-            if (KNOWN_ON.indexOf(k) === -1) {
-                XoneK3._warnOnce('csOnUnknown:' + b._name + ':' + k,
-                    'colorScheme.on on ' + b._name +
-                    ' has unknown field "' + k + '" — ignored');
-            }
-        }
+
+        this._warnUnknownCsOnFields(b, cs.on);
+
         if (Object.keys(o).length === 0) {
             XoneK3._warnOnce('csOnEmpty:' + b._name,
                 'colorScheme.on has no recognised fields on ' + b._name +
@@ -71,13 +69,32 @@
             return;
         }
 
-        if (o.co && o.group) {
-            b._conns.push(engine.makeConnection(o.group, o.co, function() {
-                b._refresh();
-            }));
-        }
+        // Connection is created before b._csOn is assigned. Mixxx
+        // defers the CO callback to the next event-loop iteration,
+        // so _refresh() won't fire until b._csOn === o. If that
+        // ever changed, the immediate fire would read _csOn === null
+        // and fall through to the outKey branch in _isOn.
+        this._wireCsOnConnection(b, o);
 
         b._csOn = o;
+    };
+
+    XoneK3.K3Controller.prototype._warnUnknownCsOnFields = function(b, csOn) {
+        for (var k in csOn) {
+            if (!csOn.hasOwnProperty(k)) continue;
+            if (KNOWN_ON.indexOf(k) === -1) {
+                XoneK3._warnOnce('csOnUnknown:' + b._name + ':' + k,
+                    'colorScheme.on on ' + b._name +
+                    ' has unknown field "' + k + '" — ignored');
+            }
+        }
+    };
+
+    XoneK3.K3Controller.prototype._wireCsOnConnection = function(b, o) {
+        if (!o.co || !o.group) return;
+        b._conns.push(engine.makeConnection(o.group, o.co, function() {
+            b._refresh();
+        }));
     };
 
     // ============================================================
@@ -150,6 +167,14 @@
             b._csSchemeFn = cs.scheme;
         }
 
+        this._wireCsKnob(b, cs);
+    };
+
+    // Deviation-LED binding: attach the knob the LED samples its
+    // ramp position from. Runs only after the scheme half has
+    // been validated — a knob reference on a scheme-less binding
+    // would be meaningless.
+    XoneK3.K3Controller.prototype._wireCsKnob = function(b, cs) {
         if (cs.knob === undefined) return;
         var knob = this.bindings[cs.knob];
         if (!knob) {

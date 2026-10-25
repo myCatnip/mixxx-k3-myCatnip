@@ -752,8 +752,11 @@ Six per channel:
 | `_playConns` | `slip_enabled` | Count resync. |
 
 Plus hotcue colour/position observers when
-`PHRASE_MARKER_COLORS` is non-empty (32 per channel, i.e. 16
-hotcues × 2).
+`PHRASE_MARKER_COLORS` is non-empty (2 × `XoneK3.HOTCUE_MAX`
+per channel, i.e. 32 with the default of 16). The observers are
+wired once at clock-open, so raising `XoneK3.HOTCUE_MAX` after
+boot extends the per-tick derive scan but not the observer set
+— origin still re-derives on the next playhead throttle.
 
 `_openBeatClocks` ends with a catch-up loop: re-reads loop state
 for every channel, starts the loop clock where a loop is already
@@ -1035,9 +1038,18 @@ because `_resolvePatch` memoizes its output — a repeated
 recompute over the same stack returns the same `resolved[name]`
 references.
 
-Each per-binding `_applyBinding` call is wrapped via `_safeBinding`.
-A throwing binding warns once via `_warnOnce('applyBindThrow:<name>')`
-and doesn't stop the pass.
+Each per-binding `_applyBinding` call is wrapped via `_applyOneSafe`,
+a named method with its own try/catch. A throwing binding warns once
+via `_warnOnce('applyBindThrow:<name>')` (or `'applyUnbindThrow:<name>'`
+when the cfg is null and the pass is unbinding) and doesn't stop the
+pass. The unbind sweep is `_unbindRemoved`, which iterates
+`_appliedHashes` and calls `_applyOneSafe(name, null)` for every entry
+missing from the new resolved set.
+
+`_safeBinding` still exists — it's used by `_refreshAllLeds` and
+`_refreshBeatLeds`, where the loop-variable-capture problem it was
+designed to solve still applies (both iterate over live bindings in a
+`for` loop).
 
 `_auditBindingCfg` runs per rebind, gated on `_debugPrintsOn`.
 Warns about cfg keys not in `_BINDING_CFG_FIELDS` (hash will miss
@@ -1144,6 +1156,20 @@ whenever `_onBeat` is set.
 
 Keyed on `_lab._version` (bumped by `_onInput`) and `previewSource`.
 Beat-driven renders between inputs hit the cache.
+
+## Preview LED render
+
+`_renderPreviewLED` is a thin try/catch wrapper — the catch lives at
+the outermost frame so a body throw's stack trace points at the
+actual failing call, not at "somewhere inside _renderPreviewLED".
+The body is `_renderPreviewLedBody`: cache read, beat-state check,
+stopped-beat-target branch, four-case matrix, then `_previewFrame`.
+
+`_previewFrame` is the final three-way in the pipeline: co-match →
+marker → ramp sample. First branch to paint wins; the ramp is the
+unconditional fallback. This is the same shape as
+`Binding._refreshColorScheme`, just with the lab's own knob / CO
+sources instead of a binding's `_csKnob` / `outKey`.
 
 ## Slot-0 preview chain
 

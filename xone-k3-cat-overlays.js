@@ -61,6 +61,18 @@
 
     // Routing toggle: enables FX unit `unit` into channel `ch`.
     // Colour follows THEME.fx[unit] live.
+    //
+    // Deliberately hand-built group key rather than
+    // `B.fxGroupEnable(unit, ch, ...)`:
+    //   - B.fxGroupEnable is the deviation-path builder — its
+    //     scheme is composed and expects a `knob:` reference. This
+    //     cell is a static LED with a live-THEME function scheme.
+    //   - B.fxGroupEnable's `deck` argument is normally a token
+    //     ($DECK_A_N$, etc.). Passing '[Channel1]' verbatim works
+    //     but reads wrong; the builder inlines it into
+    //     'group_<deck>_enable' and doesn't strip brackets.
+    //   - composeScheme would add per-render allocation for no
+    //     gain: the scheme is a single deferred THEME lookup.
     function routeTo(unit, ch) {
         var key = 'group_[Channel' + ch + ']_enable';
         return {

@@ -133,35 +133,90 @@
             if (XoneK3.SYSEX_PALETTE.hasOwnProperty(k)) XoneK3.COLORS[k] = XoneK3.SYSEX_PALETTE[k];
     };
 
+    // ---------- Colour-entry parsing ----------
+    // A colour spec is normalised to a `parts` array (the same
+    // shape a comma-separated string produces), then dispatched
+    // by the shape of parts[0]:
+    //   'mixxx'            type:'mixxx', rgb deferred to the pad
+    //   numeric, len >= 3  explicit R,G,B [brightness [off]]
+    //   anything else      named-palette lookup
+    //
+    // Brightness arguments default to DEFAULT_RGB_BRIGHTNESS and
+    // clamp to 0..127.
+
+    function _normalizeColorParts(entry) {
+        if (typeof entry === 'string') {
+            return entry.split(',').map(function(s) { return s.trim(); });
+        }
+        if (Array.isArray(entry)) {
+            return entry.map(function(v) {
+                return (typeof v === 'string') ? v.trim() : v;
+            });
+        }
+        return null;
+    }
+
+    function _clampBr(v) { return Math.max(0, Math.min(127, v)); }
+
+    function _pickBr(parts, i, fb) {
+        if (parts.length <= i) return fb;
+        var v = parseInt(parts[i], 10);
+        return isNaN(v) ? fb : _clampBr(v);
+    }
+
+    function _pickBrOrNull(parts, i) {
+        if (parts.length <= i) return null;
+        var v = parseInt(parts[i], 10);
+        return isNaN(v) ? null : _clampBr(v);
+    }
+
+    function _parseMixxxEntry(parts, DEF) {
+        return {
+            rgb: null,
+            brightness:    _pickBr(parts, 1, DEF),
+            brightnessOff: _pickBrOrNull(parts, 2),
+            type: 'mixxx'
+        };
+    }
+
+    function _parseRgbEntry(parts, DEF) {
+        var r = parseInt(parts[0], 10);
+        var g = parseInt(parts[1], 10);
+        var b = parseInt(parts[2], 10);
+        if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+        return {
+            rgb: [_clampBr(r), _clampBr(g), _clampBr(b)],
+            brightness:    _pickBr(parts, 3, DEF),
+            brightnessOff: _pickBrOrNull(parts, 4)
+        };
+    }
+
+    function _parseNamedEntry(parts, DEF) {
+        var first = (typeof parts[0] === 'string') ? parts[0].toLowerCase() : parts[0];
+        var rgbNamed = XoneK3.COLORS[first];
+        if (!rgbNamed) return null;
+        return {
+            rgb: rgbNamed.slice(),
+            brightness:    _pickBr(parts, 1, DEF),
+            brightnessOff: _pickBrOrNull(parts, 2)
+        };
+    }
+
     XoneK3.resolveColorEntry = function(entry, defaultBr) {
         if (entry === undefined || entry === null) return null;
         var DEF = (typeof defaultBr === 'number')
             ? Math.max(0, Math.min(127, defaultBr))
             : XoneK3.DEFAULT_RGB_BRIGHTNESS;
-        var parts;
-        if (typeof entry === 'string') parts = entry.split(',').map(function(s){return s.trim();});
-        else if (Array.isArray(entry)) parts = entry.map(function(v){return (typeof v==='string')?v.trim():v;});
-        else return null;
-        if (parts.length === 0 || parts[0] === '') return null;
-        var first = parts[0];
-        function clampBr(v){ return Math.max(0, Math.min(127, v)); }
-        function pickBr(i, fb){ if (parts.length <= i) return fb; var v = parseInt(parts[i],10); return isNaN(v) ? fb : clampBr(v); }
-        function pickBrOrNull(i){ if (parts.length <= i) return null; var v = parseInt(parts[i],10); return isNaN(v) ? null : clampBr(v); }
 
-        if (first === 'mixxx') return { rgb: null, brightness: pickBr(1, DEF), brightnessOff: pickBrOrNull(2), type: 'mixxx' };
-        var n0 = parseInt(first, 10);
-        if (!isNaN(n0) && parts.length >= 3) {
-            var r=parseInt(parts[0],10), g=parseInt(parts[1],10), b=parseInt(parts[2],10);
-            if (isNaN(r)||isNaN(g)||isNaN(b)) return null;
-            return {
-                rgb: [Math.max(0,Math.min(127,r)), Math.max(0,Math.min(127,g)), Math.max(0,Math.min(127,b))],
-                brightness: pickBr(3, DEF), brightnessOff: pickBrOrNull(4)
-            };
-        }
-        var named = (typeof first === 'string') ? first.toLowerCase() : first;
-        var rgbNamed = XoneK3.COLORS[named];
-        if (!rgbNamed) return null;
-        return { rgb: rgbNamed.slice(), brightness: pickBr(1, DEF), brightnessOff: pickBrOrNull(2) };
+        var parts = _normalizeColorParts(entry);
+        if (!parts || parts.length === 0 || parts[0] === '') return null;
+
+        if (parts[0] === 'mixxx') return _parseMixxxEntry(parts, DEF);
+
+        var n0 = parseInt(parts[0], 10);
+        if (!isNaN(n0) && parts.length >= 3) return _parseRgbEntry(parts, DEF);
+
+        return _parseNamedEntry(parts, DEF);
     };
 
     // ============================================================
@@ -261,6 +316,9 @@
         return segs;
     };
 
+    // Symmetric warp around the 0.5 pivot. `k > 0` squishes
+    // boundaries toward the pivot, `k < 0` expands them away.
+    // Unity at k=0, t=0, and t=1.
     function _warp(t, k) {
         if (k === 0 || t <= 0 || t >= 1) return t;
         var e = Math.pow(2, -k * XoneK3.CURVE_GAIN);
@@ -298,6 +356,11 @@
         };
     };
 
+    // Off-ramp derived from an on-ramp: keep each segment's bounds
+    // and colour, drop brightness to the default off level. Used
+    // when a scheme has no explicit offScheme. Boundaries matter
+    // — a scheme that re-shapes its off-ramp would break
+    // sample-position alignment with the on-ramp otherwise.
     XoneK3._generateOff = function(segs) {
         var offBr = XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF, out = [];
         for (var i = 0; i < segs.length; i++) {
@@ -311,71 +374,88 @@
     // ============================================================
     // COMPILE
     // ============================================================
-    // Handles both full schemes (with `colors`) and bare colour
-    // specs ('red, 80' / [127,0,0]).
+    // Two shapes:
+    //   full   — raw has `colors`, gets tmap / off / co / marker
+    //            / beat
+    //   single — bare colour spec ('red, 80' / [127,0,0]),
+    //            hard-coded 1-segment ramp with no dynamics
+    //
+    // The dispatcher handles cache lookup. A bare colour spec is
+    // cached by name when ref is a string and no overrides were
+    // passed. Cached values are never null (both helpers early-
+    // return null before the cache write), matching the previous
+    // behaviour.
+
+    XoneK3._compileFullScheme = function(raw, overrides) {
+        if (overrides) raw = Object.assign({}, raw, overrides);
+
+        var onSegs = XoneK3._buildSegments(raw.colors, raw.ratio, raw.brightness);
+        if (!onSegs) return null;
+
+        var offSegs = null;
+        if (raw.offScheme) {
+            var offC = XoneK3.compileScheme(raw.offScheme);
+            if (offC) offSegs = offC.on;
+        }
+        if (!offSegs) offSegs = XoneK3._generateOff(onSegs);
+
+        var coCompiled = null;
+        if (raw.coScheme !== null && raw.coScheme !== false) {
+            var coName = raw.coScheme || XoneK3.DEFAULT_CO_SCHEME;
+            if (coName) coCompiled = XoneK3.compileScheme(coName);
+        }
+
+        var marker = raw.markerColor
+            ? XoneK3.resolveColorEntry(raw.markerColor, raw.brightness)
+            : null;
+        if (marker &&
+            (marker.brightnessOff === undefined || marker.brightnessOff === null)) {
+            marker.brightnessOff = XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF;
+        }
+
+        return {
+            on: onSegs, off: offSegs, co: coCompiled, marker: marker,
+            tmap: XoneK3._computeTmap(raw),
+            markerPosition: (typeof raw.markerPosition === 'number') ? raw.markerPosition : 63.5,
+            markerWidth:    (typeof raw.markerWidth    === 'number') ? raw.markerWidth    : 0,
+            interp:         raw.interp !== false,
+            calibration:    raw.calibration !== false,
+            brightnessScale:(typeof raw.brightnessScale === 'number') ? raw.brightnessScale : 1,
+            reverse:        raw.reverse === true,
+            beat: (raw.beat && raw.beat.enabled !== false) ? raw.beat : null
+        };
+    };
+
+    XoneK3._compileSingleColor = function(ref) {
+        var entry = XoneK3.resolveColorEntry(ref);
+        if (!entry) return null;
+        var offBr = (typeof entry.brightnessOff === 'number')
+            ? entry.brightnessOff : XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF;
+        return {
+            on:  [{ start: 0, end: 1, color: entry }],
+            off: [{ start: 0, end: 1,
+                    color: { rgb: entry.rgb, brightness: offBr, type: entry.type } }],
+            co: null, marker: null,
+            tmap: { position: 0, curve: 0 },
+            markerPosition: 63.5, markerWidth: 0,
+            interp: false, calibration: false, brightnessScale: 1,
+            reverse: false, beat: null
+        };
+    };
+
     XoneK3.compileScheme = function(ref, overrides) {
         var cacheable = (typeof ref === 'string') && !overrides;
         if (cacheable && XoneK3._compiledCache[ref]) return XoneK3._compiledCache[ref];
 
         var raw = XoneK3.resolveScheme(ref);
-        var compiled = null;
-
+        var compiled;
         if (raw && raw.colors && raw.colors.length > 0) {
-            if (overrides) raw = Object.assign({}, raw, overrides);
-
-            var onSegs = XoneK3._buildSegments(raw.colors, raw.ratio, raw.brightness);
-            if (!onSegs) return null;
-
-            var tmap = XoneK3._computeTmap(raw);
-
-            var offSegs = null;
-            if (raw.offScheme) {
-                var offC = XoneK3.compileScheme(raw.offScheme);
-                if (offC) offSegs = offC.on;
-            }
-            if (!offSegs) offSegs = XoneK3._generateOff(onSegs);
-
-            var coCompiled = null;
-            if (raw.coScheme !== null && raw.coScheme !== false) {
-                var coName = raw.coScheme || XoneK3.DEFAULT_CO_SCHEME;
-                if (coName) coCompiled = XoneK3.compileScheme(coName);
-            }
-
-            var marker = raw.markerColor
-                ? XoneK3.resolveColorEntry(raw.markerColor, raw.brightness) : null;
-            if (marker && (marker.brightnessOff === undefined || marker.brightnessOff === null)) {
-                marker.brightnessOff = XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF;
-            }
-
-            compiled = {
-                on: onSegs, off: offSegs, co: coCompiled, marker: marker,
-                tmap: tmap,
-                markerPosition: (typeof raw.markerPosition === 'number') ? raw.markerPosition : 63.5,
-                markerWidth: (typeof raw.markerWidth === 'number') ? raw.markerWidth : 0,
-                interp: raw.interp !== false,
-                calibration: raw.calibration !== false,
-                brightnessScale: (typeof raw.brightnessScale === 'number') ? raw.brightnessScale : 1,
-                reverse: raw.reverse === true,
-                beat: (raw.beat && raw.beat.enabled !== false) ? raw.beat : null
-            };
+            compiled = XoneK3._compileFullScheme(raw, overrides);
         } else {
-            var entry = XoneK3.resolveColorEntry(ref);
-            if (!entry) return null;
-            var offBr = (typeof entry.brightnessOff === 'number')
-                ? entry.brightnessOff : XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF;
-            compiled = {
-                on:  [{ start: 0, end: 1, color: entry }],
-                off: [{ start: 0, end: 1,
-                        color: { rgb: entry.rgb, brightness: offBr, type: entry.type } }],
-                co: null, marker: null,
-                tmap: { position: 0, curve: 0 },
-                markerPosition: 63.5, markerWidth: 0,
-                interp: false, calibration: false, brightnessScale: 1,
-                reverse: false, beat: null
-            };
+            compiled = XoneK3._compileSingleColor(ref);
         }
 
-        if (cacheable) XoneK3._compiledCache[ref] = compiled;
+        if (cacheable && compiled) XoneK3._compiledCache[ref] = compiled;
         return compiled;
     };
 
@@ -387,23 +467,39 @@
         var half = (compiled.markerWidth || 0) / 127;
         return half > 0 && !!compiled.marker && Math.abs(devDir - at) <= half;
     };
+
     XoneK3.scaleTarget = function(target, scale) {
         if (target === null) return null;
         if (typeof scale !== 'number' || scale === 1) return target;
         return target * scale;
     };
-    XoneK3.sampleSegs = function(segs, t, interp) {
-        if (!segs || segs.length === 0) return null;
-        if (t < 0) t = 0; if (t > 1) t = 1;
-        if (!interp) {
-            for (var i = 0; i < segs.length; i++) {
-                if (t <= segs[i].end || i === segs.length - 1) {
-                    var c = segs[i].color;
-                    return { rgb: [c.rgb[0],c.rgb[1],c.rgb[2]], brightness: c.brightness, type: c.type };
-                }
+
+    // Snap sample: pick the segment whose span contains t (end-
+    // inclusive, last-segment fallback). Same as the previous
+    // non-interp branch, isolated for readability and to let the
+    // dispatcher get out of the way.
+    function _sampleSnap(segs, t) {
+        for (var i = 0; i < segs.length; i++) {
+            if (t <= segs[i].end || i === segs.length - 1) {
+                var c = segs[i].color;
+                return {
+                    rgb: [c.rgb[0], c.rgb[1], c.rgb[2]],
+                    brightness: c.brightness,
+                    type: c.type
+                };
             }
-            return null;
         }
+        return null;
+    }
+
+    // Blend sample: linear-interp between the two segment centres
+    // surrounding t. Centre-based means the colour of segment i
+    // sits at (start+end)/2, so the blend region between two
+    // segments straddles the boundary between them. Previous
+    // behaviour preserved exactly — including the "before falls
+    // through to after" and "return before if after is null" edge
+    // cases at t<firstCentre and t>lastCentre.
+    function _sampleBlend(segs, t) {
         var before = null, after = null;
         for (var j = 0; j < segs.length; j++) {
             var centre = (segs[j].start + segs[j].end) / 2;
@@ -414,7 +510,11 @@
         if (!after)  after  = before;
         if (!before) return null;
         if (before === after || before.t === after.t) {
-            return { rgb: before.color.rgb.slice(), brightness: before.color.brightness, type: before.color.type };
+            return {
+                rgb: before.color.rgb.slice(),
+                brightness: before.color.brightness,
+                type: before.color.type
+            };
         }
         var lt = (t - before.t) / (after.t - before.t);
         var cA = before.color, cB = after.color;
@@ -427,6 +527,13 @@
             brightness: Math.round(cA.brightness*(1-lt)+cB.brightness*lt),
             type: cA.type || cB.type
         };
+    }
+
+    XoneK3.sampleSegs = function(segs, t, interp) {
+        if (!segs || segs.length === 0) return null;
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
+        return interp ? _sampleBlend(segs, t) : _sampleSnap(segs, t);
     };
 
     // Shared by Binding._renderCoMatch and LabController._renderCoMatch.
@@ -479,4 +586,4 @@
         markerWidth: 0,
         coScheme: null
     };
-})();   
+})();

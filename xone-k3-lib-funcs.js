@@ -26,6 +26,51 @@
         ['SCHEMES', 'SCHEME_DEFAULTS', '_funcId', '_warnOnce']);
 
     // ============================================================
+    // MODULE HELPERS
+    // ============================================================
+    // Shared by multiple funcs; not exposed on XoneK3.FUNCS because
+    // none of them are bound directly to a control.
+
+    // The "pressR held = load onto channel" branch that k3Select /
+    // k3SelectActive / setActiveDeckTo all share. Returns true if
+    // the load fired (caller should bail); false if loadState is
+    // not pressed (caller falls through to its own select logic).
+    function _loadSelectedOntoChannel(ctrl, channel) {
+        if (!ctrl.loadState.pressed) return false;
+        engine.setValue('[Channel' + channel + ']', 'LoadSelectedTrack', 1);
+        return true;
+    }
+
+    // The batch-edit that toggleOverlay runs when activating an
+    // overlay for the first time: strip every named sibling, then
+    // append. Caller has already established the overlay is not
+    // active.
+    function _addOverlayWithSiblingClear(ctrl, name, siblings) {
+        ctrl._batchPatches(function(patches) {
+            if (siblings.length > 0) {
+                for (var i = patches.length - 1; i >= 0; i--) {
+                    if (patches[i] !== name && siblings.indexOf(patches[i]) !== -1) {
+                        patches.splice(i, 1);
+                    }
+                }
+            }
+            patches.push(name);
+        });
+    }
+
+    // The self-accel rate window from encLoopMoveAccel. Pushes
+    // `now` onto `events`, prunes to `windowMs`, then returns the
+    // integer step multiplier. Only encLoopMoveAccel uses it;
+    // other self-accelerating funcs carry their own window /
+    // divisor / cap args.
+    function _loopAccelMult(events, now, windowMs, cap, divisor) {
+        events.push(now);
+        while (events.length > 0 && events[0] < now - windowMs) events.shift();
+        var rate = events.length * 1000 / windowMs;
+        return Math.max(1, Math.min(cap, Math.round(rate / divisor)));
+    }
+
+    // ============================================================
     // CONFIG BUILDERS
     // ============================================================
     XoneK3.builders = {};
@@ -256,11 +301,8 @@
             var kind = args[0], which = args[1], val = parseInt(args[2], 10);
             if (isNaN(val)) return;
             var ctrl = this._ctrl;
-            if (kind === 'deck' && ctrl.loadState.pressed) {
-                engine.setValue('[Channel' + val + ']', 'LoadSelectedTrack', 1);
-            } else {
-                ctrl.setSelectedFor(kind, which, val);
-            }
+            if (kind === 'deck' && _loadSelectedOntoChannel(ctrl, val)) return;
+            ctrl.setSelectedFor(kind, which, val);
         },
         k3SelectActive: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
@@ -268,10 +310,7 @@
             var val  = parseInt(args[1], 10);
             if (isNaN(val)) return;
             var ctrl = this._ctrl;
-            if (kind === 'deck' && ctrl.loadState.pressed) {
-                engine.setValue('[Channel' + val + ']', 'LoadSelectedTrack', 1);
-                return;
-            }
+            if (kind === 'deck' && _loadSelectedOntoChannel(ctrl, val)) return;
             var slot = (kind === 'fx') ? ctrl.activeFx : ctrl.activeDeck;
             ctrl.setSelectedFor(kind, slot, val);
         },
@@ -288,11 +327,8 @@
             var ctrl = this._ctrl;
             var which = args[0];
             if (which !== 'A' && which !== 'B') return;
-            if (ctrl.loadState.pressed) {
-                var channel = (which === 'A') ? ctrl.selectedDeckA : ctrl.selectedDeckB;
-                engine.setValue('[Channel' + channel + ']', 'LoadSelectedTrack', 1);
-                return;
-            }
+            var channel = (which === 'A') ? ctrl.selectedDeckA : ctrl.selectedDeckB;
+            if (_loadSelectedOntoChannel(ctrl, channel)) return;
             ctrl.setActiveDeck(which);
         },
         toggleActiveDeck: function(args, ch, c, v, s) {
@@ -338,23 +374,14 @@
                 return;
             }
             var siblings = Array.isArray(args[1]) ? args[1] : [];
-            ctrl._batchPatches(function(patches) {
-                if (siblings.length > 0) {
-                    for (var i = patches.length - 1; i >= 0; i--) {
-                        if (patches[i] !== name && siblings.indexOf(patches[i]) !== -1) {
-                            patches.splice(i, 1);
-                        }
-                    }
-                }
-                patches.push(name);
-            });
+            _addOverlayWithSiblingClear(ctrl, name, siblings);
             XoneK3.debugPrint('overlayOn', { name: name });
         },
         layerExitOverlay: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             this._ctrl.removePatch(args[0]);
         },
-        
+
         // Layer-aware overlay toggle. Picks the target name from
         // args[0] (cue layer) or args[1] (loop layer). Each overlay
         // toggles independently — both can sit in activePatches,
@@ -372,6 +399,7 @@
                 ctrl.addPatch(name);
             }
         },
+
         // Press: activates hotcue N. If the hotcue was unset, also
         // writes the first PHRASE_MARKER_COLORS entry as its colour.
         // Release: writes 0, matching the default push handler.
@@ -396,6 +424,7 @@
                 engine.setValue(this.group, 'hotcue_' + n + '_color', color);
             }
         },
+
         // ----------------------------------------------------------
         // Top-half mode swap
         // ----------------------------------------------------------
@@ -540,12 +569,9 @@
             var cap     = XoneK3.parseNum(args[2]); if (isNaN(cap) || cap < 1) cap = 6;
             var divisor = XoneK3.parseNum(args[3]); if (isNaN(divisor) || divisor < 1) divisor = 12;
 
-            var ev = this._loopAccelEvents;
-            ev.push(now);
-            var windowMs = XoneK3.ENC_LOOP_ACCEL_WINDOW_MS;
-            while (ev.length > 0 && ev[0] < now - windowMs) ev.shift();
-            var rate = ev.length * 1000 / windowMs;   // events per second
-            var mult = Math.max(1, Math.min(cap, Math.round(rate / divisor)));
+            var mult = _loopAccelMult(
+                this._loopAccelEvents, now,
+                XoneK3.ENC_LOOP_ACCEL_WINDOW_MS, cap, divisor);
 
             var dir = (v === 1) ? -1 : 1;
             var sign = inSide ? 1 : -1;

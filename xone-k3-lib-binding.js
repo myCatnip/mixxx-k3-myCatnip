@@ -224,50 +224,89 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         this._ctrl.sendLED(this.idx, r, g, b, hw, this._k2);
     };
 
+    // ============================================================
+    // ON-STATE DISPATCH
+    // ============================================================
+    // `_csOn` is the parsed on: block (see lib-controller-colour.js
+    // _parseCsOn). Three shapes:
+    //   true / false     — unconditional
+    //   { patchActive }  — list of patch names, OR'd
+    //   { state | co }   — value, optionally gated by equals / contains
+    //
+    // Return 1 or 0. Also the only caller of the truthy-state
+    // warning — a binding whose LED never renders never fires it.
     XoneK3.Binding.prototype._isOn = function() {
         if (this._csOn !== null && this._csOn !== undefined) {
             if (this._csOn === true)  return 1;
             if (this._csOn === false) return 0;
-            var s = this._csOn;
-            if (s.patchActive !== undefined) {
-                var names = Array.isArray(s.patchActive) ? s.patchActive : [s.patchActive];
-                for (var i = 0; i < names.length; i++) {
-                    if (this._ctrl._patchActive(names[i])) return 1;
-                }
-                return 0;
-            }
-            var v;
-            if (s.co !== undefined) {
-                v = (s.group !== undefined) ? engine.getValue(s.group, s.co) : undefined;
-            } else if (s.state !== undefined) {
-                v = XoneK3.readPath(this._ctrl, s.state);
-                if (s.equals === undefined && s.contains === undefined) {
-                    var truthyByConstruction =
-                        (typeof v === 'number' && v > 0) ||
-                        (typeof v === 'string' && v.length > 0);
-                    if (truthyByConstruction) {
-                        XoneK3._warnOnce('csOnTruthyState:' + this._name,
-                            'colorScheme.on.state "' + s.state + '" on ' + this._name +
-                            ' resolves to a value (' + JSON.stringify(v) + ')' +
-                            ' that is truthy by construction with no equals — the LED' +
-                            ' will always be on. Add equals: V for a slot / mode comparison.');
-                    }
-                }
-            } else {
-                v = undefined;
-            }
-            if (s.equals !== undefined) return (v === s.equals) ? 1 : 0;
-            if (s.contains !== undefined) {
-                if (Array.isArray(v)) return (v.indexOf(s.contains) !== -1) ? 1 : 0;
-                if (typeof v === 'string') return (v.indexOf(s.contains) !== -1) ? 1 : 0;
-                return 0;
-            }
-            return v ? 1 : 0;
+            return this._evalCsOn(this._csOn);
         }
-        if (this.group && this.outKey) return engine.getValue(this.group, this.outKey) > 0 ? 1 : 0;
+        if (this.group && this.outKey) {
+            return engine.getValue(this.group, this.outKey) > 0 ? 1 : 0;
+        }
         return 0;
     };
 
+    XoneK3.Binding.prototype._evalCsOn = function(s) {
+        if (s.patchActive !== undefined) return this._evalPatchActive(s.patchActive);
+
+        var v;
+        if (s.co !== undefined)         v = this._evalOnCoValue(s);
+        else if (s.state !== undefined) v = this._evalOnStateValue(s);
+        else                            v = undefined;
+
+        return this._matchOnValue(s, v);
+    };
+
+    XoneK3.Binding.prototype._evalPatchActive = function(patchActive) {
+        var names = Array.isArray(patchActive) ? patchActive : [patchActive];
+        for (var i = 0; i < names.length; i++) {
+            if (this._ctrl._patchActive(names[i])) return 1;
+        }
+        return 0;
+    };
+
+    XoneK3.Binding.prototype._evalOnCoValue = function(s) {
+        if (s.group === undefined) return undefined;
+        return engine.getValue(s.group, s.co);
+    };
+
+    XoneK3.Binding.prototype._evalOnStateValue = function(s) {
+        var v = XoneK3.readPath(this._ctrl, s.state);
+        // A numeric on.state with no comparator is truthy by
+        // construction — the LED would always be on. Warn once per
+        // binding the first time it renders. Deliberately not
+        // fired at bind time: most bindings that trigger this
+        // have never rendered, and we only want to flag ones that
+        // actually reach the wire.
+        if (s.equals === undefined && s.contains === undefined) {
+            var truthyByConstruction =
+                (typeof v === 'number' && v > 0) ||
+                (typeof v === 'string' && v.length > 0);
+            if (truthyByConstruction) {
+                XoneK3._warnOnce('csOnTruthyState:' + this._name,
+                    'colorScheme.on.state "' + s.state + '" on ' + this._name +
+                    ' resolves to a value (' + JSON.stringify(v) + ')' +
+                    ' that is truthy by construction with no equals — the LED' +
+                    ' will always be on. Add equals: V for a slot / mode comparison.');
+            }
+        }
+        return v;
+    };
+
+    XoneK3.Binding.prototype._matchOnValue = function(s, v) {
+        if (s.equals !== undefined) return (v === s.equals) ? 1 : 0;
+        if (s.contains !== undefined) {
+            if (Array.isArray(v)) return (v.indexOf(s.contains) !== -1) ? 1 : 0;
+            if (typeof v === 'string') return (v.indexOf(s.contains) !== -1) ? 1 : 0;
+            return 0;
+        }
+        return v ? 1 : 0;
+    };
+
+    // ============================================================
+    // REFRESH / RENDER
+    // ============================================================
     XoneK3.Binding.prototype._refresh = function() {
         if (this.idx < 0) return;
         if (this._noLED) return;
@@ -284,18 +323,15 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         }
     };
 
+    // ============================================================
+    // COLOUR SEND
+    // ============================================================
     XoneK3.Binding.prototype._sendColor = function(entry, isOn) {
         if (!entry) { this._send(0, 0, 0, 0); return; }
         var rgb = entry.rgb, type = entry.type || 'rgb';
         if (type === 'mixxx') {
             if (!isOn) { this._send(0, 0, 0, 0); return; }
-            var co = this.outKey, colourCo = null;
-            if (co) {
-                var m = co.match(/^(hotcue_\d+)_status$/);
-                if (m) colourCo = m[1] + '_color';
-            }
-            var mx = (colourCo && this.group) ? engine.getValue(this.group, colourCo) : 0;
-            rgb = XoneK3.mapMixxxColor(mx);
+            rgb = this._resolveMixxxColor();
             if (!rgb) { this._send(0, 0, 0, 0); return; }
         }
         var hw = isOn ? entry.brightness
@@ -303,6 +339,20 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
                          ? entry.brightnessOff : entry.brightness);
         if (!rgb) { this._send(0, 0, 0, 0); return; }
         this._send(rgb[0], rgb[1], rgb[2], hw);
+    };
+
+    // Resolve a 'mixxx' scheme's colour from the pad's hotcue
+    // colour CO. Only `hotcue_<n>_status` outKeys map to a colour
+    // CO. Anything else (or a CO that hasn't been set yet) yields
+    // null — the LED is painted black.
+    XoneK3.Binding.prototype._resolveMixxxColor = function() {
+        var co = this.outKey;
+        if (!co) return null;
+        var m = co.match(/^(hotcue_\d+)_status$/);
+        if (!m) return null;
+        if (!this.group) return null;
+        var mx = engine.getValue(this.group, m[1] + '_color');
+        return XoneK3.mapMixxxColor(mx);
     };
 
     XoneK3.Binding.prototype._sendSampled = function(ramp, t, compiled, isOn, skipBeat) {
@@ -374,29 +424,16 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         this._sendSampled(ramp, t, scheme, isOn, false);
     };
 
+    // ============================================================
+    // SCHEME EVALUATION
+    // ============================================================
     XoneK3.Binding.prototype._evaluateScheme = function() {
         var scheme = this._csScheme;
         if (this._csSchemeFn) {
             var ref = this._csSchemeFn();
             if (ref !== undefined && ref !== null) {
                 if (ref !== this._csSchemeMemo) {
-                    // Fresh-inline-object detection: identity changed
-                    // but shape is identical. composeScheme caches;
-                    // a raw inline literal recompiles per render.
-                    if (typeof ref === 'object' && !Array.isArray(ref) &&
-                        typeof this._csSchemeMemo === 'object' &&
-                        this._csSchemeMemo !== null &&
-                        !Array.isArray(this._csSchemeMemo)) {
-                        var a = XoneK3._stableStringify(ref);
-                        var b2 = XoneK3._stableStringify(this._csSchemeMemo);
-                        if (a === b2) {
-                            XoneK3._warnOnce('csSchemeFresh:' + this._name,
-                                'colorScheme scheme function on ' + this._name +
-                                ' returns a fresh object each call — LED ' +
-                                'recompiles every render. Wrap with ' +
-                                'XoneK3.builders.composeScheme or hoist the object.');
-                        }
-                    }
+                    this._warnIfFreshScheme(ref);
                     this._csSchemeMemo = ref;
                     this._csCompiledMemo = this._ctrl._resolveSchemeRef(ref);
                 }
@@ -404,6 +441,29 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             }
         }
         return scheme;
+    };
+
+    // Fresh-inline-object detection. composeScheme caches its
+    // result; a raw object literal inside the scheme function
+    // recompiles on every render. Warns once per binding — the
+    // fix is composeScheme or hoisting the object out of the
+    // closure.
+    //
+    // Only fires when the previous memo is also an object — the
+    // first transition from string to object isn't suspicious,
+    // and neither is any array-vs-object swap.
+    XoneK3.Binding.prototype._warnIfFreshScheme = function(ref) {
+        var memo = this._csSchemeMemo;
+        if (typeof ref !== 'object' || Array.isArray(ref)) return;
+        if (typeof memo !== 'object' || memo === null || Array.isArray(memo)) return;
+        var a = XoneK3._stableStringify(ref);
+        var b = XoneK3._stableStringify(memo);
+        if (a !== b) return;
+        XoneK3._warnOnce('csSchemeFresh:' + this._name,
+            'colorScheme scheme function on ' + this._name +
+            ' returns a fresh object each call — LED ' +
+            'recompiles every render. Wrap with ' +
+            'XoneK3.builders.composeScheme or hoist the object.');
     };
 
     XoneK3.Binding.prototype._refreshColorScheme = function() {

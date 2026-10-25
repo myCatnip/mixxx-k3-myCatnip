@@ -26,9 +26,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     var freshDeckState = XoneK3._freshDeckState;
 
     // Hotcue slots scanned for phrase-marker colours and watched
-    // for hotcue place/recolour/delete/drag. Mixxx supports 36;
-    // 16 is the shipped default.
-    var HOTCUE_MAX = 16;
+    // for hotcue place/recolour/delete/drag. Read at clock-open
+    // time. Raising it after boot extends the per-tick derive scan
+    // but not the observers (they're already wired) — origin still
+    // re-derives on the next playposition throttle.
+    XoneK3.HOTCUE_MAX = 16;
 
     // Wrap detection is direction-based: a jump opposite playback
     // direction is a wrap. Loop length is added back so the
@@ -155,21 +157,20 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // ============================================================
     // DISPLAY SOURCE
     // ============================================================
+    // Called from _startVirtualClock and _stopVirtualClock only.
+    // No change means nothing to repaint — the display source is
+    // already what the loop state implies, and every reader is
+    // up to date.
     XoneK3.K3Controller.prototype._resolveDisplaySource = function(ch) {
         var st = this._decks[ch];
         var choice = st.loopClock.running ? 'loop' : 'track';
+        if (choice === st.displaySource) return;
 
-        var changed = (choice !== st.displaySource);
         st.displaySource = choice;
-
+        this._syncBeatCount(ch);
         if (this.selectedDeckCurrent === ch) {
             this._refreshDisplayFlags();
-        }
-        if (changed) {
-            this._syncBeatCount(ch);
-            if (this.selectedDeckCurrent === ch) {
-                this._refreshAllLeds('display-source');
-            }
+            this._refreshAllLeds('display-source');
         }
     };
 
@@ -299,8 +300,9 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var grp = '[Channel' + ch + ']';
         var best = null;
         var bestAhead = null;
+        var maxCue = XoneK3.HOTCUE_MAX;
 
-        for (var n = 1; n <= HOTCUE_MAX; n++) {
+        for (var n = 1; n <= maxCue; n++) {
             var color = engine.getValue(grp, 'hotcue_' + n + '_color');
             if (markers.indexOf(color) === -1) continue;
             var posFrames = engine.getValue(grp, 'hotcue_' + n + '_position');
@@ -386,141 +388,172 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     };
 
     // ============================================================
-    // BEAT CLOCKS
+    // BEAT CLOCKS — OPEN
     // ============================================================
     XoneK3.K3Controller.prototype._openBeatClocks = function() {
+        for (var ch = 1; ch <= 4; ch++) this._openChannelBeatClocks(ch);
+        for (var ch2 = 1; ch2 <= 4; ch2++) this._catchUpChannel(ch2);
+    };
+
+    XoneK3.K3Controller.prototype._openChannelBeatClocks = function(ch) {
         var self = this;
-        for (var ch = 1; ch <= 4; ch++) {
-            (function(ch) {
-                var grp = '[Channel' + ch + ']';
-
-                function wire(conns, co, fn) {
-                    conns.push(engine.makeConnection(grp, co, fn));
-                }
-
-                wire(self._beatConns, 'beat_active', function(v) {
-                    var st = self._decks[ch];
-                    if (v === 1) st.lastBeatEdge = Date.now();
-
-                    if (v === 1) {
-                        var now = st.lastBeatEdge;
-                        if (now - st.lastBeatRepaint < XoneK3.BEAT_REPAINT_THROTTLE_MS) {
-                            st.active = true;
-                            st.hasBeat = true;
-                        } else {
-                            st.lastBeatRepaint = now;
-                            st.active = true;
-                            st.hasBeat = true;
-                            self._repaintBeat(ch);
-                        }
-                    } else {
-                        st.active = false;
-                        self._refreshBeatLeds(ch);
-                    }
-                    if (self._onBeat) self._onBeat(ch);
-                });
-
-                wire(self._playConns, 'playposition', function() {
-                    var st = self._decks[ch];
-                    var newPos = engine.getValue(grp, 'playposition');
-                    self._advanceVirtualClock(ch, newPos);
-
-                    var now = Date.now();
-                    if (now - st.lastPositionSync < XoneK3.BEAT_REPAINT_THROTTLE_MS) return;
-                    st.lastPositionSync = now;
-
-                    self._deriveOriginFromPosition(ch, newPos);
-
-                    var playing   = engine.getValue(grp, 'play_indicator') > 0;
-                    var reversing = engine.getValue(grp, 'reverse') > 0;
-                    if (playing && !reversing && (now - st.lastBeatEdge < 1500)) {
-                        // Recent beat edge — pulse phase is
-                        // beat_active's job. Still sync the count
-                        // so a dropped edge can catch up.
-                        self._syncBeatCount(ch);
-                        return;
-                    }
-
-                    self._repaintFromPosition(ch);
-                });
-
-                wire(self._playConns, 'play_indicator', function(v) {
-                    var st = self._decks[ch];
-                    var wasPlaying = st.playing;
-                    st.playing = v > 0;
-                    if (v === 1) {
-                        st.loopClock.lastTs = Date.now();
-                        self._syncBeatCount(ch);
-                    }
-                    if (wasPlaying !== st.playing) {
-                        self._refreshBeatLeds(ch);
-                    }
-                });
-
-                wire(self._playConns, 'track_loaded', function(v) {
-                    if (v !== 1) return;
-                    self._trackMetaCache[ch] = undefined;
-                    self._resetBeat(ch);
-                    self._lastLoopTouchMs[ch] = 0;
-                    self._readLoopState(ch);
-                    self._syncBeatClocks();
-                    if (self._decks[ch].loopActive) {
-                        self._startVirtualClock(ch);
-                    }
-                    // Derive from markers for the current position
-                    // so a load landing past a marker anchors
-                    // immediately.
-                    var pos = engine.getValue(grp, 'playposition');
-                    self._deriveOriginFromPosition(ch, pos);
-                    self._syncBeatCount(ch);
-                });
-
-                wire(self._playConns, 'loop_enabled', function() {
-                    var st = self._decks[ch];
-                    var wasActive = st.loopActive;
-                    self._readLoopState(ch);
-                    if (st.loopActive && !wasActive) {
-                        self._startVirtualClock(ch);
-                    } else if (!st.loopActive && wasActive) {
-                        self._stopVirtualClock(ch);
-                    }
-                });
-
-                wire(self._playConns, 'slip_enabled', function() {
-                    self._syncBeatCount(ch);
-                });
-
-                // Hotcue observers — skipped when no marker colours
-                // are configured. Colour catches recolour-to-marker;
-                // position catches place/delete/drag.
-                if (Array.isArray(XoneK3.PHRASE_MARKER_COLORS) &&
-                    XoneK3.PHRASE_MARKER_COLORS.length > 0) {
-                    for (var hn = 1; hn <= HOTCUE_MAX; hn++) {
-                        wire(self._playConns, 'hotcue_' + hn + '_color', function() {
-                            var pos = engine.getValue(grp, 'playposition');
-                            self._deriveOriginFromPosition(ch, pos);
-                        });
-                        wire(self._playConns, 'hotcue_' + hn + '_position', function() {
-                            var pos = engine.getValue(grp, 'playposition');
-                            self._deriveOriginFromPosition(ch, pos);
-                        });
-                    }
-                }
-            })(ch);
+        var grp = '[Channel' + ch + ']';
+        function wire(conns, co, fn) {
+            conns.push(engine.makeConnection(grp, co, fn));
         }
-        // Catch-up: start the loop clock for any channel that
-        // already has an active loop.
-        for (var ch2 = 1; ch2 <= 4; ch2++) {
-            this._readLoopState(ch2);
-            if (this._decks[ch2].loopActive) {
-                this._startVirtualClock(ch2);
-            }
-            this._decks[ch2].playing =
-                engine.getValue('[Channel' + ch2 + ']', 'play_indicator') > 0;
-            this._syncBeatCount(ch2);
+
+        wire(this._beatConns, 'beat_active', function(v) {
+            self._onBeatActive(ch, v);
+        });
+        wire(this._playConns, 'playposition', function() {
+            self._onPlayposition(ch);
+        });
+        wire(this._playConns, 'play_indicator', function(v) {
+            self._onPlayIndicator(ch, v);
+        });
+        wire(this._playConns, 'track_loaded', function(v) {
+            self._onTrackLoaded(ch, v);
+        });
+        wire(this._playConns, 'loop_enabled', function() {
+            self._onLoopEnabled(ch);
+        });
+        wire(this._playConns, 'slip_enabled', function() {
+            self._syncBeatCount(ch);
+        });
+
+        if (Array.isArray(XoneK3.PHRASE_MARKER_COLORS) &&
+            XoneK3.PHRASE_MARKER_COLORS.length > 0) {
+            this._wireHotcueObservers(ch, grp);
         }
     };
 
+    // One shared rederive closure per channel — every hotcue
+    // observer fires the same "look at the current playhead and
+    // re-anchor the origin" logic. Colour catches recolour-to-
+    // marker; position catches place/delete/drag.
+    XoneK3.K3Controller.prototype._wireHotcueObservers = function(ch, grp) {
+        var self = this;
+        function rederive() {
+            var pos = engine.getValue(grp, 'playposition');
+            self._deriveOriginFromPosition(ch, pos);
+        }
+        var maxCue = XoneK3.HOTCUE_MAX;
+        for (var hn = 1; hn <= maxCue; hn++) {
+            this._playConns.push(
+                engine.makeConnection(grp, 'hotcue_' + hn + '_color',    rederive));
+            this._playConns.push(
+                engine.makeConnection(grp, 'hotcue_' + hn + '_position', rederive));
+        }
+    };
+
+    // Startup catch-up: CO connections fire on change, not on
+    // setup. A preset reload during an active loop would leave
+    // the loop clock idle; a reload during playback would leave
+    // st.playing = false, rendering the paused beat mode on a
+    // playing deck.
+    XoneK3.K3Controller.prototype._catchUpChannel = function(ch) {
+        this._readLoopState(ch);
+        if (this._decks[ch].loopActive) {
+            this._startVirtualClock(ch);
+        }
+        this._decks[ch].playing =
+            engine.getValue('[Channel' + ch + ']', 'play_indicator') > 0;
+        this._syncBeatCount(ch);
+    };
+
+    // ============================================================
+    // BEAT CLOCKS — CO HANDLERS
+    // ============================================================
+    XoneK3.K3Controller.prototype._onBeatActive = function(ch, v) {
+        var st = this._decks[ch];
+        if (v === 1) {
+            st.lastBeatEdge = Date.now();
+            if (st.lastBeatEdge - st.lastBeatRepaint <
+                XoneK3.BEAT_REPAINT_THROTTLE_MS) {
+                st.active = true;
+                st.hasBeat = true;
+            } else {
+                st.lastBeatRepaint = st.lastBeatEdge;
+                st.active = true;
+                st.hasBeat = true;
+                this._repaintBeat(ch);
+            }
+        } else {
+            st.active = false;
+            this._refreshBeatLeds(ch);
+        }
+        if (this._onBeat) this._onBeat(ch);
+    };
+
+    XoneK3.K3Controller.prototype._onPlayposition = function(ch) {
+        var st = this._decks[ch];
+        var grp = '[Channel' + ch + ']';
+        var newPos = engine.getValue(grp, 'playposition');
+        this._advanceVirtualClock(ch, newPos);
+
+        var now = Date.now();
+        if (now - st.lastPositionSync < XoneK3.BEAT_REPAINT_THROTTLE_MS) return;
+        st.lastPositionSync = now;
+
+        this._deriveOriginFromPosition(ch, newPos);
+
+        var playing   = engine.getValue(grp, 'play_indicator') > 0;
+        var reversing = engine.getValue(grp, 'reverse') > 0;
+        if (playing && !reversing && (now - st.lastBeatEdge < 1500)) {
+            // Recent beat edge — pulse phase is beat_active's job.
+            // Still sync the count so a dropped edge can catch up.
+            this._syncBeatCount(ch);
+            return;
+        }
+
+        this._repaintFromPosition(ch);
+    };
+
+    XoneK3.K3Controller.prototype._onPlayIndicator = function(ch, v) {
+        var st = this._decks[ch];
+        var wasPlaying = st.playing;
+        st.playing = v > 0;
+        if (v === 1) {
+            st.loopClock.lastTs = Date.now();
+            this._syncBeatCount(ch);
+        }
+        if (wasPlaying !== st.playing) {
+            this._refreshBeatLeds(ch);
+        }
+    };
+
+    XoneK3.K3Controller.prototype._onTrackLoaded = function(ch, v) {
+        if (v !== 1) return;
+        var grp = '[Channel' + ch + ']';
+        this._trackMetaCache[ch] = undefined;
+        this._resetBeat(ch);
+        this._lastLoopTouchMs[ch] = 0;
+        this._readLoopState(ch);
+        this._syncBeatClocks();
+        if (this._decks[ch].loopActive) {
+            this._startVirtualClock(ch);
+        }
+        // Derive from markers for the current position so a load
+        // landing past a marker anchors immediately.
+        var pos = engine.getValue(grp, 'playposition');
+        this._deriveOriginFromPosition(ch, pos);
+        this._syncBeatCount(ch);
+    };
+
+    XoneK3.K3Controller.prototype._onLoopEnabled = function(ch) {
+        var st = this._decks[ch];
+        var wasActive = st.loopActive;
+        this._readLoopState(ch);
+        if (st.loopActive && !wasActive) {
+            this._startVirtualClock(ch);
+        } else if (!st.loopActive && wasActive) {
+            this._stopVirtualClock(ch);
+        }
+    };
+
+    // ============================================================
+    // BEAT CLOCKS — CLOSE / SYNC
+    // ============================================================
     XoneK3.K3Controller.prototype._closeBeatClocks = function() {
         for (var i = 0; i < this._beatConns.length; i++)
             if (this._beatConns[i]) this._beatConns[i].disconnect();
@@ -567,6 +600,9 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         else if (!want && have) this._closeBeatClocks();
     };
 
+    // ============================================================
+    // BEAT LED BOOKKEEPING
+    // ============================================================
     XoneK3.K3Controller.prototype._refreshBeatLeds = function(ch) {
         for (var i = 0; i < this._beatLeds.length; i++) {
             var b = this._beatLeds[i];

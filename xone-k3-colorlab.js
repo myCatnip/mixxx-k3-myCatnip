@@ -41,16 +41,6 @@
 
     var F = XoneK3.FUNCS;
 
-    var CALIB_TARGETS = [
-        'button3_0',
-        'button0_1','button1_1','button2_1','button3_1',
-        'button0_2','button1_2','button2_2','button3_2',
-        'grid0_0','grid1_0','grid2_0','grid3_0',
-        'grid0_1','grid1_1','grid2_1','grid3_1',
-        'grid0_2','grid1_2','grid2_2','grid3_2',
-        'grid0_3','grid1_3'
-    ];
-
     // ============================================================
     // TOP — editor, unshifted
     // ============================================================
@@ -269,7 +259,7 @@
             markerTarget:     'grid3_3',
             labPreviewCO: { group: '[QuickEffectRack1_[Channel1]]', name: 'super1' },
 
-            ledTargetGroups: { calib: CALIB_TARGETS },
+            ledTargetGroups: { calib: XoneK3.CALIB_TARGETS },
 
             modePrints:  true,
             debugPrints: true

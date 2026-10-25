@@ -257,9 +257,14 @@ BEAT 0 IS FILE START.
 
 HOTCUE_MAX (= 16) IS SCANNED.
 
-  `var HOTCUE_MAX = 16;` in xone-k3-lib-controller-beat.js.
-  Mixxx supports 36; raise the constant if you place markers
-  past hotcue 16.
+  `XoneK3.HOTCUE_MAX = 16;` at the top of
+  xone-k3-lib-controller-beat.js. Mixxx supports 36.
+
+  Raise it BEFORE boot if you place markers past hotcue 16.
+  Raising it after boot extends the per-tick derive scan but
+  not the observer set — observers are wired once at clock-open,
+  so a post-boot raise won't watch markers above the boot-time
+  limit. Origin still re-derives on the next playhead throttle.
 
 PHRASE_MARKER_COLORS is a list of Mixxx hotcue RGB hexes. Empty
 list = feature off.

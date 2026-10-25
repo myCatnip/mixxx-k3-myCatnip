@@ -250,9 +250,14 @@ Put a hotcue at the phrase-start beat, set its colour to red
 (`0xC50A08`). The origin derives on the next playposition tick.
 Same hotcue doubles as a jump.
 
-Empty list = feature off. Up to 16 hotcues scanned (`HOTCUE_MAX`
-in `lib-controller-beat.js`; Mixxx supports 36, raise the
-constant if you place markers past hotcue 16).
+Empty list = feature off. Up to `XoneK3.HOTCUE_MAX` hotcues
+scanned (default 16, declared at the top of
+`lib-controller-beat.js`; Mixxx supports 36). Set it *before*
+boot if you place markers past hotcue 16. Setting it after boot
+extends the per-tick derive scan but not the observer set — the
+observer connections are wired once at clock-open, so a
+post-boot raise won't watch markers above the boot-time limit.
+Origin still re-derives on the next playhead throttle.
 
 ## 1.9 Change FX cell mapping
 
