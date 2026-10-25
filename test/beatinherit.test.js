@@ -52,10 +52,9 @@ test('applyBeat: sub-object color inline brightness', function(t) {
     t.eq(out.brightness, 30);
 });
 
-test('applyBeat: phrase inline brightness applies when no top-level brightness', function(t) {
+test('applyBeat: phrase inline brightness used when no other brightness set', function(t) {
     // Inline brightness on a color spec fills in when no higher
-    // level provided one. With a top-level `brightness` present,
-    // that wins.
+    // level provided one.
     var out = XoneK3.applyBeat(
         {rgb: [0,0,0], brightness: 100},
         {barBeats: 4, phraseBars: 4,

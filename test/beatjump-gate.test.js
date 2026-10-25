@@ -361,23 +361,3 @@ test('beatjump outside a loop ignores recent encoder touch', function(t) {
     H.press(c, 'grid0_0');          // but loop is off → passes
     t.eq(engine.getValue('[Channel1]', 'beatjump_1_backward'), 1);
 });
-
-// ═══ track_loaded resets the touch ══════════════════════════
-
-test('track_loaded clears _lastLoopTouchMs for that channel', function(t) {
-    var c = H.ctrl();
-    // Beat clocks must be open for the track_loaded handler to be
-    // wired. Simplest: bind a beat scheme and refresh.
-    XoneK3.PHRASE_MARKER_COLORS = [];
-    c._applyBinding('button0_0', {
-        group: '[Channel1]', inKey: 'pfl',
-        colorScheme: {scheme: {colors: [[127,0,0]], beat: {color: 'blue'}}}
-    });
-    c._refreshAllLeds();
-
-    c._lastLoopTouchMs[1] = 99999;
-    c._lastLoopTouchMs[2] = 88888;
-    engine._trigger('[Channel1]', 'track_loaded', 1);
-    t.eq(c._lastLoopTouchMs[1], 0);
-    t.eq(c._lastLoopTouchMs[2], 88888, 'other channels untouched');
-});

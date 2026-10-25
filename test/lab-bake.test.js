@@ -28,6 +28,44 @@ test('bakeScheme: structural preserves brightness', function(t) {
     t.eq(out.colors[0][3], 60);
 });
 
+test('bakeScheme: structural preserves ratio as span fractions', function(t) {
+    var c = setupLab();
+    var s = {colors: [[127,0,0], [0,127,0], [0,0,127]], ratio: [3, 1, 1]};
+    var out = XoneK3.bakeScheme(s, c, 'structural');
+    t.eq(out.ratio.length, 3);
+    t.approx(out.ratio[0], 0.6, 1e-6);
+    t.approx(out.ratio[1], 0.2, 1e-6);
+    t.approx(out.ratio[2], 0.2, 1e-6);
+});
+
+test('bakeScheme: structural preserves schemePosition', function(t) {
+    var c = setupLab();
+    var s = {colors: [[127,0,0]], schemePosition: 90};
+    var out = XoneK3.bakeScheme(s, c, 'structural');
+    t.eq(out.schemePosition, 90);
+});
+
+test('bakeScheme: structural preserves curve', function(t) {
+    var c = setupLab();
+    var s = {colors: [[127,0,0]], curve: 0.5};
+    var out = XoneK3.bakeScheme(s, c, 'structural');
+    t.eq(out.curve, 0.5);
+});
+
+test('bakeScheme: structural omits default schemePosition', function(t) {
+    var c = setupLab();
+    var s = {colors: [[127,0,0]], schemePosition: 63.5};
+    var out = XoneK3.bakeScheme(s, c, 'structural');
+    t.eq(out.schemePosition, undefined);
+});
+
+test('bakeScheme: structural omits zero curve', function(t) {
+    var c = setupLab();
+    var s = {colors: [[127,0,0]], curve: 0};
+    var out = XoneK3.bakeScheme(s, c, 'structural');
+    t.eq(out.curve, undefined);
+});
+
 // ── bakeScheme: sampled ────────────────────────────────────
 
 test('bakeScheme: sampled at 23 points', function(t) {

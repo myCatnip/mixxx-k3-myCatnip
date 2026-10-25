@@ -41,6 +41,19 @@ function setPreviewCO(v) {
     engine._params['[QuickEffectRack1_[Channel1]]|super1'] = v;
 }
 
+// Bind the CALIB_TARGET cells the segment painter paints. The real
+// colorLab config binds every target via ledSelectTarget; without
+// the binding, _renderSegmentGrid treats the cell as unbound and
+// paints black (the overlay-null contract), which would mask what
+// these tests are trying to assert.
+function bindTargets(c, cells) {
+    for (var i = 0; i < cells.length; i++) {
+        H.bind(c, cells[i], {
+            func: XoneK3.FUNCS.ledSelectTarget, args: [cells[i]]
+        });
+    }
+}
+
 // ── _buildCellIndex / _findCellsByFunc ─────────────────────
 
 test('_findCellsByFunc: finds cells by func id', function(t) {
@@ -75,40 +88,47 @@ test('_claimedCells: returns union of painter-owned cells', function(t) {
 
 test('_renderSegmentGrid: paints each stop', function(t) {
     var c = setupLab();
-    // The real colorLab config binds every CALIB_TARGET via
-    // ledSelectTarget. _renderSegmentGrid treats "not in
-    // _applied" as "paint black" (overlay-null contract), so
-    // bind the cells this test paints.
-    H.bind(c, 'grid0_0', {func: XoneK3.FUNCS.ledSelectTarget, args: ['grid0_0']});
-    H.bind(c, 'grid1_0', {func: XoneK3.FUNCS.ledSelectTarget, args: ['grid1_0']});
-    H.bind(c, 'grid2_0', {func: XoneK3.FUNCS.ledSelectTarget, args: ['grid2_0']});
+    bindTargets(c, ['grid0_0', 'grid1_0', 'grid2_0']);
     setEdit(c, {colors: [[127,0,0], [0,127,0], [0,0,127]]});
     H.clearLeds(c);
     c._renderSegmentGrid();
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
 });
 
-test('_renderSegmentGrid: unset cells go dark', function(t) {
+test('_renderSegmentGrid: in-range cell beyond stop count paints black', function(t) {
     var c = setupLab();
-    setEdit(c, {colors: [[127,0,0]]});
+    bindTargets(c, ['grid0_0', 'grid1_0']);
+    setEdit(c, {colors: [[127,0,0]]});   // 1 stop
     H.clearLeds(c);
     c._renderSegmentGrid();
-    var l1 = H.led(c, 'grid1_0');
-    t.eq(l1.r, 0);
-    t.eq(l1.g, 0);
-    t.eq(l1.b, 0);
+    t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
+    t.rgb(H.led(c, 'grid1_0'), 0, 0, 0);   // i=1 >= compiled.on.length=1
 });
 
-test('_renderSegmentGrid: out-of-range cells go black', function(t) {
+test('_renderSegmentGrid: honours {} null from overlay', function(t) {
     var c = setupLab();
+    bindTargets(c, ['grid0_0']);
     setEdit(c, {colors: [[127,0,0]]});
-    c._lab.selectedSegment = 2;
     H.clearLeds(c);
     c._renderSegmentGrid();
-    var led = H.led(c, 'grid2_0');
-    t.eq(led.r, 0);
-    t.eq(led.g, 0);
-    t.eq(led.b, 0);
+    t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
+
+    // An overlay nulls the cell. The segment colour from the layer
+    // below must not bleed through.
+    H.bind(c, 'grid0_0', {});
+    H.clearLeds(c);
+    c._renderSegmentGrid();
+    t.rgb(H.led(c, 'grid0_0'), 0, 0, 0);
+});
+
+test('_renderSegmentGrid: unbound cell paints black', function(t) {
+    var c = setupLab();
+    // grid1_0 is in CALIB_TARGETS but has no binding at all.
+    bindTargets(c, ['grid0_0']);
+    setEdit(c, {colors: [[127,0,0], [0,127,0]]});
+    H.clearLeds(c);
+    c._renderSegmentGrid();
+    t.rgb(H.led(c, 'grid1_0'), 0, 0, 0);
 });
 
 // ── _renderMarkerLED ──────────────────────────────────────
@@ -198,7 +218,7 @@ test('_renderBeatGrid: target cells painted', function(t) {
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
 });
 
-test('_renderBeatGrid: unset target shows dim grey', function(t) {
+test('_renderBeatGrid: unset target paints white at off-brightness', function(t) {
     var c = setupLab();
     setEdit(c, {colors: [[127,0,0]], beat: {barBeats: 4}});
     H.bind(c, 'grid0_0', {
@@ -207,7 +227,8 @@ test('_renderBeatGrid: unset target shows dim grey', function(t) {
     H.clearLeds(c);
     c._renderBeatGrid();
     var led = H.led(c, 'grid0_0');
-    t.ok(led.r > 0 && led.g > 0 && led.b > 0);
+    t.rgb(led, 127, 127, 127);
+    t.hw(led, XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF);
 });
 
 test('_renderBeatGrid: toggle cell green when on', function(t) {
@@ -343,4 +364,34 @@ test('_paintLED: no rgb → no write', function(t) {
     H.clearLeds(c);
     c._paintLED('button0_0', 'mixxx');
     t.eq(midi._sysex.length, 0);
+});
+
+test('_paintLED: on=true uses scheme on-brightness', function(t) {
+    var c = setupLab();
+    H.clearLeds(c);
+    c._paintLED('button0_0', 'red, 80, 20', true);
+    t.rgb(H.led(c, 'button0_0'), 127, 0, 0);
+    t.hw(H.led(c, 'button0_0'), 80);
+});
+
+test('_paintLED: on=false uses scheme off-brightness', function(t) {
+    var c = setupLab();
+    H.clearLeds(c);
+    c._paintLED('button0_0', 'red, 80, 20', false);
+    t.rgb(H.led(c, 'button0_0'), 127, 0, 0);
+    t.hw(H.led(c, 'button0_0'), 20);
+});
+
+test('_paintLED: on=false without scheme off-brightness falls back', function(t) {
+    var c = setupLab();
+    H.clearLeds(c);
+    c._paintLED('button0_0', 'red, 80', false);
+    t.hw(H.led(c, 'button0_0'), XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF);
+});
+
+test('_paintLED: numeric third arg overrides everything', function(t) {
+    var c = setupLab();
+    H.clearLeds(c);
+    c._paintLED('button0_0', 'red, 80, 20', 55);
+    t.hw(H.led(c, 'button0_0'), 55);
 });

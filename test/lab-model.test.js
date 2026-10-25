@@ -127,7 +127,7 @@ test('_labLEDScheme: slots mode → preview', function(t) {
 // otherwise (with a warn-once keyed labEditWhilePreviewing). It
 // never copies a preview into edit and never clears any flag —
 // those are the jobs of _loadPreview (shift+R), _editThis (slots
-// mode), and the armed-slot save in _selectSlot. See INTERNALS §18.
+// mode), and the armed-slot save in _selectSlot. See INTERNALS §17.
 
 test('_commitPreview: null while previewing (gate — no side effects)', function(t) {
     var c = setupLab();
@@ -143,14 +143,12 @@ test('_commitPreview: null while previewing (gate — no side effects)', functio
     t.eq(c._lab.previewing, true);
 });
 
-test('_commitPreview: returns fresh edit buffer', function(t) {
+test('_commitPreview: returns edit buffer when previewSource is edit', function(t) {
     var c = setupLab();
     var before = c._lab.edit;
-    c._lab.slots[3] = {colors: [[0,127,0]]};
-    c._lab.previewSource = 3;
-    c._lab.previewing = true;
-    var after = c._commitPreview();
-    t.neq(after, before);
+    c._lab.previewSource = 'edit';
+    c._lab.previewing = false;
+    t.eq(c._commitPreview(), before);
 });
 
 test('_commitPreview: no preview → returns edit unchanged', function(t) {

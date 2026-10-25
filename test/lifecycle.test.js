@@ -11,12 +11,12 @@ test('rebind: replaces binding, LED updates', function(t) {
     var c = H.ctrl();
     c._applyBinding('button0_0', {
         group: '[Channel1]', inKey: 'pfl',
-        colorScheme: {scheme: 'red', on: {always: true}}
+        colorScheme: {scheme: 'red', on: true}
     });
     H.clearLeds();
     c._applyBinding('button0_0', {
         group: '[Channel1]', inKey: 'pfl',
-        colorScheme: {scheme: 'green', on: {always: true}}
+        colorScheme: {scheme: 'green', on: true}
     });
     var led = H.led(c, 'button0_0');
     t.rgb(led, 0, 127, 0);
@@ -26,7 +26,7 @@ test('unbind: nulls the binding and blanks the LED', function(t) {
     var c = H.ctrl();
     c._applyBinding('button0_0', {
         group: '[Channel1]', inKey: 'pfl',
-        colorScheme: {scheme: 'red', on: {always: true}}
+        colorScheme: {scheme: 'red', on: true}
     });
     H.clearLeds();
     c._applyBinding('button0_0', null);
@@ -81,7 +81,7 @@ test('_applyResolved: no rebind on identical cfg', function(t) {
     var c = H.ctrl();
     var cfg = {
         group: '[Channel1]', inKey: 'pfl',
-        colorScheme: {scheme: 'red', on: {always: true}}
+        colorScheme: {scheme: 'red', on: true}
     };
     c._applyResolved({button0_0: cfg});
     H.clearLeds();
@@ -93,12 +93,12 @@ test('_applyResolved: rebind on changed cfg', function(t) {
     var c = H.ctrl();
     c._applyResolved({button0_0: {
         group: '[Channel1]', inKey: 'pfl',
-        colorScheme: {scheme: 'red', on: {always: true}}
+        colorScheme: {scheme: 'red', on: true}
     }});
     H.clearLeds();
     c._applyResolved({button0_0: {
         group: '[Channel1]', inKey: 'pfl',
-        colorScheme: {scheme: 'blue', on: {always: true}}
+        colorScheme: {scheme: 'blue', on: true}
     }});
     t.rgb(H.led(c, 'button0_0'), 0, 0, 127);
 });
@@ -107,7 +107,7 @@ test('_applyResolved: removed bindings get unbound', function(t) {
     var c = H.ctrl();
     c._applyResolved({button0_0: {
         group: '[Channel1]', inKey: 'pfl',
-        colorScheme: {scheme: 'red', on: {always: true}}
+        colorScheme: {scheme: 'red', on: true}
     }});
     H.clearLeds();
     c._applyResolved({});

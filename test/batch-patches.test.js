@@ -129,14 +129,25 @@ test('_batchPatches: two removals + two additions → four events, one recompute
 
 // ── mutator contract ───────────────────────────────────────
 
-test('_batchPatches: mutator receives the live array', function(t) {
+test('_batchPatches: mutator receives a copy, not the live array', function(t) {
     var c = H.ctrl({patches: {cue: {}, loop: {}}, initialPatches: ['cue']});
+    var original = c.activePatches;
+    var snapshotBefore = original.slice();
     var received = null;
+
     c._batchPatches(function(patches) {
         received = patches;
+        t.neq(patches, original,
+              'mutator must not receive the live array');
+        t.eq(original.slice(), snapshotBefore,
+              'activePatches must not change while mutator runs');
         patches.push('loop');
     });
-    t.eq(received, c.activePatches);
+
+    t.eq(c.activePatches, ['cue', 'loop'],
+         'result lands in activePatches');
+    t.eq(received, ['cue', 'loop'],
+         'copy still shows the mutator edits');
 });
 
 // ── setTopMode uses it ────────────────────────────────────
