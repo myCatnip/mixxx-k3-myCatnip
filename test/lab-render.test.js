@@ -1,3 +1,4 @@
+// lab-render.test.js
 'use strict';
 
 var H = require('./helpers');
@@ -81,7 +82,8 @@ test('_claimedCells: returns union of painter-owned cells', function(t) {
         func: XoneK3.FUNCS.labSlotPress, args: [0]
     });
     var claimed = c._claimedCells();
-    t.hasKey(claimed, 'grid0_0');
+    // _claimedCells returns a Set — membership via .has(), not hasKey.
+    t.ok(claimed.has('grid0_0'));
 });
 
 // ── _renderSegmentGrid ────────────────────────────────────
