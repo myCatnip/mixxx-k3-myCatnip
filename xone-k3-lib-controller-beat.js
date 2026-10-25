@@ -125,6 +125,27 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         this._resolveDisplaySource(ch);
     };
 
+    // Single start/stop decision. The loop clock runs iff the
+    // channel is in a loop AND the deck is playing — pause is
+    // equivalent to exiting the loop, resume to entering it.
+    // Returns true if the clock state changed, false on no-op.
+    // The bool lets callers (`_onPlayIndicator`) distinguish
+    // "the clock-start path already repainted" from "nothing
+    // happened, I need an explicit refresh".
+    XoneK3.K3Controller.prototype._syncVirtualClock = function(ch) {
+        var st = this._decks[ch];
+        var shouldRun = st.loopActive && st.playing;
+        if (shouldRun && !st.loopClock.running) {
+            this._startVirtualClock(ch);
+            return true;
+        }
+        if (!shouldRun && st.loopClock.running) {
+            this._stopVirtualClock(ch);
+            return true;
+        }
+        return false;
+    };
+
     XoneK3.K3Controller.prototype._advanceVirtualClock = function(ch, newPos) {
         var st = this._decks[ch];
         var clock = st.loopClock;
@@ -452,12 +473,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // st.playing = false, rendering the paused beat mode on a
     // playing deck.
     XoneK3.K3Controller.prototype._catchUpChannel = function(ch) {
-        this._readLoopState(ch);
-        if (this._decks[ch].loopActive) {
-            this._startVirtualClock(ch);
-        }
+        // playing first — the clock only runs while playing, and
+        // a reload during an active loop should leave the clock
+        // stopped until the deck is actually playing.
         this._decks[ch].playing =
             engine.getValue('[Channel' + ch + ']', 'play_indicator') > 0;
+        this._readLoopState(ch);
+        this._syncVirtualClock(ch);
         this._syncBeatCount(ch);
     };
 
@@ -513,12 +535,21 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var st = this._decks[ch];
         var wasPlaying = st.playing;
         st.playing = v > 0;
-        if (v === 1) {
-            st.loopClock.lastTs = Date.now();
-            this._syncBeatCount(ch);
-        }
         if (wasPlaying !== st.playing) {
-            this._refreshBeatLeds(ch);
+            // Play state gates the loop clock. Pause stops it
+            // (displaySource reverts to 'track'); resume re-seeds
+            // from the playhead, identical to entering the loop.
+            //
+            // When the clock starts or stops, the repaint comes
+            // for free via _resolveDisplaySource → _syncBeatCount
+            // → _refreshBeatLeds. Only the no-loop case has no
+            // such path, and _isBeatOffPhase still needs to pick
+            // up the new st.playing — hence the explicit refresh
+            // on the no-op branch.
+            if (!this._syncVirtualClock(ch)) this._refreshBeatLeds(ch);
+        }
+        if (v === 1) {
+            this._syncBeatCount(ch);
         }
     };
 
@@ -528,11 +559,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         this._trackMetaCache[ch] = undefined;
         this._resetBeat(ch);
         this._lastLoopTouchMs[ch] = 0;
+        // _resetBeat wiped st.playing. Re-read before the clock
+        // start — a track can load while the deck is playing, and
+        // the clock only runs when playing.
+        this._decks[ch].playing = engine.getValue(grp, 'play_indicator') > 0;
         this._readLoopState(ch);
         this._syncBeatClocks();
-        if (this._decks[ch].loopActive) {
-            this._startVirtualClock(ch);
-        }
+        this._syncVirtualClock(ch);
         // Derive from markers for the current position so a load
         // landing past a marker anchors immediately.
         var pos = engine.getValue(grp, 'playposition');
@@ -540,15 +573,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         this._syncBeatCount(ch);
     };
 
+    // Enabling the loop while paused does not start the clock —
+    // `_syncVirtualClock` gates on both loopActive and playing.
     XoneK3.K3Controller.prototype._onLoopEnabled = function(ch) {
-        var st = this._decks[ch];
-        var wasActive = st.loopActive;
         this._readLoopState(ch);
-        if (st.loopActive && !wasActive) {
-            this._startVirtualClock(ch);
-        } else if (!st.loopActive && wasActive) {
-            this._stopVirtualClock(ch);
-        }
+        this._syncVirtualClock(ch);
     };
 
     // ============================================================
