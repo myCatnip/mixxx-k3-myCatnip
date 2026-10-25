@@ -61,7 +61,7 @@ button0_0: {
 }
 ```
 
-A binding can hold five kinds of information:
+A binding can hold four kinds of information:
 
 | Field | Purpose |
 |---|---|
@@ -69,7 +69,6 @@ A binding can hold five kinds of information:
 | `outKey` | What Mixxx control its LED reads for on/off state. |
 | `colorScheme` | What the LED looks like. |
 | `func` + `args` | Optional custom behaviour, replacing the default write. |
-| `rate` | Optional rate class for throttling (see §11). |
 
 Any of these can be omitted. A binding with `group` + `inKey` does
 the default thing. A binding with `colorScheme` only is an LED-only
@@ -357,9 +356,9 @@ not on the playhead.
 **Which timeline feeds the count** is `displaySource`. It is
 `loop` while the loop clock is running, `track` otherwise. There
 is no priority tunable and no third reading — the loop clock is
-the only virtual timeline. Manual cycle via the LOOP layer's
-`grid2_0` toggles between track and loop while the clock is
-running.
+the only virtual timeline. Manual cycle via the LOOP layer's `grid2_0`
+toggles between track and loop while the clock is running. The
+manual choice sticks until the next start / stop event re-resolves it.
 
 **Both timelines are rate-scaled.** Two synced decks at the same
 tempo advance their cascade counts in phase, in any mix of track
@@ -381,6 +380,12 @@ Frozen during an active loop.
 from the track position's fractional beat in both modes. The
 cascade count is what differs. This is why looping one deck
 doesn't visibly desync it from the other.
+
+**Paused decks.** `hasBeat` means "position is meaningful", not
+"deck is playing". A paused deck that's been jogged once still
+shows the cascade for the parked playhead. Scrub updates it at
+the 30 ms position throttle. The pulse only fires on
+`beat_active` edges, so a paused LED is static, not pulsing.
 
 Details: CUSTOMISE → Reference → Timelines. Reference doc:
 `timelines.md`.
@@ -418,37 +423,48 @@ at cascade levels. See CUSTOMISE → What is and isn't possible.
 
 ---
 
-## 11. Rate limits
+## 11. Beatjump gate
 
-Rapid loop-moving actions can push the playhead out of an active
-loop. Every binding that touches a loop carries a **rate class**,
-which throttles its fire rate.
+One rule. Beatjumps are gated; nothing else is.
 
-The gate is applied in `Binding.input()` *before* the func runs,
-so a throttled event never reaches the func body — but **only
-when the binding's target channel has an active loop**. With no
-loop there is nothing to escape from, so out-of-loop claims pass
-freely and don't touch the shared clock.
+**The gate.** A beatjump — either `beatjumpButton` or
+`encBeatjump` — is blocked when its target channel has an active
+loop *and* less than `XoneK3.BEATJUMP_GAP_MS` has elapsed since
+the last loop-touching event on that channel.
 
-Four classes, in `XoneK3.RATE_CLASSES`:
+`BEATJUMP_GAP_MS = 130` in `lib-core.js`. One global value.
 
-| Class | Self-gate | Blocks jumps for | Leaves a tail |
-|---|---|---|---|
-| `jump`  | —          | 120 ms | 120 ms |
-| `edit`  |  | 60 ms | 60 ms |
-| `claim` | —          | —      | — |
-| `free`  | —          | —      | — |
+**What counts as a loop-touching event.** Anything that moves a
+loop boundary, engages or disengages a loop, or changes the loop
+size:
 
-`jump` = both boundaries move (beatjump, reloop, beatloop
-activate). `edit` = one boundary moves (loop-point nudge, size
-set). `claim` = doesn't move anything but shouldn't be followed by
-a jump immediately (beatjump-size step).
+- `encLoopMove` / `encLoopMoveAccel` (boundary nudges)
+- `pressSetValue` on `beatloop_size`
+- `beatloopActivateResetAnchor`
+- `reloopToggleResetAnchor`
+- a beatjump that passed the gate, while the loop was on
 
-The class is inferred from the binding's func or `inKey`. You
-rarely set it explicitly. Override per binding with
-`rate: 'jump'` or an inline object; opt out with `rate: false`.
+**Why one value, not a class system.** The previous
+implementation had four rate classes (`jump`, `edit`, `claim`,
+`free`) with per-binding overrides and an escape detector. It
+was complex enough to hide the actual constraint: *a beatjump
+must not fire 60 ms after a loop edit, because Mixxx hasn't
+settled the loop yet*. One gate on the beatjump itself, tuning
+one value, is the whole rule.
 
-Details, tuning, and diagnostics: `rate-limits.md`.
+**What it doesn't do.** The gate doesn't prevent a *single*
+beatjump from exiting a short loop. A 1-beat jump into a
+1/16-beat loop lands past `loop_out` and Mixxx deactivates the
+loop. That's geometry, not a rate problem. If you don't want
+the loop to exit, don't jump while it's playing.
+
+**Outside a loop, everything fires freely.** The gate only
+checks when `loop_enabled > 0` on the target channel. No stamp
+is written when the loop is off, so a beatjump after a preset
+reload or track load starts with a clean timestamp.
+
+Details: INTERNALS §13 (Input mods) carries the mechanics, §25
+non-obvious has the design bullets.
 
 ---
 
@@ -495,8 +511,8 @@ Full guide: LAB.md.
 
 ## Where to go next
 
-- **CONTROLS.md** — every control's shipped behaviour, per mode
-  and per layer.
+- **README.md** — physical layout, per-mode behaviour, and the
+  per-unit FX cell tables.
 - **CUSTOMISE.md** — how to change any of it. Recipes first,
   reference second.
 - **INTERNALS.md** — runtime pipeline, caches, beat maths, and

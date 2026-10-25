@@ -479,33 +479,4 @@
         markerWidth: 0,
         coScheme: null
     };
-
-    /*
-    XoneK3.SCHEMES.coMatch = {
-        colors: [
-            [100, 55, 55],
-            [100, 69, 69],
-            [69, 100, 69],
-            [55, 100, 55]
-        ],
-        ratio: [30, 20, 20, 30],
-        curve: -0.75,
-        markerWidth: 0,
-        coScheme: null
-    };
-    */
-    /*
-   XoneK3.SCHEMES.coMatch = {
-    colors: [
-        [24, 24, 127],
-        [55, 55, 127],
-        [55, 100, 55],
-        [42, 127, 42]
-    ],
-    ratio: [40, 10, 10, 40],
-    curve: -0.95,
-    markerWidth: 0,
-    coScheme: null,
-    };
-    */
 })();   

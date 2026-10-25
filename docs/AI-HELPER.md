@@ -1,60 +1,3 @@
-# Xone K3 — AI config helper
-
-## Setup
-
-1. Open a chat with an AI (ChatGPT, Claude, Gemini, or a local model).
-2. Paste this whole file.
-3. Attach the files listed below.
-4. Describe what you want.
-
-## Attach these files
-
-Always:
-
-```
-xone-k3-lib-core.js
-xone-k3-lib-schemes.js
-xone-k3-lib-binding.js
-xone-k3-lib-controller.js
-xone-k3-lib-controller-colour.js
-xone-k3-lib-controller-beat.js
-xone-k3-lib-controller-render.js
-xone-k3-lib-controller-boot.js
-xone-k3-lib-funcs.js
-xone-k3-lib-inspect.js
-xone-k3-cat-schemes.js
-xone-k3-cat-fx.js
-xone-k3-cat-top.js
-xone-k3-cat-bottom.js
-xone-k3-cat-overlays.js
-xone-k3-cat.js
-```
-
-Preset boot files, only the ones whose behaviour matters:
-
-```
-xone-k3-kitten.js
-xone-k3-onek3.js
-xone-k3-onek3-minifx.js
-```
-
-For colorLab work, also:
-
-```
-xone-k3-lab.js
-xone-k3-colorlab.js
-```
-
-Optional reference, if the AI needs it:
-
-```
-CONCEPTS.md    mental model — bindings, patches, stack, tokens
-CUSTOMISE.md   recipes + field reference
-CONTROLS.md    every control, per mode
-GLOSSARY.md    one-line definitions
-INTERNALS.md   runtime pipeline, caches, debugging
-```
-
 ## What the AI will do
 
 - Verify Mixxx CO names against the manual — it will ask if it can't.
@@ -80,14 +23,14 @@ Allen & Heath Xone K3. Everything below is context for you.
 FRAMEWORK
 ═══════════════════════════════════════════════════════════════
 
-xone-k3-lib-core.js      bootstrap, tunables, RATE_CLASSES,
-                         PATCH_NAMES, utilities, tokens, transfer
-                         curve, sysex math, beat math, K2 palette,
-                         HARDWARE_CALIB, warn-once,
-                         VIRTUAL_CLOCKS, escape-detect constants.
+xone-k3-lib-core.js      bootstrap, tunables, PATCH_NAMES,
+                         utilities, tokens, transfer curve, sysex
+                         math, beat math, K2 palette,
+                         HARDWARE_CALIB, BEATJUMP_GAP_MS,
+                         warn-once, VIRTUAL_CLOCKS.
 xone-k3-lib-schemes.js   palette + scheme engine + LED curves.
 xone-k3-lib-binding.js   Binding primitive + colour render path
-                         + rate gate + snapshot list.
+                         + snapshot list.
 xone-k3-lib-controller.js       constructor, patch resolution,
                                 focus, TOP_MODES, chord, binding
                                 application, render-time scheme
@@ -100,10 +43,9 @@ xone-k3-lib-controller-beat.js  timeline, loop clock, display
                                 source, beat count, beat clocks,
                                 _deriveOriginFromPosition.
 xone-k3-lib-controller-render.js LED writes, sysex queue,
-                                 calibration, ramp sampling.
-xone-k3-lib-controller-boot.js  rate gate (_claimRate with loop
-                                bypass), escape detector,
-                                init / shutdown, MIDI wiring,
+                                 calibration, ramp sampling,
+                                 beatjump gate.
+xone-k3-lib-controller-boot.js  init / shutdown, MIDI wiring,
                                 boot, halt.
 xone-k3-lib-funcs.js     builders (eqKnob, fxKnob…) +
                          XoneK3.FUNCS.
@@ -230,7 +172,6 @@ A BINDING is one physical control:
   - What the LED reads             (outKey, or colorScheme.on)
   - What the LED looks like        (colorScheme)
   - Optional custom behaviour      (func + args)
-  - Optional rate class            (rate)
 
 A PATCH is a named set of bindings. Patches layer.
 
@@ -529,6 +470,58 @@ preset layer tree — the focus-mode press row was replaced by
 `activeSlotButton`, which calls `setActiveDeckTo` / `setActiveFxTo`.
 
 ═══════════════════════════════════════════════════════════════
+BEATJUMP GATE
+═══════════════════════════════════════════════════════════════
+
+One rule, one value:
+
+  XoneK3.BEATJUMP_GAP_MS = 130      // in lib-core.js
+
+A beatjump (`beatjumpButton`, `encBeatjump`) is gated ONLY when
+its target channel has `loop_enabled > 0`. Outside a loop every
+beatjump fires freely.
+
+The gate lives in `_beatjumpAllowed(group)` (lib-controller-render.js):
+
+  - No Channel group → allow.
+  - Channel not in loop → allow, no stamp.
+  - Channel in loop:
+      if (now - _lastLoopTouchMs[ch]) < BEATJUMP_GAP_MS → block.
+      else → allow, stamp _lastLoopTouchMs[ch] = now.
+
+`_lastLoopTouchMs[ch]` is stamped by every loop-touching event:
+
+  encLoopMove           — boundary nudge
+  encLoopMoveAccel      — boundary nudge with turn-rate multiplier
+  pressSetValue         — ONLY on `beatloop_size` (not beatjump_size)
+  beatloopActivateResetAnchor
+  reloopToggleResetAnchor
+  beatjumpButton / encBeatjump — on a pass, while the loop is on
+
+NOT stamped by: beatjump_size writes, hotcues, play, EQ, faders,
+any non-loop-touching control.
+
+Purpose: stop rapid loop edits from being immediately followed
+by an in-loop beatjump that kills a sub-beat loop. The gate
+limits a rapid encoder+beatjump smash to one jump per 130 ms of
+loop-quiet on that channel.
+
+The gate does NOT prevent a deliberate beatjump from exiting a
+loop — geometry does that. A 1-beat jump into a 1/16-beat loop
+will always exit it.
+
+To disable: set `XoneK3.BEATJUMP_GAP_MS = 0` (gate becomes
+`now - last < 0`, always false → allow). To tune higher: bump
+to 150–200 for stricter gating. There is no per-binding
+override.
+
+If you write a custom func that moves a loop boundary or
+engages/changes a loop, call `this._ctrl._touchLoop(this.group)`
+after the write. If you write a custom beatjump func, call
+`this._ctrl._beatjumpAllowed(this.group)` first and bail if it
+returns false.
+
+═══════════════════════════════════════════════════════════════
 READING THE USER
 ═══════════════════════════════════════════════════════════════
 
@@ -561,10 +554,7 @@ READING THE USER
   "spin faster moves more"             → accel on the binding
   "encoder that guards itself"         → self-accelerating func
   "swap mode flickers"                 → _batchPatches, not addPatch loop
-  "loop skipping when I move it fast"  → rate class (only fires
-                                          inside an active loop; if
-                                          no loop, gate is bypassed)
-  "which control was firing"           → inspect('rate')
+  "beatjump doesn't fire in a tight loop" → BEATJUMP_GAP_MS gate
   "beat LED out of sync on pitched"    → _channelRate reads
                                           rate_ratio, not rate
   "clear the main cue"                 → [ChannelN],cue_clear
@@ -583,7 +573,6 @@ control_name: {
     args: ['arg1'],
     accel: 3,
     valueCurve: 2.0,
-    rate: 'edit',
     colorScheme: {
         knob: 'knob0_0',
         scheme: 'myRamp',
@@ -709,9 +698,8 @@ FUNC MODS
 
   accel: 3          encoder step multiplier on fast turns.
   valueCurve: 2.0   knobs / faders only. output = input^c.
-  rate: 'edit'      rate class override.
 
-Order in Binding.input(): rate gate → accel → dispatch.
+Order in Binding.input(): accel → dispatch.
 
   accel: { amount: 4, curve: 1.5, window: 250, fullAt: 50 }
 
@@ -727,9 +715,9 @@ No debounce field.
 
 SELF-ACCELERATING FUNCS:
 
-Some funcs guard themselves against rapid calls (rate limits,
-state assumptions). `encLoopMove` is one. For those, use a
-self-accelerating func.
+Some funcs guard themselves against rapid calls (state
+assumptions, semantic limits). `encLoopMove` is one. For those,
+use a self-accelerating func.
 
   - Rate window lives on `this._<something>Events = []`.
     Session-scoped, not reset-able.
@@ -737,96 +725,6 @@ self-accelerating func.
   - The binding must NOT also carry `accel:`.
 
 `encLoopMoveAccel` in lib-funcs.js is the worked example.
-
-═══════════════════════════════════════════════════════════════
-RATE LIMITS
-═══════════════════════════════════════════════════════════════
-
-**The rate gate only fires inside an active loop.** Before
-anything else, `_claimRate` calls `_bindingInActiveLoop(b)` —
-true when the binding's target channel has `loop_enabled > 0`.
-False when:
-
-  - the binding has no group
-  - the group isn't a `[ChannelN]` group
-  - the target channel has no loop
-
-When `_bindingInActiveLoop` returns false:
-
-  - `_claimRate` returns true immediately.
-  - `_lastLoopChangeMs` is untouched — no claim on the shared
-    clock.
-  - `_lastRateClaim` is untouched — the last loop-relevant
-    claim stays.
-  - `_lastGateMs` is untouched — no self-stamp.
-  - `_rateAccepted` still increments (diagnostics).
-  - `_rateGated` doesn't — nothing was gated.
-
-Rationale: the gate keeps rapid loop moves from pushing the
-playhead out of an active loop. With no loop there's nothing to
-escape from. Freewheel.
-
-Classes live in XoneK3.RATE_CLASSES:
-
-  jump   selfCheck —,       jumpBlock 120, claim 120
-  edit   selfCheck —,       jumpBlock  60, claim  60
-  claim  selfCheck —,       jumpBlock  —,  claim  —
-  free   none
-
-Class is inferred from func / inKey via XoneK3._inferRateClass.
-Resolution happens at bind time via _resolveRateClass — the
-binding stores the class name or inline object on
-b._rateClass. Override per binding with `rate: 'jump'` or
-`rate: { selfCheckMs: 15, jumpBlockMs: 60, claimMs: 60 }`.
-`rate: false` opts out — the boot audit warns if inference
-disagreed.
-
-The shared clock is ctrl._lastLoopChangeMs. Bumping it forward
-by `claimMs` leaves the next jump waiting at least that long.
-The per-binding self-stamp is b._lastGateMs.
-
-encLoopMoveAccel is gated too — its internal rate window only
-sees accepted events. args = [side, step, cap, divisor], window
-is XoneK3.ENC_LOOP_ACCEL_WINDOW_MS.
-
-An unresolvable string class name warns at bind time via
-`_warnOnce('rateUnknown:' + name)` and stores `null` on the
-binding — the binding becomes ungated (`Binding.input`'s
-`if (gateable && this._rateClass)` check short-circuits and
-`_claimRate` never runs). Fix the binding's `rate:` value and
-reload.
-
-Diagnostics:
-
-  XoneK3.controllers[0].inspect('rate')          // gate state
-  XoneK3.controllers[0].inspect('rate', 'reset') // zero counters
-
-Loop-escape detector: when a loop turns off within
-`ESCAPE_DETECT_WINDOW_MS` of a rate claim and wasn't a deliberate
-reloop or track load, the controller prints one line:
-
-  [k3] LOOP ESCAPE deck=1 sinceClaim=42ms claimedBy=encoderL/edit loop=[0.2512,0.2537]
-
-`ESCAPE_DETECT_WINDOW_MS` derives from
-`RATE_CLASSES.jump.jumpBlockMs` — 120 by default, changing
-automatically if the jump window is retuned. After the block
-window expires the next action could have fired, so a later
-loop death belongs to something else. The claim-floor
-adjustment in `_claimRate` (offsetting `_lastLoopChangeMs` by
-`jump.jumpBlockMs - claimMs`) means the window means the same
-thing for every class:
-
-  jump  → deaths ≤ 120ms after claim
-  edit  → deaths ≤ 60ms  after claim
-  claim → deaths ≤ 60ms  after claim
-
-Read the escape line: the throttle was too loose for that
-gesture. Bump the relevant class's jumpBlockMs, or lower the
-edit selfCheckMs.
-
-Not rate-limited: overlay toggles, toggleTopMode, toggleMiniFx,
-cycleDisplaySource. Rapid toggling is expensive but doesn't
-corrupt state.
 
 ═══════════════════════════════════════════════════════════════
 ROUTING VIA TOKENS
@@ -1142,9 +1040,8 @@ SCHEME-LEVEL PATCHES ARE GONE. Use composeScheme.
 
 BATCH PATCH MUTATIONS:
 
-`ctrl._batchPatches(mutator)` edits `activePatches` in place,
-runs one `_recompute`, then fires `_onPatchChange` once per
-patch name that appeared or disappeared.
+`ctrl._batchPatches(mutator)` gives the mutator a **copy** of
+`activePatches`. Mutate it in place, or return a fresh array.
 
   ctrl._batchPatches(function(patches) {
       for (var i = patches.length - 1; i >= 0; i--) {
@@ -1156,8 +1053,10 @@ patch name that appeared or disappeared.
   });
 
 The mutator MUST NOT call `addPatch` / `removePatch` /
-`replacePatch` — those re-enter `_recompute`. Splice the array
-directly.
+`replacePatch` — those throw while a mutator is active.
+Nested `_batchPatches` throws too. `activePatches` is not
+modified until the mutator returns cleanly, so a throwing
+mutator needs no rollback.
 
 ═══════════════════════════════════════════════════════════════
 TOP-HALF MODE SWAPS
@@ -1277,19 +1176,18 @@ Encoders:
   encKeyReset          — any-direction key reset (pulses reset_key)
   encKeyShift
   encLoopMove          ['in', 0.010]
-      Loop point nudge. Gated by the 'edit' rate class (only
-      inside an active loop; out-of-loop bypass lets it fire
-      freely). accel: on the binding is swallowed by the gate;
-      use encLoopMoveAccel for acceleration.
+      Loop point nudge. Ungated — fires at whatever rate the
+      MIDI sends. Touch-loop stamp is written after the write
+      so a subsequent beatjump gates against this event.
   encLoopMoveAccel     ['in', 0.010]
-      Self-accelerating loop-point nudge. Gated by the 'edit'
-      rate class. Its internal rate window records only
-      accepted events — the multiplier reflects accepted spin,
-      not raw physical rate. Args: [side, step, cap?, divisor?]
-      with cap defaulting to 6 and divisor to 12. Window is
-      XoneK3.ENC_LOOP_ACCEL_WINDOW_MS (150ms). Must NOT also
-      carry accel: on the binding.
+      Self-accelerating loop-point nudge. Args:
+      [side, step, cap?, divisor?] with cap defaulting to 6 and
+      divisor to 12. Window is XoneK3.ENC_LOOP_ACCEL_WINDOW_MS
+      (150ms). Must NOT also carry accel: on the binding.
+      Also stamps _lastLoopTouchMs.
   encBeatjump
+      Beatjump forward/back. Gated by _beatjumpAllowed when in
+      loop. Uses _pulseCo.
   encBeatjumpStepScale ['1/32', 16]
   encStepParam         ['[Master]', 'gain', 0.01]
   encBpmPressedHeadMix
@@ -1298,9 +1196,17 @@ Encoders:
 Buttons:
 
   pressSetValue        ['1/4']
+      Writes an absolute value on press. Stamps _lastLoopTouchMs
+      when inKey is `beatloop_size`. Does NOT stamp for
+      `beatjump_size`.
   beatjumpButton       ['beatjump_1_backward']
+      Gated by _beatjumpAllowed. Uses _pulseCo.
   reloopToggleResetAnchor
+      Resets loop_anchor then pulses reloop_toggle. Stamps
+      _lastLoopTouchMs.
   beatloopActivateResetAnchor
+      Resets loop_anchor then pulses beatloop_activate. Stamps
+      _lastLoopTouchMs.
   bpmPress             ['encoderL']
   loadSelectedTrack
   shutdownHold
@@ -1359,12 +1265,20 @@ Runtime state probe — read-only, safe to call any time:
   XoneK3.controllers[0].inspect('beat')       // clocks, timelines
   XoneK3.controllers[0].inspect('tokens')     // token → bindings
   XoneK3.controllers[0].inspect('dark')       // unbound bindings
-  XoneK3.controllers[0].inspect('rate')       // gate state, stats
-  XoneK3.controllers[0].inspect('rate', 'reset')   // zero counters
+
+`inspect('rate')` is a stub — prints one line pointing at
+`BEATJUMP_GAP_MS`. No rate diagnostics exist.
 
 When a user reports "a warning disappeared" or "I can't
 reproduce the print", it's not a bug — it's `_warnOnce`
 deduping. Reload the preset to re-arm every warning.
+
+The beatjump gate prints a line when `_debugPrintsOn` is set:
+
+  [k3] beatjump gated: 87ms / 130ms
+
+Read it: `87ms` is time since the last loop-touching event,
+`130ms` is `BEATJUMP_GAP_MS`. The beatjump was refused.
 
 ═══════════════════════════════════════════════════════════════
 WHAT IS AND ISN'T POSSIBLE
@@ -1394,10 +1308,10 @@ The LED model supports:
   - Phrase origin — position-derived from marker hotcues. Add
     a hotcue colour to PHRASE_MARKER_COLORS; origin at any
     playhead position is the last such marker at or before it.
-  - Rate classes — jump / edit / claim / free, per binding.
-    Only fire inside an active loop.
-  - Rate diagnostics — counters, interval ring, escape
-    detector.
+  - Beatjump gate — a single global rule
+    (`XoneK3.BEATJUMP_GAP_MS`) that blocks beatjumps when the
+    target channel is in a loop and less than N ms have elapsed
+    since the last loop-touching event.
 
 Not supported:
 
@@ -1419,9 +1333,7 @@ Not supported:
   - More than one virtual clock per channel. The metronome
     clock was removed; adding a second clock means re-adding a
     priority model.
-  - Preset-level rate classes (classes are global; per-binding
-    overrides are the tunable).
-  - Cross-controller rate sharing.
+  - Per-binding beatjump gate override. One value globally.
   - Manual "set origin to X" — origin is derived from the
     playhead position and marker hotcues. No free-form setter.
 
@@ -1467,18 +1379,20 @@ WHEN TO SAY NO
      self-accelerating func instead — see encLoopMoveAccel."
 
   "encLoopMove won't accelerate."
-  → "It has an internal rate limit that swallows the accel
-     repeats. Switch to encLoopMoveAccel."
+  → "It has no accel. Switch to encLoopMoveAccel."
 
-  "My loop keeps skipping when I move it fast."
-  → "Only happens inside an active loop — the gate is bypassed
-     otherwise. `_debugPrintsOn`, gesture, `inspect('rate')`.
-     Check whether an escape was logged and which binding
-     claimed. Bump that class's jumpBlockMs."
+  "My beatjump doesn't fire in a tight loop."
+  → "That's the beatjump gate. `_beatjumpAllowed` blocks it if
+     less than `BEATJUMP_GAP_MS` (130 ms) has passed since the
+     last loop-touching event on that channel. Wait a beat or
+     press the beatjump outside the loop. Set
+     `XoneK3._debugPrintsOn = true` to see the gate line."
 
-  "Which control was firing when the loop skipped?"
-  → "`XoneK3.controllers[0].inspect('rate')` prints `last
-     claim` and any recorded escapes with `claimedBy`."
+  "My beatjump killed my loop."
+  → "That's geometry — a 1-beat jump into a 1/16 beatloop lands
+     past loop_out. The gate prevents rapid loop-edit spam, not
+     a single deliberate jump. If you don't want a jump to exit
+     a short loop, don't jump while it's playing."
 
   "Make this fader feel more natural."
   → "Add valueCurve. 2.0 exp, 0.5 log."

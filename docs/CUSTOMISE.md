@@ -35,10 +35,10 @@ four. colorLab is a separate tree — see `LAB.md`.
 | Accelerate an encoder | binding's `accel:` | §1.14 |
 | Make a func do its own accel | custom func + `_*Events` window | §1.15 |
 | Add a top-half mode | `TOP_MODES` + cat-* files | §1.16 |
-| Adjust a rate limit | binding's `rate:` | §1.17 |
-| Add a custom behaviour | `XoneK3.FUNCS.myX = …` | §1.18 |
+| Add a custom behaviour | `XoneK3.FUNCS.myX = …` | §1.17 |
 | Change boot channel / mode | preset's `.js` boot override | §2.6 |
-| Change loop-clock tempo tracking | `XoneK3.VIRTUAL_CLOCKS.loop.trackTempo` | §2.11 |
+| Change loop-clock tempo tracking | `XoneK3.VIRTUAL_CLOCKS.loop.trackTempo` | §2.10 |
+| Change the beatjump gate window | `XoneK3.BEATJUMP_GAP_MS` | §2.10 |
 
 ---
 
@@ -515,16 +515,23 @@ encoder3: { func: F.encKeyShift, group: '$DECK_ACTIVE$',
 A binding with just `group` + `inKey` writes an absolute value;
 repeating the write is a no-op.
 
-**`accel` doesn't work on funcs that have an internal rate
-limit.** `encLoopMove` bails on the 2nd through Nth call within
-its gate, so the repeats are swallowed. Use a self-accelerating
-func instead — see §1.15.
+**`accel` works on any func that writes a CO.** You can add
+`accel:` to `encLoopMove`, `encBeatjump`, or any custom func,
+and each event will multiply. If you prefer the acceleration
+logic to live inside the function itself (rather than in the
+binding config), use a self-accelerating func — see §1.15.
 
 ## 1.15 Make a func do its own accel
 
-Some funcs can't use `accel:` because they guard themselves
-against rapid calls. The pattern is to track event rate on the
-binding itself, then apply a step multiplier.
+A func can implement its own acceleration instead of relying on
+the binding's `accel:`. Useful when:
+
+- You want the multiplier logic to live with the function, not
+  in every binding that uses it.
+- You want the multiplier to reflect **accepted** events rather
+  than raw MIDI ticks (if the func internally skips some events).
+- You want the func to work across multiple bindings with
+  different base step sizes.
 
 ```js
 XoneK3.FUNCS.myAccel = function(args, ch, c, v, s) {
@@ -701,35 +708,7 @@ uses `$FX_ALT_N$`, not `$FX_ACTIVE_N$`. The press row handles
 "focused unit into each deck"; the low-EQ cells are the
 cross-route.
 
-## 1.17 Add a rate class or override
-
-Rate classes live in `XoneK3.RATE_CLASSES` in
-`xone-k3-lib-core.js`. To add one:
-
-```js
-XoneK3.RATE_CLASSES.slowJump = {
-    selfCheckMs: 20, selfScope: 'binding',
-    jumpBlockMs: 200, claimMs: 200
-};
-```
-
-Override on a specific binding with `rate:`:
-
-```js
-encoderL: { func: F.encLoopMove, args: ['in', 0.010],
-            rate: 'jump' },           // force jump class
-encoderR: { func: F.encLoopMove, args: ['out', 0.010],
-            rate: { selfCheckMs: 15, jumpBlockMs: 60, claimMs: 60 } },
-someBtn:  { func: F.something, rate: false }   // opt out
-```
-
-Turn on `XoneK3._debugPrintsOn` and reload. `_validateBindings`
-warns if `rate: false` was declared on something inference would
-have classified, or if `rate:` disagrees with inference.
-
-Diagnostics: `XoneK3.controllers[0].inspect('rate')`. See §2.9.
-
-## 1.18 Custom funcs
+## 1.17 Custom funcs
 
 ```js
 XoneK3.FUNCS.myFunc = function(args, ch, c, v, s) {
@@ -749,7 +728,18 @@ Bind it:
 press0: { func: XoneK3.FUNCS.myFunc, args: ['arg1'] }
 ```
 
-## 1.19 Definition helpers
+**If your func touches a loop** (moves a boundary, engages a
+loop, changes loop size), call `this._ctrl._touchLoop(this.group)`
+after the write. A subsequent beatjump will then gate against
+this event — the beatjump gate is `XoneK3.BEATJUMP_GAP_MS`
+(130 ms) when the channel is in a loop.
+
+**If your func is a beatjump** (moves the playhead by a beat
+multiple), call `this._ctrl._beatjumpAllowed(this.group)` first
+and bail if it returns `false`. Both shipped beatjump funcs
+(`beatjumpButton` / `encBeatjump`) do this.
+
+## 1.18 Definition helpers
 
 Config-side pattern. Build a small function that returns binding
 objects, reuse it across a group of controls.
@@ -807,7 +797,6 @@ Resolves the base at config-eval time and returns a plain object.
 | `args` | Array passed to the func. |
 | `accel` | Number or object. Encoder repeat multiplier. |
 | `valueCurve` | Exponent on knobs / faders. `output = input^c`. |
-| `rate` | Rate class name, inline class object, or `false`. |
 | `colorScheme` | See §2.2. |
 | `noLED` | `true` disables LED writes. |
 | `k2` | `true` forces MIDI-note colour output. |
@@ -1009,7 +998,8 @@ To boot mini:
 initialPatches: ['twoDeckMini', 'fxMini1', 'cue']
 ```
 
-See CONTROLS §6 for the four shipped presets' boot configs.
+See `README.md`'s preset table for the four shipped presets'
+boot configs.
 
 ## 2.7 Hardware calibration
 
@@ -1059,59 +1049,13 @@ changing them at runtime needs a preset reload.
 |---|---|---|
 | `accel` | number / object | Return a repeat count per event. |
 | `valueCurve` | number | Knobs / faders only. `output = input^c`. |
-| `rate` | string / object / false | Rate class or override. |
 
-Order in `Binding.input()`: rate gate → accel → dispatch.
+Order in `Binding.input()`: accel → dispatch.
 
 `valueCurve` applies at write time, after `_scaleValue`.
 `_normalized` stays uncurved.
 
-## 2.9 Rate classes
-
-```js
-XoneK3.RATE_CLASSES = {
-    jump:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 120, claimMs: 120 },
-    edit:  { selfCheckMs: 0,  selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  },
-    claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   },
-    free:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   }
-};
-```
-
-| Class | Use |
-|---|---|
-| `jump` | Both boundaries move (beatjump, reloop, beatloop activate). |
-| `edit` | One boundary moves (loop-point nudge, loop size). |
-| `claim` | Doesn't move anything, but shouldn't be followed by a jump (beatjump-size step). |
-| `free` | No gate. Everything else by default. |
-
-The class is inferred from the binding's `func` or `inKey`. See
-`XoneK3._inferRateClass` in `xone-k3-lib-core.js`.
-
-**The gate only fires inside an active loop.** `_claimRate`
-returns immediately when the binding's target channel has
-`loop_enabled = 0`, or when the binding doesn't target a
-`[ChannelN]` group at all. Out-of-loop events don't touch
-`_lastLoopChangeMs` or `_lastRateClaim`, so the escape detector
-only sees claims that could actually have disturbed a loop. The
-class is still resolved and stored on the binding — it just
-doesn't gate anything while the loop is off.
-
-**Diagnostics.** `XoneK3.controllers[0].inspect('rate')` prints
-gate state, per-class aggregates, per-binding stats, and any
-recorded escapes. `inspect('rate', 'reset')` zeroes every counter.
-
-**Escape detector.** A loop turning off within
-`ESCAPE_DETECT_WINDOW_MS` (matches `jump.jumpBlockMs`, 120 by
-default) of a rate claim — and not a deliberate reloop or track
-load — logs a single line:
-
-```
-[k3] LOOP ESCAPE deck=1 sinceClaim=42ms claimedBy=encoderL/edit loop=[0.2512,0.2537]
-```
-
-Read it: the throttle was too loose for that gesture.
-
-## 2.10 K2-mode LEDs
+## 2.9 K2-mode LEDs
 
 `k2: true` on a binding routes its LED through MIDI notes instead
 of sysex.
@@ -1130,7 +1074,7 @@ k2Indices: [0x1D]
 index, not by binding, so that LED is K2-locked for the whole
 session.
 
-## 2.11 Runtime tunables
+## 2.10 Runtime tunables
 
 Set on the `XoneK3` namespace, at the top of the config or from
 the console.
@@ -1163,6 +1107,12 @@ XoneK3.VIRTUAL_CLOCKS = {
     loop: { trackTempo: false }
 };
 
+// Beatjump gate. Beatjumps are blocked when the channel is in
+// a loop and less than this many ms have elapsed since the last
+// loop-touching event on that channel. 130 is the shipped
+// default (120 worked, 60 leaked through). 0 disables the gate.
+XoneK3.BEATJUMP_GAP_MS = 130;
+
 // Co-match / soft-takeover bands.
 XoneK3.CO_MATCH_EPSILON = 1 / 127;
 XoneK3.TAKEOVER_EPSILON = 2 / 127;
@@ -1173,6 +1123,12 @@ XoneK3.clearTimeSig();                 // per-scheme values
 
 `QFX_CHAIN_LIST` order must match Preferences → Effects → Quick
 Effect Chains.
+
+**`BEATJUMP_GAP_MS`** — the only rate-related tunable in the
+system. Gates beatjumps only; every other control fires at
+whatever rate the MIDI sends. See INTERNALS §13 for the gate
+logic. Tune up (150–200) for stricter gating, down (0) to
+disable.
 
 **`CO_MATCH_EPSILON` and `TAKEOVER_EPSILON`** — co-match / soft-
 takeover bands. `CO_MATCH_EPSILON` sets how far the physical knob
@@ -1199,7 +1155,7 @@ virtual timeline.
 position (~−0.08..+0.08), not a multiplier. A `<= 0` guard on it
 silently turns the multiplier into unity.
 
-## 2.12 Diagnostics
+## 2.11 Diagnostics
 
 ```
 XoneK3.controllers[0].inspect()             // top-level state
@@ -1208,9 +1164,10 @@ XoneK3.controllers[0].inspect('patches')    // activePatches, stack
 XoneK3.controllers[0].inspect('beat')       // clock, counters, timeline
 XoneK3.controllers[0].inspect('tokens')     // token → bindings
 XoneK3.controllers[0].inspect('dark')       // unbound bindings
-XoneK3.controllers[0].inspect('rate')       // gate state, stats, escapes
-XoneK3.controllers[0].inspect('rate', 'reset')   // zero counters
 ```
+
+`inspect('rate')` is a stub — prints one line pointing at
+`BEATJUMP_GAP_MS`. No rate diagnostics exist.
 
 Console prints:
 
@@ -1223,7 +1180,16 @@ Warnings (scheme-not-found, unknown token, audit drift, etc.) go
 through `XoneK3._warnOnce` and fire once per unique key per boot.
 Reload the preset to re-arm.
 
-## 2.13 Funcs
+When `_debugPrintsOn` is set, the beatjump gate prints:
+
+```
+[k3] beatjump gated: 87ms / 130ms
+```
+
+`87ms` is time since the last loop-touching event on the channel;
+`130ms` is `BEATJUMP_GAP_MS`.
+
+## 2.12 Funcs
 
 Full annotated list lives in `AI-HELPER.md` under `FUNCS`. This
 is a category index.
@@ -1272,11 +1238,15 @@ Fix the config, reload the preset, and the warning fires again.
 | Chord `pressL` no-op in focus | `pressL` swaps twoDeck ↔ mini. Not reachable from focus. |
 | Chord overlay toggles leave both up | Pass the sibling list: `['name', ['other']]`. |
 | Mode swap flickers through intermediate stacks | Using `addPatch` / `removePatch` in a loop instead of `_batchPatches`. |
+| `[k3] _batchPatches cannot nest` | A mutator called `_batchPatches`. Mutate the array argument. |
+| `[k3] addPatch called inside a _batchPatches mutator — mutate the array argument instead` | Same class. Use the array argument. |
+| `[k3] _batchPatches mutator threw: …` | The mutator hit an exception. `activePatches` was not modified. |
 | K2 LED goes dark on reload | Its index isn't in `k2Indices` and no binding marks it `k2: true`. |
 | `accel` does nothing | Binding has no `func`. |
 | `accel` runs but func sees each repeat as a separate event | Self-accelerating func AND `accel:` on the binding. One source per binding. |
-| Loop encoder feels sluggish right after a beatjump | It's rate-gated by the `edit` class. Wait 60 ms, or add `rate: 'free'` if you know better. |
-| Loop encoder accel never climbs above 2× | Divisor too high for the encoder's event rate. Lower `args[3]` — try 12 or 8. |
+| `encLoopMoveAccel` never climbs above 2× | Divisor too high for the encoder's event rate. Lower `args[3]` — try 12 or 8. |
+| Beatjump doesn't fire in a tight loop | Gated by `_beatjumpAllowed` — less than `BEATJUMP_GAP_MS` (130 ms) since the last loop-touching event on that channel. Expected. Set `_debugPrintsOn = true` for the `beatjump gated` line. |
+| Beatjump fires but immediately exits a loop | Loop is shorter than the jump step. Geometry — playhead lands past `loop_out`. The gate prevents rapid loop-edit spam, not a single jump. |
 | Warning: "scheme object has no colors" | A bare partial. Use `composeScheme` in config. |
 | Warning: "missing scheme" | A `colorScheme` without a `scheme:` field. `scheme` is required. |
 | Warning: "fxEnabled missing scheme" | An FX builder was called without `scheme:`. Pass one. |
@@ -1288,9 +1258,29 @@ Fix the config, reload the preset, and the warning fires again.
 | Mini mode swap does nothing | `toggleMiniFx` requires a twoDeck-family base in `activePatches`. |
 | Warning prints only once, can't reproduce | `_warnOnce` dedupes per key per boot. Reload the preset to clear. |
 | Chord `pressR` / `pressL` LEDs never light | There are no LEDs on those buttons. The bindings fire; nothing lights. |
-| Loop turned off unexpectedly | Search the log for `LOOP ESCAPE`. `inspect('rate')` shows which binding claimed and how long before. |
-| Rate class isn't throttling | `inspect('rate')` — if the binding isn't listed, inference didn't classify it. Add `rate: 'jump'` / `'edit'` explicitly. |
-| `[k3] unknown rate class "…"` | A binding's `rate:` string doesn't match any entry in `RATE_CLASSES`. The binding becomes ungated. Check `lib-core.js`, or fix the binding's `rate:` value. |
 | `[k3] _syncFxLayout: fx-pattern patch … has no matching target` | An fx-family patch name is in `activePatches` but missing from `patches:`. |
 | `[k3] colorScheme scheme function on X returns a fresh object each call` | Wrap with `composeScheme` or hoist the object out of the closure. |
-| `[k3] lab preview render threw: …` | A lab scheme function threw. Preview LED painted black. |
+| `[k3] lab preview render threw: …` | A lab scheme func threw. Preview LED painted black. |
+```
+
+---
+
+## Summary of changes
+
+| Location | Change |
+|---|---|
+| Task table | Removed "Adjust a rate limit" row; added 2 beatjump/timeline rows |
+| `§1.14 Accelerate an encoder` — "accel doesn't work on funcs with internal rate limit" | Rewritten: accel now works on any CO-writing func |
+| `§1.15 Make a func do its own accel` — intro | Rewritten: self-accel is a style choice, not a requirement |
+| `§1.17 Add a rate class or override` | **Deleted** |
+| `§1.18 Custom funcs` → `§1.17` | Renumbered; added `_touchLoop` / `_beatjumpAllowed` guidance |
+| `§1.19 Definition helpers` → `§1.18` | Renumbered |
+| `§2.1 Binding fields` — `rate` row | Deleted |
+| `§2.8 Func mods` — `rate` row | Deleted; dispatch order "rate gate → accel → dispatch" → "accel → dispatch" |
+| `§2.9 Rate classes` | **Deleted** |
+| `§2.10 K2-mode LEDs` → `§2.9` | Renumbered (content unchanged) |
+| `§2.11 Runtime tunables` → `§2.10` | Renumbered; added `BEATJUMP_GAP_MS` with explanatory comment |
+| `§2.12 Diagnostics` → `§2.11` | Renumbered; removed `inspect('rate')` / `inspect('rate', 'reset')`; added `beatjump gated` debug line note |
+| `§2.13 Funcs` → `§2.12` | Renumbered |
+| `§3 Common mistakes` — 6 rate-related rows | Deleted: `Loop encoder feels sluggish right after a beatjump`, `Loop turned off unexpectedly`, `Rate class isn't throttling`, `[k3] unknown rate class`, `[k3] binding rate must be`, `Rate class warning on boot` |
+| `§3 Common mistakes` — 2 beatjump rows | Added: `Beatjump doesn't fire in a tight loop`, `Beatjump fires but immediately exits a loop` |

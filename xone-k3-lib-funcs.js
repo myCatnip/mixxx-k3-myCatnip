@@ -7,9 +7,11 @@
 // their schemeFromState source, and the chain list from
 // XoneK3.QFX_CHAIN_LIST.
 //
-// Rate gating is handled by Binding.input() — see
-// XoneK3.RATE_CLASSES in lib-core.js. Funcs here do not check
-// rate limits themselves; the gate is applied before dispatch.
+// Beatjump gating is handled by _beatjumpAllowed (lib-controller-
+// render.js), called from beatjumpButton and encBeatjump. Loop-
+// touching funcs (encLoopMove, encLoopMoveAccel, pressSetValue on
+// beatloop_size, beatloopActivateResetAnchor, reloopToggleResetAnchor)
+// stamp _touchLoop so a subsequent beatjump waits BEATJUMP_GAP_MS.
 
 'use strict';
 
@@ -17,7 +19,6 @@
     if (typeof XoneK3 === 'undefined') {
         throw new Error('Xone K3: <filename> — xone-k3-lib-core.js must load first');
     }
-
     if (typeof XoneK3._requireLoad !== 'function') {
         throw new Error('Xone K3: xone-k3-lib-funcs.js — xone-k3-lib-core.js must load first');
     }
@@ -159,7 +160,7 @@
             inKey: 'parameter' + EQ_BANDS[band]
         };
     };
-    
+
     XoneK3.builders.fxUnitKnob = function(unit, key) {
         return {
             group: '[EffectRack1_EffectUnit' + unit + ']',
@@ -288,10 +289,6 @@
             var which = args[0];
             if (which !== 'A' && which !== 'B') return;
             if (ctrl.loadState.pressed) {
-                // pressR is held on the cue layer: load the selected
-                // track onto whichever channel this slot is currently
-                // pinned to, instead of flipping focus. Slot A's
-                // channel is selectedDeckA; slot B's is selectedDeckB.
                 var channel = (which === 'A') ? ctrl.selectedDeckA : ctrl.selectedDeckB;
                 engine.setValue('[Channel' + channel + ']', 'LoadSelectedTrack', 1);
                 return;
@@ -361,14 +358,12 @@
         // ----------------------------------------------------------
         // Top-half mode swap
         // ----------------------------------------------------------
-        // Focus ↔ twoDeck family. From mini goes to focus directly.
         toggleTopMode: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             var mode = this._ctrl.currentTopMode();
             if (mode === 'focus') this._ctrl.setTopMode('twoDeck');
             else                  this._ctrl.setTopMode('focus');
         },
-        // twoDeck ↔ mini. No-op from focus.
         toggleMiniFx: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             var mode = this._ctrl.currentTopMode();
@@ -425,14 +420,9 @@
             if (dir > 0) engine.setValue(this.group, 'sync_key', 1);
             else engine.setValue(this.group, 'reset_key', 1);
         },
-        // Any-direction key sync — pulses sync_key on every turn
-        // event, CW or CCW. Same CO as the CW half of
-        // encKeySyncReset.
         encKeySync: function(args, ch, c, v, s) {
             engine.setValue(this.group, 'sync_key', 1);
         },
-        // Any-direction key reset — pulses reset_key on every turn
-        // event. Same CO as the CCW half of encKeySyncReset.
         encKeyReset: function(args, ch, c, v, s) {
             engine.setValue(this.group, 'reset_key', 1);
         },
@@ -446,48 +436,41 @@
         },
 
         // ----------------------------------------------------------
-        // Loop movement — rate class 'jump'
+        // Loop movement — gated by _beatjumpAllowed when in loop
         // ----------------------------------------------------------
-        // Rate gating is external (Binding.input with inferred
-        // 'jump'). Func just fires the pulse.
-        // K3 encoder convention: v === 1 is CW (right turn). Right
-        // turn → beatjump_forward.
+        // K3 encoder convention: v === 1 is CW (right turn).
         encBeatjump: function(args, ch, c, v, s) {
+            if (!this._ctrl._beatjumpAllowed(this.group)) return;
             var cw = (v === 1);
             var co = cw ? 'beatjump_forward' : 'beatjump_backward';
             this._ctrl._pulseCo(this.group, co);
         },
         beatjumpButton: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
+            if (!this._ctrl._beatjumpAllowed(this.group)) return;
             this._ctrl._pulseCo(this.group, args[0]);
         },
         reloopToggleResetAnchor: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             engine.setValue(this.group, 'loop_anchor', 0);
-            // Mark as a deliberate loop-off so the escape detector
-            // doesn't log a false positive.
-            this._ctrl._pulseCo(this.group, 'reloop_toggle',
-                                { deliberateLoopOff: true });
+            this._ctrl._pulseCo(this.group, 'reloop_toggle');
+            this._ctrl._touchLoop(this.group);
         },
         beatloopActivateResetAnchor: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             engine.setValue(this.group, 'loop_anchor', 0);
-            // Mark as a deliberate loop-off so the escape detector
-            // doesn't log a false positive.
-            this._ctrl._pulseCo(this.group, 'beatloop_activate',
-                                { deliberateLoopOff: true });
+            this._ctrl._pulseCo(this.group, 'beatloop_activate');
+            this._ctrl._touchLoop(this.group);
         },
 
-        // Single-boundary move. Rate gating is external.
+        // Single-boundary move. "anchor" names the side that stays
+        // put, not the side that moves — setting loop_anchor before
+        // the write is what makes the write move the opposite
+        // boundary.
         //
         // args: [anchor, step]
-        //   anchor  'in'  — pin the in-point; the OUT-point moves
-        //           'out' — pin the out-point; the IN-point moves
-        //   step    base step in loop fraction
-        //
-        // "anchor" names the side that stays put, not the side
-        // that moves. Setting loop_anchor before the write is what
-        // makes the write move the opposite boundary.
+        //   anchor  'in'  — pin the in-point; OUT-point moves
+        //           'out' — pin the out-point; IN-point moves
         encLoopMove: function(args, ch, c, v, s) {
             var inSide = (args[0] === 'in');
             var step = XoneK3.parseNum(args[1]); if (isNaN(step)) step = 0.010;
@@ -498,26 +481,18 @@
                 engine.setValue(this.group, 'loop_anchor', wantAnchor);
             engine.setValue(this.group, this.inKey,
                 engine.getValue(this.group, this.inKey) + sign * dir * step);
+            this._ctrl._touchLoop(this.group);
         },
-        
-        // Self-accelerating loop-boundary move. Rate gating is
-        // still external (the binding is class 'edit'), so the
-        // event window records only accepted events — the
-        // multiplier reflects accepted spin rate, not raw
-        // physical rate.
+
+        // Self-accelerating loop-boundary move. Same anchor
+        // semantics as encLoopMove, plus a turn-rate multiplier.
         //
         // args: [anchor, step, cap, divisor]
-        //   anchor  'in'  — pin the in-point; the OUT-point moves
-        //           'out' — pin the out-point; the IN-point moves
-        //   step        base step in loop fraction
-        //   cap         maximum step multiplier (default 6)
-        //   divisor     events/sec per multiplier step (default 12)
+        //   cap      maximum step multiplier (default 6)
+        //   divisor  events/sec per multiplier step (default 12)
         //
-        // Window length is XoneK3.ENC_LOOP_ACCEL_WINDOW_MS.
-        //
-        // K3 encoders top out around 40–80 Hz on a hard spin.
-        // divisor 12 reaches 2x at a normal fast turn, 6x on a
-        // hard spin.
+        // Window is XoneK3.ENC_LOOP_ACCEL_WINDOW_MS (150 ms). K3
+        // encoders top out ~40–80 Hz on a hard spin.
         encLoopMoveAccel: function(args, ch, c, v, s) {
             var now = Date.now();
 
@@ -541,17 +516,21 @@
                 engine.setValue(this.group, 'loop_anchor', wantAnchor);
             engine.setValue(this.group, this.inKey,
                 engine.getValue(this.group, this.inKey) + sign * dir * step * mult);
+            this._ctrl._touchLoop(this.group);
         },
 
         // ----------------------------------------------------------
-        // Loop size setting — rate class 'edit' or 'claim' by inKey
+        // Value setters
         // ----------------------------------------------------------
+        // pressSetValue writes an absolute value on press. Used by
+        // beatloop_size and beatjump_size cells. Only beatloop_size
+        // touches the loop — beatjump_size is a next-jump setting
+        // and doesn't affect the active loop's bounds.
         pressSetValue: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             engine.setValue(this.group, this.inKey, XoneK3.parseNum(args[0]));
+            if (this.inKey === 'beatloop_size') this._ctrl._touchLoop(this.group);
         },
-        // Rate class 'claim' — changes the size used by the next
-        // jump, doesn't move anything itself.
         encBeatjumpStepScale: function(args, ch, c, v, s) {
             var min = XoneK3.parseNum(args[0]); if (isNaN(min)) min = XoneK3.BEATJUMP_MIN;
             var max = XoneK3.parseNum(args[1]); if (isNaN(max)) max = XoneK3.BEATJUMP_MAX;
@@ -606,10 +585,9 @@
         // ----------------------------------------------------------
         // Timelines
         // ----------------------------------------------------------
-        // Two readings: track and loop. Toggles the active deck's
-        // display between them. No-op when the loop clock isn't
-        // running — track is the only reading then. Manual choice
-        // sticks until the next start / stop event re-resolves.
+        // Toggles between track and loop while the loop clock is
+        // running. No-op when it isn't. Flag-reading LEDs have no
+        // CO connection, so we repaint explicitly.
         cycleDisplaySource: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             var chNum = this._ctrl._channelOf(this.group);
@@ -624,10 +602,6 @@
                 ctrl._refreshDisplayFlags();
             }
             ctrl._syncBeatCount(chNum);
-            // Flag-reading LEDs (grid2_0 on activeDeckVirtual, grid3_1 on
-            // activeDisplaySource) have no CO connection — they only
-            // repaint on a recompute or an explicit refresh. Repaint now
-            // so the toggle reads as instant.
             ctrl._refreshAllLeds('display-cycle');
         }
     };

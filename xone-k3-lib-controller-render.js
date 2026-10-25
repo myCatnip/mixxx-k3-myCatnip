@@ -1,5 +1,5 @@
 // xone-k3-lib-controller-render.js — LED writes, sysex queue,
-// calibration math, ramp sampling.
+// calibration math, ramp sampling, beatjump gate.
 //
 // Loaded after lib-controller-beat.js. Extends K3Controller.prototype.
 
@@ -16,10 +16,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
      'sampleT', 'sampleSegs', 'applyBeat', 'BEAT_HOLD', 'scaleTarget']);
 
 (function() {
-    // Lives on the XoneK3 namespace so _bootWith can reset it per
-    // boot, matching _funcIdCounter. Ids are only ever assigned
-    // once per segments array, so this is monotonic-within-a-boot
-    // and collision-free.
+    // Per-boot counter for segments-array ids. Cleared in _bootWith.
     XoneK3._segsCacheCounter = 0;
 
     // ============================================================
@@ -57,10 +54,9 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         var self = this;
         if (!this._sysexTimer) {
             this._sysexTimer = engine.beginTimer(Math.max(1, XoneK3.SYSEX_THROTTLE_MS), function() {
-                // No shutdown bail. The drain runs until the queue
-                // is empty or _stopSysExDrain is called. Shutdown
-                // relies on this — it enqueues the blanks and waits
-                // for the queue to drain before closing beat clocks.
+                // No _shuttingDown bail. The drain runs until the
+                // queue empties or _stopSysExDrain is called.
+                // Shutdown relies on this.
                 if (self._sysexQueue.length === 0) {
                     engine.stopTimer(self._sysexTimer);
                     self._sysexTimer = null;
@@ -95,12 +91,8 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         this._sendSysExLED(idx, r, g, b, hw);
     };
 
-    // Blank every LED. Called on init and on shutdown.
-    //
-    // Short messages go inline — 44 note-offs, instantaneous.
-    // Sysex goes through _sendSysExLED like every other LED write,
-    // which enqueues and kicks the drain timer. Shutdown waits for
-    // the queue to empty before tearing down.
+    // Short messages inline; sysex goes through the queue so
+    // shutdown can wait for the last blank frame.
     XoneK3.K3Controller.prototype._blankLeds = function() {
         this._stopSysExDrain();
         this._sysexQueue = [];
@@ -118,17 +110,52 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         }
     };
 
-    XoneK3.K3Controller.prototype._pulseCo = function(group, co, opts) {
-        if (opts && opts.deliberateLoopOff) {
-            var ch = this._channelOf(group);
-            if (ch) this._expectingLoopOff[ch] = Date.now();
-        }
+    XoneK3.K3Controller.prototype._pulseCo = function(group, co) {
         engine.setValue(group, co, 1);
         engine.beginTimer(1, function() {
             engine.setValue(group, co, 0);
         }, true);
     };
 
+    // ============================================================
+    // BEATJUMP GATE
+    // ============================================================
+    // A beatjump is gated on its channel's loop being active.
+    // Outside a loop: always allowed, no stamp. Inside a loop:
+    // blocked when less than BEATJUMP_GAP_MS has elapsed since
+    // the last loop-touching event on the same channel; on a
+    // pass, records the beatjump as the new "last touch" so two
+    // rapid in-loop beatjumps also gate each other.
+    XoneK3.K3Controller.prototype._beatjumpAllowed = function(group) {
+        var ch = this._channelOf(group);
+        if (!ch) return true;
+        var loopOn = engine.getValue('[Channel' + ch + ']', 'loop_enabled') > 0;
+        var now = Date.now();
+        if (loopOn) {
+            var last = this._lastLoopTouchMs[ch];
+            if (last && now - last < XoneK3.BEATJUMP_GAP_MS) {
+                if (XoneK3._debugPrintsOn) {
+                    print('[k3] beatjump gated: ' + (now - last) + 'ms / ' +
+                          XoneK3.BEATJUMP_GAP_MS + 'ms');
+                }
+                return false;
+            }
+            this._lastLoopTouchMs[ch] = now;
+        }
+        return true;
+    };
+
+    // Record a loop-touching event on this group's channel.
+    // Beatjump will gate against this timestamp when the channel
+    // is in an active loop.
+    XoneK3.K3Controller.prototype._touchLoop = function(group) {
+        var ch = this._channelOf(group);
+        if (ch) this._lastLoopTouchMs[ch] = Date.now();
+    };
+
+    // ============================================================
+    // CALIBRATION MATH
+    // ============================================================
     function _saturation(rgb) {
         var mx = Math.max(rgb[0], rgb[1], rgb[2]);
         if (mx <= 0) return 0;
@@ -191,10 +218,8 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         if (!segs || segs.length === 0) return null;
         if (this.calibrationMode === 'off') return null;
 
-        // Assign a stable id to the segments array on first touch.
-        // The array is owned by XoneK3._compiledCache, which is
-        // reset per boot, so the number of distinct arrays per
-        // boot is bounded by the number of distinct schemes.
+        // Segments-array cache ids are boot-scoped. The arrays
+        // themselves live in XoneK3._compiledCache, reset per boot.
         if (segs._cacheId === undefined) {
             segs._cacheId = ++XoneK3._segsCacheCounter;
         }

@@ -181,41 +181,10 @@ test('_beatF: negative pos returns negative beat (no pos<0 guard)', function(t) 
 
 test('_beatF: fractional part floors via Math.floor', function(t) {
     var c = H.ctrl();
-    // 0.503 * 600 = 301.8 → floor 301. _computeAbsoluteBeat was
-    // removed; the same floor is applied inline wherever the
-    // absolute beat is needed.
+    // 0.503 * 600 = 301.8 → floor 301. The same floor is applied inline 
+    // wherever the absolute beat is needed.
     setupTrack(c, 1, {pos: 0.503});
     t.eq(Math.floor(c._beatF(1, 0.503)), 301);
-});
-
-// ── _computeBeatState ──────────────────────────────────────
-
-test('_computeBeatState: count = abs - origin + 1', function(t) {
-    var c = H.ctrl();
-    setupTrack(c, 1);
-    c._phraseOrigin[1] = 0;
-    var bs = c._computeBeatState(1);
-    t.eq(bs.abs, 300);
-    t.eq(bs.count, 301);
-});
-
-test('_computeBeatState: origin shifts count', function(t) {
-    var c = H.ctrl();
-    setupTrack(c, 1);
-    c._phraseOrigin[1] = 100;
-    t.eq(c._computeBeatState(1).count, 201);
-});
-
-test('_computeBeatState: frac is fractional part', function(t) {
-    var c = H.ctrl();
-    setupTrack(c, 1);
-    var bs = c._computeBeatState(1);
-    t.approx(bs.frac, 0, 1e-6);
-});
-
-test('_computeBeatState: no metadata → null', function(t) {
-    var c = H.ctrl();
-    t.eq(c._computeBeatState(1), null);
 });
 
 // ── _deriveOriginFromPosition / _resetBeat ─────────────────

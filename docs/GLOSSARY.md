@@ -12,11 +12,11 @@ explanation, the doc it lives in is linked.
 | **Alt** | The slot that *isn't* focused. `$DECK_ALT$`, `selectedFxAlt`, etc. |
 | **Beat cascade** | The colour sequence driven by the beat count. Fires `prePhrase > phrase > bar > beat`. See CONCEPTS §10. |
 | **Beat count** | `absolute beat − phrase origin + 1`. Drives the cascade. |
+| **Beatjump gate** | The one rate rule in the system: a beatjump is blocked when its target channel has an active loop and less than `BEATJUMP_GAP_MS` (130 ms) has elapsed since the last loop-touching event. CONCEPTS §11. |
 | **Binding** | One physical control's full definition: what it writes to, what its LED reads, what the LED looks like. CONCEPTS §2. |
 | **Boot flavour** | Preset's starting config — MIDI channel, initial focus, initial patches. Four playback presets differ only in this. |
 | **Builders** | `XoneK3.builders.*` — config-side helpers that produce binding objects (`eqKnob`, `fxEnabled`, `fxGroupEnable`, etc.). |
 | **Chord** | Shift + layer, held. Reaches overlays and top-half mode swaps. CONTROLS §2. |
-| **Class** | See *Rate class*. |
 | **CO** | Mixxx control. `[Channel1],play`, `[EffectRack1_EffectUnit1],mix`, etc. |
 | **colorLab** | Separate preset, separate layer tree, same runtime. LED ramp editor. LAB.md. |
 | **Count** | See *Beat count*. |
@@ -24,7 +24,6 @@ explanation, the doc it lives in is linked.
 | **Curve** | A scheme field. Warps the boundaries between stops. |
 | **Deviation LED** | An LED with a `knob:` reference in its `colorScheme`. Samples a ramp at the knob's position. |
 | **Display source** | Which timeline feeds the beat count: `track` or `loop`. CONCEPTS §9, timelines.md. |
-| **Escape** | A loop turning off unexpectedly, within `ESCAPE_DETECT_WINDOW_MS` (matches `jump.jumpBlockMs`, 120 by default) of a rate claim. Logged to the console. CUSTOMISE → Diagnostics. |
 | **Focus** | Which slot (A or B) the top half points at. Two axes: deck focus and FX focus. CONCEPTS §7. |
 | **Func** | A JavaScript function that replaces a binding's default input handling. `XoneK3.FUNCS.*`. |
 | **FX layout table** | The per-unit cell mapping for the middle cells, one table per mode. CONTROLS §7. |
@@ -45,8 +44,6 @@ explanation, the doc it lives in is linked.
 | **Preset** | A `.midi.xml` + a boot init. Five ship: Cat, Kitten, oneK3, oneK3 miniFX, colorLab. |
 | **QFX** | Mixxx Quick Effect Rack. One per deck. |
 | **Ramp** | A multi-stop scheme. Deviation LEDs sample it; static LEDs pick `ramp[0]`. |
-| **Rate class** | A throttle profile: `jump`, `edit`, `claim`, or `free`. Applied at `Binding.input()`. CONCEPTS §11. |
-| **Rate gate** | The check that reads a rate class and allows or rejects an event. Only fires inside an active loop. |
 | **Scheme** | An LED's appearance. Static (one colour) or deviation (a ramp sampled by position). CONCEPTS §8. |
 | **Scheme registry** | `XoneK3.SCHEMES`. Named schemes usable by string. |
 | **Shift companion** | A patch paired with a base via `_shift`. Applies while shift is held. CONCEPTS §5. |
@@ -72,7 +69,6 @@ explanation, the doc it lives in is linked.
 | Scheme | CONCEPTS §8 |
 | Timeline | CONCEPTS §9, timelines.md |
 | Beat cascade | CONCEPTS §10 |
-| Rate class | CONCEPTS §11 |
-| Rate internals | INTERNALS §27 |
-| Preset deltas | CONTROLS §6 |
-| FX cells | CONTROLS §7 |
+| Beatjump gate | CONCEPTS §11, INTERNALS §13 |
+| Preset deltas | README.md (preset table) |
+| FX cells | README.md §FX cell layouts |

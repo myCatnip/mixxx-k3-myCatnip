@@ -357,25 +357,3 @@ test('_reset: wipes reset-able fields, preserves session fields', function(t) {
     t.eq(b._normalized, 0.7);
     t.eq(b._accelEvents, [1, 2, 3]);
 });
-
-test('_reset: clears _rateClass', function(t) {
-    var c = H.ctrl();
-    var b = c.bindings.knob0_0;
-    b._rateClass = 'edit';
-    b._reset();
-    t.eq(b._rateClass, null);
-});
-
-test('_reset: preserves session rate diagnostics', function(t) {
-    var c = H.ctrl();
-    var b = c.bindings.knob0_0;
-    b._rateAccepted = 5;
-    b._rateGated = 3;
-    b._rateIntervals = [1, 2, 3];
-    b._lastGateMs = 42;
-    b._reset();
-    t.eq(b._rateAccepted, 5);
-    t.eq(b._rateGated, 3);
-    t.eq(b._rateIntervals.length, 3);
-    t.eq(b._lastGateMs, 42);
-});

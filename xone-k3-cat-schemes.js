@@ -361,7 +361,7 @@
 
     // Play-button LED. On/off follows play_indicator via outKey;
     // colour tells the user which timeline the active deck is
-    // reading from. Green = track, red = loop.
+    // reading from. Green = track, yellow = loop.
     var PLAY_LED_SCHEME = {
         schemeFromState: {
             state: 'activeDisplaySource',

@@ -2,8 +2,7 @@
 //
 // Loaded after lib-controller and lib-funcs. Extends the
 // K3Controller prototype with `inspect` and the `_inspect*`
-// family. Stateless, read-only, no cross-references into the
-// rest of the controller.
+// family. Stateless, read-only.
 
 'use strict';
 
@@ -35,8 +34,8 @@
         if (what === 'tokens')  { this._inspectTokens();  return; }
         if (what === 'dark')    { this._inspectDark();    return; }
         if (what === 'rate')    {
-            if (sub === 'reset') { this._resetRateStats(); return; }
-            this._inspectRate();
+            print('[inspect] rate system removed — beatjump gated at ' +
+                  XoneK3.BEATJUMP_GAP_MS + 'ms when in loop');
             return;
         }
         if (what === 'why') {
@@ -98,15 +97,9 @@
         var k2 = 0;
         for (var idx in this.k2Indices) if (this.k2Indices[idx]) k2++;
         row('K2 indices:', k2);
-        row('escapes:', this._escapes.length);
-        if (this._lastRateClaim) {
-            var since = Date.now() - this._lastRateClaim.ts;
-            row('last rate claim:',
-                this._lastRateClaim.binding + ' (' +
-                this._lastRateClaim.className + ') -' + since + 'ms');
-        } else {
-            row('last rate claim:', '—');
-        }
+        row('last loop touch:', this._lastLoopTouchMs
+            ? JSON.stringify(this._lastLoopTouchMs)
+            : '—');
         print('');
     };
 
@@ -133,11 +126,6 @@
         row('softTakeover:', b.softTakeover);
         row('noLED:', b._noLED);
         row('k2:', b._k2);
-        row('rate class:', b._rateClass
-            ? (typeof b._rateClass === 'string' ? b._rateClass : 'inline')
-            : '—');
-        row('rate accepted:', b._rateAccepted);
-        row('rate gated:', b._rateGated);
         row('conns:', b._conns.length + (b._valueConn ? 1 : 0));
 
         if (b._csFailed) {
@@ -281,127 +269,10 @@
     };
 
     // ============================================================
-    // RATE DIAGNOSTICS
-    // ============================================================
-    XoneK3.K3Controller.prototype._inspectRate = function() {
-        print('');
-        print('== rate limits ==');
-        var now = Date.now();
-
-        if (this._lastRateClaim) {
-            var since = now - this._lastRateClaim.ts;
-            print('  last claim:        ' + this._lastRateClaim.binding +
-                  ' (' + this._lastRateClaim.className + ') -' + since + 'ms');
-        } else {
-            print('  last claim:        —');
-        }
-        if (this._lastLoopChangeMs) {
-            print('  shared clock:      -' + (now - this._lastLoopChangeMs) + 'ms');
-        } else {
-            print('  shared clock:      —');
-        }
-        print('  escapes recorded:  ' + this._escapes.length);
-        print('');
-
-        // ---- Per class aggregate ----
-        var perClass = {};
-        for (var name in this.bindings) {
-            if (!this.bindings.hasOwnProperty(name)) continue;
-            var b = this.bindings[name];
-            if (!b._rateClass) continue;
-            var cname = (typeof b._rateClass === 'string') ? b._rateClass : 'inline';
-            if (!perClass[cname]) perClass[cname] = { accepted: 0, gated: 0, count: 0 };
-            perClass[cname].accepted += b._rateAccepted;
-            perClass[cname].gated    += b._rateGated;
-            perClass[cname].count    += 1;
-        }
-        var classNames = Object.keys(perClass).sort();
-        print('  per class:');
-        if (classNames.length === 0) {
-            print('    (no rate-gated bindings)');
-        } else {
-            for (var ci = 0; ci < classNames.length; ci++) {
-                var cn = classNames[ci];
-                var cc = perClass[cn];
-                print('    ' + cn +
-                    '   bindings=' + cc.count +
-                    '   accepted=' + cc.accepted +
-                    '   gated=' + cc.gated);
-            }
-        }
-        print('');
-
-        // ---- Per binding ----
-        var rows = [];
-        for (var bn in this.bindings) {
-            if (!this.bindings.hasOwnProperty(bn)) continue;
-            var bb = this.bindings[bn];
-            if (!bb._rateClass) continue;
-            rows.push(bb);
-        }
-        rows.sort(function(a, b2) { return b2._rateAccepted - a._rateAccepted; });
-
-        print('  per binding:');
-        if (rows.length === 0) {
-            print('    (none)');
-        } else {
-            var header = '    ' +
-                padRight('binding', 12) + ' ' +
-                padRight('class', 8) + ' ' +
-                padRight('accepted', 9) + ' ' +
-                padRight('gated', 6) + ' ' +
-                padRight('min', 5) + ' ' +
-                padRight('p50', 5) + ' ' +
-                padRight('max', 5);
-            print(header);
-            for (var ri = 0; ri < rows.length; ri++) {
-                var rb = rows[ri];
-                var cname2 = (typeof rb._rateClass === 'string') ? rb._rateClass : 'inline';
-                var stats = intervalStats(rb._rateIntervals);
-                print('    ' +
-                    padRight(rb._name, 12) + ' ' +
-                    padRight(cname2, 8) + ' ' +
-                    padRight(String(rb._rateAccepted), 9) + ' ' +
-                    padRight(String(rb._rateGated), 6) + ' ' +
-                    padRight(stats.min, 5) + ' ' +
-                    padRight(stats.p50, 5) + ' ' +
-                    padRight(stats.max, 5));
-            }
-        }
-        print('');
-
-        // ---- Escapes ----
-        if (this._escapes.length > 0) {
-            print('  escapes:');
-            for (var ei = 0; ei < this._escapes.length; ei++) {
-                var e = this._escapes[ei];
-                print('    deck=' + e.ch +
-                    ' sinceClaim=' + e.sinceClaim + 'ms' +
-                    ' claimedBy=' + (e.claimedBy || '—') +
-                    '/' + (e.className || '—') +
-                    ' loop=[' + e.loopStartN.toFixed(4) +
-                    ',' + e.loopEndN.toFixed(4) + ']');
-            }
-            print('');
-        }
-    };
-
-    XoneK3.K3Controller.prototype._resetRateStats = function() {
-        for (var name in this.bindings) {
-            if (!this.bindings.hasOwnProperty(name)) continue;
-            var b = this.bindings[name];
-            if (b._resetRateStats) b._resetRateStats();
-        }
-        this._escapes = [];
-        print('[k3] rate stats reset');
-    };
-
-    // ============================================================
     // WHY — walk the pipeline for one binding
     // ============================================================
     // Prints where in the render pipeline the binding stopped.
-    // Read-only, no state mutation. Answers "why isn't this LED
-    // doing what I think it should be doing?" in one command.
+    // Read-only, no state mutation.
     //
     //   XoneK3.controllers[0].inspect('why', 'layer')
     XoneK3.K3Controller.prototype._inspectWhy = function(name) {
@@ -451,9 +322,6 @@
         row('func:', XoneK3._funcName(b._func));
         row('noLED:', b._noLED);
         row('k2:', b._k2);
-        row('rate class:', b._rateClass
-            ? (typeof b._rateClass === 'string' ? b._rateClass : 'inline')
-            : '—');
 
         print('');
         print('  colorScheme:');
@@ -579,19 +447,9 @@
             'If not, check sysex throttle and _ledCache.';
     };
 
-    // ---- helpers ----
     function padRight(s, n) {
         s = String(s);
         while (s.length < n) s += ' ';
         return s;
-    }
-
-    function intervalStats(arr) {
-        if (!arr || arr.length === 0) return { min: '—', p50: '—', max: '—' };
-        var sorted = arr.slice().sort(function(a, b) { return a - b; });
-        var min = sorted[0];
-        var max = sorted[sorted.length - 1];
-        var p50 = sorted[Math.floor(sorted.length / 2)];
-        return { min: String(min), p50: String(p50), max: String(max) };
     }
 })();

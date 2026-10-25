@@ -3,7 +3,7 @@
 Modify the runtime. Developer-only.
 
 For concepts, see `CONCEPTS.md`. For shipped-behaviour reference,
-see `CONTROLS.md`. For scheme fields, binding fields, colour spec,
+see `README.md`. For scheme fields, binding fields, colour spec,
 beat, patches — see `CUSTOMISE.md`. This file is the engine.
 
 ---
@@ -11,15 +11,16 @@ beat, patches — see `CUSTOMISE.md`. This file is the engine.
 # 1. Load order
 
 ```
-xone-k3-lib-core.js               bootstrap, tunables, RATE_CLASSES,
+xone-k3-lib-core.js               bootstrap, tunables,
                                   PATCH_NAMES, utilities, tokens,
                                   transfer curve, sysex math, beat
                                   math, K2 palette, VIRTUAL_CLOCKS,
+                                  BEATJUMP_GAP_MS,
                                   diagnostics constants
 xone-k3-lib-schemes.js            palette, scheme engine,
                                   LED_TRANSFERS, coMatchSample
 xone-k3-lib-binding.js            Binding primitive, colour render
-                                  path, rate gate, snapshot field list
+                                  path, snapshot field list
 xone-k3-lib-controller.js         K3Controller core: constructor,
                                   patch resolution, focus, TOP_MODES,
                                   chord, binding application,
@@ -31,9 +32,9 @@ xone-k3-lib-controller-beat.js    timeline, loop clock,
                                   display-source resolution, beat
                                   count, beat clock connections
 xone-k3-lib-controller-render.js  LED writes, sysex queue,
-                                  calibration, ramp sampling
-xone-k3-lib-controller-boot.js    rate gate, escape detector,
-                                  init / shutdown, MIDI wiring,
+                                  calibration, ramp sampling,
+                                  beatjump gate
+xone-k3-lib-controller-boot.js    init / shutdown, MIDI wiring,
                                   boot, halt
 xone-k3-lib-funcs.js              builders + XoneK3.FUNCS
 xone-k3-lib-inspect.js            runtime state probes
@@ -83,8 +84,8 @@ The split is by concern:
 | `lib-controller.js` | Constructor, patch resolve, focus, TOP_MODES, chord, binding application, `_tokenFingerprint`, `_resolvedTargetHash`, `_resolveSchemeRef` |
 | `lib-controller-colour.js` | `_parseCsOn`, `_parseSchemeValue`, `_parseSchemeFromState`, `_parseCsScheme`, `_buildCsFromStateClosure`, `_setupColorScheme` |
 | `lib-controller-beat.js` | Timeline, loop clock, display source, beat count, beat clock connections |
-| `lib-controller-render.js` | LED writes, sysex queue, calibration math, ramp sampling |
-| `lib-controller-boot.js` | Rate gate, escape detector, init/shutdown, MIDI wiring, boot, halt |
+| `lib-controller-render.js` | LED writes, sysex queue, calibration math, ramp sampling, `_beatjumpAllowed`, `_touchLoop` |
+| `lib-controller-boot.js` | Init/shutdown, MIDI wiring, boot, halt |
 
 Every preset's `.midi.xml` loads all five, in this order, between
 `lib-binding.js` and `lib-funcs.js`. Any change to the file list
@@ -156,7 +157,6 @@ reference that would have silently created a global now throws.
    Binding.input()          ├─ cue                  │  _send
         │                   ├─ loop                 │
         ├─ _onInput()       └─ oddLoop              │
-        ├─ rate gate             │                   │
         ├─ accel / func / default                   │
         │                        ▼                   │
         │                    _recompute()            │
@@ -174,10 +174,10 @@ reference that would have silently created a global now throws.
 ```
 
 Every physical event fans out two ways: the binding's own input
-handler fires (`_onInput` first, then the rate gate, then accel,
-then func or default write), and every LED observing the binding
-repaints. Config changes go through `_recompute`, which rebinds
-everything whose hash changed and repaints every LED.
+handler fires (`_onInput` first, then accel, then func or default
+write), and every LED observing the binding repaints. Config
+changes go through `_recompute`, which rebinds everything whose
+hash changed and repaints every LED.
 
 ## Runtime object graph
 
@@ -189,8 +189,8 @@ config (cat-*.js chain / kitten.js / onek3.js / onek3-minifx.js / colorlab.js)
 K3Controller
   │
   ├── Binding[]         one per physical control. Holds input,
-  │                     output, func, colour scheme, rate class,
-  │                     and mods. Exposed as `this.bindings`.
+  │                     output, func, colour scheme, and mods.
+  │                     Exposed as `this.bindings`.
   │
   ├── patches{}         named patch definitions.
   ├── activePatches[]   ordered list of currently-applied patches.
@@ -218,12 +218,8 @@ K3Controller
   ├── _chordActive
   ├── k2Indices
   │
-  ├── _lastLoopChangeMs     shared rate-gate clock
-  ├── _lastRateClaim        { binding, className, ts }
-  ├── _expectingLoopOff[ch] deliberate loop-off markers
-  ├── _escapes[]            bounded history of loop escapes
-  ├── _lastEscapePrintKey   print dedup key
-  ├── _lastEscapePrintBucket print dedup bucket
+  ├── _lastLoopTouchMs[1..4]  per-channel timestamp of last
+  │                           loop-touching event (beatjump gate)
   │
   ├── _beatConns[]      1 per channel (beat_active)
   ├── _playConns[]      5 per channel (playposition,
@@ -269,8 +265,8 @@ K3Controller
   ├── _resolveFxPatchName
   ├── _syncFxLayout     swap the live fxLayout* / fxMini* patches
   │
-  ├── _claimRate        check + claim a rate class
-  ├── _checkLoopEscape  escape detector hook
+  ├── _beatjumpAllowed  gate check + stamp when in loop
+  ├── _touchLoop        stamp _lastLoopTouchMs[ch]
   │
   ├── _enterChord / _exitChord
   │
@@ -288,20 +284,20 @@ K3Controller
 | `addPatch` / `removePatch` / `replacePatch` / `_batchPatches` | `lib-controller.js` |
 | `currentTopMode`, `setTopMode`, `_resolveFxPatchName`, `_syncFxLayout` | `lib-controller.js` |
 | `shift` / `unshift` / `_enterChord` / `_exitChord` / `_refreshAllLeds` | `lib-controller.js` |
-| `setSelectedFor`, `setActiveDeck`, `setActiveFx`, `_refreshActiveAlt` | `lib-controller.js` |
+| `setSelectedFor`, `setActiveDeck`, `setActiveFx`, `_refreshActiveAlt`, `_afterFocusChanged` | `lib-controller.js` |
 | `_validateBindings`, `_isPress` | `lib-controller.js` |
 | `_parseCsOn`, `_parseSchemeValue`, `_parseSchemeFromState`, `_parseCsScheme`, `_buildCsFromStateClosure`, `_setupColorScheme` | `lib-controller-colour.js` |
 | `_channelOf`, `_readLoopState`, `_readLoopBounds`, `_channelRate` | `lib-controller-beat.js` |
 | `_virtualTempoTrack`, `_startVirtualClock`, `_stopVirtualClock`, `_advanceVirtualClock` | `lib-controller-beat.js` |
 | `_resolveDisplaySource`, `_refreshDisplayFlags` | `lib-controller-beat.js` |
-| `_trackMeta`, `_readFileBpm`, `_fileBpm`, `_getContentBounds`, `_beatF`, `_computeAbsoluteBeat`, `_trackBeatF` | `lib-controller-beat.js` |
-| `_computeBeatState`, `_cascadeCount`, `_virtualBeatFor`, `_syncBeatCount`, `_setPhraseOriginAt`, `_resetBeat`, `_repaintBeat`, `_repaintFromPosition` | `lib-controller-beat.js` |
+| `_trackMeta`, `_readFileBpm`, `_fileBpm`, `_getContentBounds`, `_beatF`, `_trackBeatF` | `lib-controller-beat.js` |
+| `_cascadeCount`, `_virtualBeatFor`, `_syncBeatCount`, `_resetBeat`, `_repaintBeat`, `_repaintFromPosition` | `lib-controller-beat.js` |
 | `_openBeatClocks`, `_closeBeatClocks`, `_syncBeatClocks`, `_needsBeatClocks`, `_refreshBeatLeds` | `lib-controller-beat.js` |
 | `_attachBeatLed`, `_detachBeatLed`, `_resolveDeckRef`, `_deckStateFor` | `lib-controller-beat.js` |
 | `sendLED`, `_sendSysExLED`, `_blankLeds`, `_pulseCo` | `lib-controller-render.js` |
+| `_beatjumpAllowed`, `_touchLoop` | `lib-controller-render.js` |
 | `_wbRGB`, `_channelEmit`, `_emitAt`, `_flatTarget`, `_calibratedHw`, `_solveHw`, `_sampleRamp` | `lib-controller-render.js` |
 | `init`, `shutdown`, `_initExtra`, `_shutdownExtra` | `lib-controller-boot.js` |
-| `_resolveRateClass`, `_claimRate`, `_bindingInActiveLoop`, `_checkLoopEscape` | `lib-controller-boot.js` |
 | `XoneK3._wireInputs`, `XoneK3._bootWith`, `XoneK3.boot`, `XoneK3.bootLab`, `XoneK3.halt` | `lib-controller-boot.js` |
 
 ## The recompute cycle is self-contained
@@ -336,7 +332,8 @@ through `XoneK3._bootWith(devices, Ctor, label)`:
 2. Reset per-boot state: `XoneK3.controllers = []`,
    `_schemeCache = {}`, `_compiledCache = {}`, `_warned = {}`,
    `_modeSeen = { edit: false, slots: false }`,
-   `_funcIdCounter = 0`, `_funcIdMap = new WeakMap()`.
+   `_funcIdCounter = 0`, `_funcIdMap = new WeakMap()`,
+   `_segsCacheCounter = 0`.
 3. Call `XoneK3._populateColors()` — copies `SYSEX_PALETTE` into
    `COLORS` so palette names resolve.
 4. Set `XoneK3.TIME_SIG` from `devices[0].timeSig` (or null).
@@ -346,8 +343,8 @@ through `XoneK3._bootWith(devices, Ctor, label)`:
      Constructor order: focus slots → `_decks` → `_refreshActiveAlt`
      → `_buildHardware` → boot-time fxLayout alignment.
    - Call `ctrl.init()` — blanks LEDs, runs `_recompute`, runs
-     `_initExtra`, validates tokens + rate classes, and schedules
-     a delayed beat-clock reopen (see below).
+     `_initExtra`, validates tokens, and schedules a delayed
+     beat-clock reopen (see below).
    - Call `XoneK3._wireInputs(ctrl)` — hooks every binding's MIDI
      input handler, plus a note-off handler for anything sent as
      0x90.
@@ -381,9 +378,7 @@ in `init` identically.
 
 Each controller owns its own binding map, its own sysex queue and
 drain timer, its own beat clock connections, its own LED cache,
-its own rate gate (`_lastLoopChangeMs`, `_lastRateClaim`,
-`_escapes`, `_lastEscapePrintKey`, `_lastEscapePrintBucket`), and
-its own caches.
+its own `_lastLoopTouchMs`, its own caches.
 
 `XoneK3.halt()` iterates `XoneK3.controllers`, calls `shutdown()`
 on each, clears the array.
@@ -423,20 +418,20 @@ _batchPatches(mutator)     // N edits, one recompute
 `_recompute` (which rebinds and repaints), then
 `_onPatchChange(from, to)`.
 
-`_batchPatches(mutator)` gives the mutator direct access to
-`activePatches`, runs `_recompute` once when it returns, then
-fires `_onPatchChange` once per patch name that appeared or
-disappeared.
+`_batchPatches(mutator)` gives the mutator a **copy** of
+`activePatches`. It may mutate the copy in place (return ignored)
+or return a fresh array — either way, whatever ends up in the
+copy (or in the return value) becomes the new `activePatches`.
+`activePatches` is untouched until the mutator returns cleanly,
+so a throwing mutator does not need a rollback.
 
-The mutator must not call `addPatch` / `removePatch` /
-`replacePatch` — those re-enter `_recompute`. Splice the array
-directly.
+`addPatch` / `removePatch` / `replacePatch` **throw** when called
+from inside a mutator. So does a nested `_batchPatches`. Both are
+programmer errors — use the array argument.
 
-`_batchPatches` wraps the mutator in try/catch. If it throws,
-`activePatches` is restored in place (identity preserved), a
-`[k3] _batchPatches mutator threw: …` line is printed, and the
-exception is rethrown. `_recompute` does not run on a failed
-mutation.
+`_batchPatches` runs `_recompute` once when the mutator's result
+differs from the original, then fires `_onPatchChange` once per
+patch name that appeared or disappeared.
 
 Resolution: `_resolvePatch(name, seen)` shallow-merges parents in
 order, then overlays the patch's own bindings. `_parentList(name)`
@@ -733,11 +728,10 @@ It sets origin to 0; the `_deriveOriginFromPosition` call in the
 playhead. Rebind, mode swap, shift, chord, clock teardown, and
 shutdown do not touch the origin — the playhead hasn't moved.
 
-There is **no manual "set origin to X"** — no
-`hotcueWithPhraseCheck`, no `setPhraseOriginHere`, no
-`_setPhraseOriginAt`. Origin follows the playhead. The only way
-to change it is to change the playhead position (scrub, jump,
-play) or to add/move/recolour a marker hotcue.
+There is **no manual "set origin to X"** — origin follows the
+playhead. The only way to change it is to change the playhead
+position (scrub, jump, play) or to add/move/recolour a marker
+hotcue.
 
 ## Beat maths
 
@@ -783,7 +777,7 @@ not read any Mixxx marker. Beat 0 is file start.
 Only consumed by the track-end countdown (`countdownScheme`);
 has no effect on beat math, cascade, or phrase origin.
 
-`_computeAbsoluteBeat(ch, pos)` floors `_beatF`. Floor not round.
+`_cascadeCount` floors the beat count. Floor not round.
 
 ## Source selection
 
@@ -853,7 +847,7 @@ multiplier.** For −7% pitch it returns roughly `-0.07`, not
 Do **not** read `rate` directly with a `<= 0` guard. The slider
 position is `<= 0` on every pitch-down AND at unity, so the
 guard silently turns the multiplier into `1` and disables any
-scaling. That bug shipped once — see §26.
+scaling. That bug shipped once — see §25.
 
 ## Loop clock — accumulation
 
@@ -981,13 +975,12 @@ constructor, `setSelectedFor`, `setActiveDeck`, `setActiveFx` —
 so the enclosing `_refreshAllLeds` handles the repaint.
 
 **All three focus setters use the same refresh discipline** —
-`setSelectedFor`, `setActiveDeck`, `setActiveFx`. Each calls
+`setSelectedFor`, `setActiveDeck`, `setActiveFx`. Each routes
+through `_afterFocusChanged`, which calls
 `_reapplyByTokens(tokens, { skipRefresh: true })`, then
-`_syncFxLayout()`. `_syncFxLayout` runs its own recompute (and
-therefore its own `_refreshAllLeds`) when it actually swaps a
-layout patch; when it doesn't swap, the setter calls
-`_refreshAllLeds('<why>')` directly. One repaint per focus
-change, on every path. See §7, §8.
+`_syncFxLayout()`, then `_refreshAllLeds(reason)` **only if**
+`_syncFxLayout` didn't swap a patch. One repaint per focus
+change on every path. See §7, §8.
 
 The three callers *outside* a recompute — `_resolveDisplaySource`
 (when it changes the active deck's `displaySource`), `_resetBeat`
@@ -1035,34 +1028,35 @@ calls `_refreshDisplayFlags`. Called from the constructor (after
 `_decks` is built), then from `setSelectedFor`, `setActiveDeck`,
 `setActiveFx`.
 
+## _afterFocusChanged
+
+All three setters route through a single helper:
+
+```js
+_afterFocusChanged(tokens, reason):
+    this._refreshActiveAlt()
+    this._reapplyByTokens(tokens, { skipRefresh: true })
+    if (!this._syncFxLayout().swapped) this._refreshAllLeds(reason)
+```
+
+- `setSelectedFor` builds the token list from `kind` / `which`
+  and delegates.
+- `setActiveDeck` passes the four deck tokens.
+- `setActiveFx` passes the four FX tokens.
+
+One repaint per focus change on every path — the
+`skipRefresh: true` suppresses the token-reapply refresh, and
+either `_syncFxLayout`'s recompute or the trailing
+`_refreshAllLeds` provides the single repaint.
+
 ## setSelectedFor
 
 Assigns a channel or unit to a slot, then re-applies every
-binding that references the changed token. If the slot is FX,
-also syncs the FX layout patch.
-
-**Refresh discipline.** Both deck and FX pinning use the same
-path: `_reapplyByTokens(tokens, { skipRefresh: true })`, then
-`_syncFxLayout()`. `_syncFxLayout` runs its own recompute (and
-therefore its own `_refreshAllLeds`) when it swaps a layout
-patch; when it doesn't swap, the setter calls
-`_refreshAllLeds('focus-deck')` or `_refreshAllLeds('focus-fx')`
-directly. One repaint per call either way.
+binding that references the changed token.
 
 ## setActiveDeck / setActiveFx
 
-Set the active slot to A or B. Both call `_refreshActiveAlt` and
-then `_reapplyByTokens(tokens, { skipRefresh: true })`, then
-`_syncFxLayout()`. One repaint per focus flip via the same
-`skipRefresh` + `_syncFxLayout` pattern as `setSelectedFor`.
-
-`setActiveDeck` calls `_syncFxLayout` for symmetry with
-`setActiveFx` — for a deck flip, `selectedFxCurrent` doesn't
-change, so `_syncFxLayout` always returns `{ swapped: false }`.
-The `_refreshAllLeds('focus-deck')` fallback is the live path.
-`setActiveFx` genuinely can swap a layout patch (focus-mode
-`fxLayout<n>` points at `selectedFxCurrent`), so it takes the
-recompute-driven refresh when it does.
+Set the active slot to A or B. Both call `_afterFocusChanged`.
 
 ## _syncFxLayout
 
@@ -1096,7 +1090,7 @@ K3Controller._reapplyByTokens = function(tokens, opts) {
     // Short-circuit: if the resolved target (after token
     // substitution) is identical to what the binding already
     // has, skip the rebind.
-    var fingerprint = this._tokenFingerprint();
+    var fingerprint = null;
     for (var name in this.bindings) {
         var b = this.bindings[name];
         if (!b._usedTokens || !b._rawCfg) continue;
@@ -1105,13 +1099,13 @@ K3Controller._reapplyByTokens = function(tokens, opts) {
             if (b._usedTokens.indexOf(tokens[i]) !== -1) { hit = true; break; }
         }
         if (!hit) continue;
+        if (fingerprint === null) fingerprint = this._tokenFingerprint();
         var h = this._resolvedTargetHash(b._rawCfg, fingerprint);
         if (b._resolvedTargetHash === h) continue;
         this._applyBinding(name, b._rawCfg, fingerprint);
     }
-    // Callers that will refresh themselves — all three focus
-    // setters via _syncFxLayout — pass { skipRefresh: true }.
-    // Direct callers refresh here.
+    // _afterFocusChanged passes skipRefresh — it refreshes
+    // itself. Direct callers get the refresh here.
     if (!(opts && opts.skipRefresh)) {
         this._refreshAllLeds('token-reapply');
     }
@@ -1150,13 +1144,7 @@ wrote at bind time against what the current state would produce.
 **`skipRefresh`** lets a caller that will refresh itself (via a
 follow-up `_syncFxLayout` + recompute, or an explicit
 `_refreshAllLeds`) suppress the trailing refresh and avoid a
-double repaint. **All three focus setters use it** —
-`setSelectedFor`, `setActiveDeck`, `setActiveFx` — because all
-three call `_syncFxLayout` afterwards and take the
-`_refreshAllLeds` fallback when it doesn't swap. The trailing
-`_refreshAllLeds('token-reapply')` is only the default for
-direct `_reapplyByTokens` calls that don't have a follow-up
-step.
+double repaint. All three focus setters use it.
 
 `_usedTokens` is populated in `_collectTokens`. Both it and
 `_validateBindings` share `XoneK3._tokenFields(cfg)`, which
@@ -1230,10 +1218,8 @@ Cat's chord binds five cells:
 `shutdownHold` is a 2-second hold. Releasing shift, layer, or
 the binding cell cancels the timer via `Binding._reset`.
 
-`_pulseCo(group, co, opts)` fires a CO high, then clears it on a
-1 ms one-shot timer. `opts.deliberateLoopOff` marks the pulse as
-an intentional loop-off for the escape detector — the channel
-is added to `_expectingLoopOff` before the pulse fires.
+`_pulseCo(group, co)` fires a CO high, then clears it on a 1 ms
+one-shot timer.
 
 ---
 
@@ -1392,8 +1378,8 @@ Six connections per channel, split across two arrays:
 | `_beatConns` | `beat_active` | Pulse source. Drives `st.active` transitions. |
 | `_playConns` | `playposition` | Advances the loop clock every tick; position-tick repaint. |
 | `_playConns` | `play_indicator` | Resyncs the clock anchor; sets `st.playing`. |
-| `_playConns` | `track_loaded` | Clears `_trackMetaCache[ch]`, marks `_expectingLoopOff[ch]`, full reset, re-syncs beat clocks (belt-and-braces boot race fix). |
-| `_playConns` | `loop_enabled` | Reads loop state; starts the loop clock on rising edge; on falling edge, stops the clock and calls `_checkLoopEscape`. |
+| `_playConns` | `track_loaded` | Clears `_trackMetaCache[ch]`, resets beat state, clears `_lastLoopTouchMs[ch]`, re-syncs beat clocks (belt-and-braces boot race fix). |
+| `_playConns` | `loop_enabled` | Reads loop state; starts the loop clock on rising edge; stops on falling edge. |
 | `_playConns` | `slip_enabled` | Count resync. |
 
 Per boot with four channels: `_beatConns.length = 4`,
@@ -1680,31 +1666,20 @@ clamps to the last entry.
 
 ---
 
-# 13. Input mods and the rate gate
+# 13. Input mods
 
-`Binding.input()` runs five stages in order:
+`Binding.input()` runs four stages in order:
 
 ```
 1. _onInput(b)                  subclass hook, always fires
 2. normalized update            knobs / faders only
-3. rate gate                    only when the binding has a class
-4. accel multiply               only when _accel is set
-5. func dispatch or default
+3. accel multiply               only when _accel is set
+4. func dispatch or default
 ```
 
 Then repaints every observer LED.
 
-## 3. Rate gate
-
-The gate sits *before* accel. A gated event never reaches the
-func, never lands in `_accelEvents`, and never bumps the
-per-binding self-stamp. Only accepted events feed the accel
-window.
-
-The gate applies to the *action* edge only: for buttons, only on
-`v > 0`.
-
-## 4. Accel
+## 2. Accel
 
 `_parseAccel` normalises the binding's `accel` field to
 `{ amount, curve, window, fullAt }`.
@@ -1725,7 +1700,7 @@ an absolute value once per MIDI event; repeating the write is a
 no-op. `_auditBindingCfg` warns once per binding per boot when
 `accel` is declared without a `func`.
 
-## 5. valueCurve
+## 3. valueCurve
 
 Applies at write time, after `_scaleValue`. `_normalized` stays
 uncurved.
@@ -1784,7 +1759,7 @@ XoneK3._BINDING_CFG_FIELDS = [
     'group', 'inKey', 'outKey', 'type',
     'func', 'args',
     'valueCurve', 'softTakeover',
-    'noLED', 'k2', 'accel', 'rate',
+    'noLED', 'k2', 'accel',
     'colorScheme'
 ];
 ```
@@ -1837,15 +1812,10 @@ Session-scoped state lives outside the factory on purpose:
 ```
 _normalized        — knob/fader position, survives reset
 _accelEvents       — accel rate window, survives reset
-_lastGateMs        — rate self-check stamp, survives reset
 _loopAccelEvents   — self-accelerating func rate window
 pressHeld          — BPM tap state
 turnHappened       — BPM tap state
 _ledObservers      — LED observers
-_rateAccepted      — rate diagnostics counters
-_rateGated
-_rateLastAcceptedMs
-_rateIntervals     — bounded ring of accepted gaps
 ```
 
 ---
@@ -2069,11 +2039,6 @@ connections are open, `_beatLeds` is the fast-path array length,
 wrong; `_beatLeds=0` with `applied=45` means a binding threw
 during `_applyResolved` and the safety net is carrying the load.
 
-## Escape detector
-
-Separate from the debug prints. `_checkLoopEscape(ch)` is called
-from the `loop_enabled` observer when the loop turns off.
-
 ---
 
 # 22. Adding things
@@ -2112,20 +2077,13 @@ XoneK3.FUNCS.myFunc = function(args, ch, c, v, s) {
 
 LED state comes from `colorScheme` and its `on:` shape.
 
-Rate gating is external. If the func moves a loop, add its name
-to `_inferRateClass` or set `rate:` explicitly.
-
-**If your func wraps an existing FUNCS method,** rate inference
-by identity stops working — `_inferRateClass` sees an unknown
-function reference. `_validateBindings` warns once per boot when
-a binding has a custom func, a loop-adjacent `inKey`, and no
-explicit `rate:`. The audit uses a deliberately broader inKey
-pattern (`/^(beatjump_|beatloop_|reloop_|loop_)/`) than
-`_inferRateClass`'s classifier — the classifier maps only
-specific movement COs to specific classes and must not, e.g.,
-label `beatjump_size` as `jump`. The two patterns look similar
-and are intentionally different widths. Fix is to declare
-`rate:` or `rate: false`.
+**If your func touches a loop** (moves a boundary, engages a
+loop, changes loop size, or jumps the playhead), call
+`this._ctrl._touchLoop(this.group)` after the write so a
+subsequent beatjump gates against this event. **If your func is
+a beatjump** (moves the playhead by a beat multiple), call
+`this._ctrl._beatjumpAllowed(this.group)` first and bail if it
+returns `false`.
 
 ## Adding a top-half mode
 
@@ -2146,11 +2104,6 @@ and are intentionally different widths. Fix is to declare
    `test/harness.js`.
 
 See CUSTOMISE §1.16 for the full walkthrough.
-
-## Adding a rate class
-
-Add to `XoneK3.RATE_CLASSES` in `lib-core.js`. Extend
-`_inferRateClass` if new funcs should map to it automatically.
 
 ## Adding a beat-carrying scheme
 
@@ -2214,8 +2167,8 @@ of mutable globals before every test:
 ```
 SYSEX_THROTTLE_MS, BEAT_REPAINT_THROTTLE_MS,
 BEATJUMP_MIN, BEATJUMP_MAX,
-ESCAPE_DETECT_WINDOW_MS, ESCAPE_HISTORY_MAX,
-RATE_INTERVAL_SAMPLES, RATE_CLASSES (deep copy),
+BEATJUMP_GAP_MS,
+RATE_INTERVAL_SAMPLES (if still defined),
 _debugPrintsOn, MODE_PRINTS, _warned, _modeSeen,
 _funcIdCounter, _funcIdMap,
 _schemeCache, _compiledCache,
@@ -2262,8 +2215,7 @@ selection     — _refreshActiveAlt, setSelectedFor, setActiveDeck
 tokens        — resolve, _tokenFields, _collectTokens
 render        — _refreshColorScheme end-to-end
 lifecycle     — _applyBinding rebind / unbind / LED blanking
-rate-gate     — _inferRateClass, _claimRate, Binding.input
-escape        — detector, deliberate markers, inspect('rate')
+beatjump-gate — _beatjumpAllowed, _touchLoop, _lastLoopTouchMs
 pulse         — _pulseCo set/fire/clear, shutdownHold
 warnings      — _warnOnce dedup, every warn-once call site
 ```
@@ -2333,9 +2285,6 @@ disable with a comment explaining why.
   the loop-mode cascade count. Same derivation as
   `_cascadeCount`, exposed separately so `inspect('beat')` can
   show the loop count without running the render pipeline.
-- **`_setPhraseOriginAt` has a `rawPos` opt-out.** Callers that
-  need "here" to mean a physical position (hotcue jumps) pass
-  `{ rawPos: true }`; the display-mode override is skipped.
 - **`beat_active` is the pulse source in both modes.** Its edges
   drive `st.active` transitions; the cascade count does not
   depend on edge timing.
@@ -2353,19 +2302,14 @@ disable with a comment explaining why.
   See §6.
 - **All three focus setters refresh exactly once on every
   path** — `setSelectedFor`, `setActiveDeck`, `setActiveFx`.
-  They all pass `{ skipRefresh: true }` to `_reapplyByTokens`,
-  then call `_syncFxLayout()`. When `_syncFxLayout` swaps a
-  patch, its own recompute handles the refresh; when it doesn't,
-  the setter calls `_refreshAllLeds('<why>')` directly. See §7,
-  §8.
+  They route through `_afterFocusChanged`, which handles the
+  `skipRefresh` + `_syncFxLayout` + fallback-refresh discipline.
+  See §7, §8.
 - **Loop tempo tracking is read fresh on every advance.**
 - **`_advanceVirtualClock` clamps `dt` to zero.** Date.now() is
   not monotonic; a backward NTP step would otherwise subtract
   from `clock.pos`, shifting the loop-mode cascade count
-  backward until the clock caught up. Same defensive clamp as
-  the rate gate's `elapsed()` helper, inlined locally because
-  the helper lives in `lib-controller-boot.js` and
-  `_advanceVirtualClock` is in `lib-controller-beat.js`.
+  backward until the clock caught up.
 - **`applyLoopWrapAdjust` only runs in tempo-tracking mode.**
   Real-seconds mode never needs it.
 - **`_advanceVirtualClock` early-returns when the clock isn't
@@ -2391,8 +2335,7 @@ disable with a comment explaining why.
   path. The lab preview LED keys off `st.hasBeat`, not
   `st.playing`.
 - **The loop clock is the only virtual timeline.** Two-timeline
-  model: track + loop. `VIRTUAL_PRIORITY` does not exist, and
-  the metronome clock was removed by design, not oversight.
+  model: track + loop. `VIRTUAL_PRIORITY` does not exist.
 - **Sub-beat loops work.** The count advances one beat per beat
   regardless of loop length. The pulse may look erratic — that's
   Mixxx's `beat_active` timing on sub-beat loops, and the
@@ -2407,6 +2350,31 @@ disable with a comment explaining why.
   re-reads loop state and starts the loop clock for any channel
   with an already-active loop. Both the initial open and the
   delayed reopen go through this path.
+
+## Beatjump gate
+
+- **One gate, one value.** `XoneK3.BEATJUMP_GAP_MS = 130` in
+  `lib-core.js`. Gated controls: `beatjumpButton` and
+  `encBeatjump`. Gating condition: channel has
+  `loop_enabled > 0` AND less than `BEATJUMP_GAP_MS` has elapsed
+  since the last loop-touching event on that channel.
+- **Loop-touching events stamp `_lastLoopTouchMs[ch]`:**
+  beatjump (on a pass, while in loop), `encLoopMove`,
+  `encLoopMoveAccel`, `pressSetValue` on `beatloop_size`,
+  `beatloopActivateResetAnchor`, `reloopToggleResetAnchor`.
+  `pressSetValue` on `beatjump_size` does NOT — it's a next-jump
+  setting, not a loop change.
+- **Outside a loop, every beatjump fires freely** and nothing is
+  stamped. The gate exists solely to stop a rapid loop edit
+  followed by an accidental beatjump from killing a sub-beat
+  loop.
+- **The gate lives in `lib-controller-render.js`**
+  (`_beatjumpAllowed`, `_touchLoop`), not in the funcs — the
+  funcs just call it. State is on the controller
+  (`_lastLoopTouchMs`, cleared per channel in `track_loaded`).
+- **No per-binding override.** Unlike the old rate-class system,
+  this is one global rule. If you want a specific beatjump to
+  bypass the gate, you'd need to write a custom func.
 
 ## Caches
 
@@ -2527,10 +2495,11 @@ disable with a comment explaining why.
   This makes the helper safe under any future change that makes
   it asynchronous or re-entrant — no closure over `var`-scoped
   names to go stale.
-- **`_batchPatches` try/catches the mutator.** On throw, it
-  restores `activePatches` in place (length 0 + repush), prints
-  `[k3] _batchPatches mutator threw: <message>`, and rethrows.
-  `_recompute` does not run on a failed mutation.
+- **`_batchPatches` gives the mutator a copy and enforces the
+  contract in code.** `activePatches` is untouched until the
+  mutator returns cleanly, so a throw needs no rollback.
+  `addPatch` / `removePatch` / `replacePatch` throw when called
+  from inside a mutator; nested `_batchPatches` throws.
 - **`setTopMode` preserves position.** Owned patches are
   stripped and the target's activate list is re-inserted at the
   lowest index any owned patch occupied, so non-owned patches
@@ -2557,18 +2526,6 @@ disable with a comment explaining why.
   only, so the change is invisible to configs.
 - **`_onInput(b)` runs before the binding's func, on every
   physical event.**
-- **Rate gating is per binding, not per func.**
-- **`edit` and `jump` compose via the claim floor.**
-- **`_lastLoopChangeMs` is the shared clock.**
-- **The rate gate only fires inside an active loop.**
-  `_claimRate` short-circuits via `_bindingInActiveLoop` when
-  the binding's target channel has `loop_enabled = 0`, or when
-  the binding doesn't target a `[ChannelN]` group at all.
-  Out-of-loop claims don't touch `_lastLoopChangeMs` or
-  `_lastRateClaim`, so the escape detector only sees claims
-  that could actually have disturbed a loop. `_rateAccepted`
-  still increments for diagnostics; `_rateGated` does not.
-- **`rate: false` opts out of inference.**
 - **`accel` does nothing on the default input path.**
   `_auditBindingCfg` warns once per binding per boot when `accel`
   is declared without a `func`.
@@ -2614,7 +2571,8 @@ disable with a comment explaining why.
   set, so this is the only listener that repaints an `on.co`
   LED.
 - **Lab renderers discover cells by func reference.**
-- **`track_loaded` also resets a channel's beat counter.**
+- **`track_loaded` also resets a channel's beat counter and
+  `_lastLoopTouchMs[ch]`.**
 - **`_paintRGB` parameter `b` is blue.**
 - **Rebinding a func changes the hash.**
 - **`_findCellsByFunc` keys by `_funcId`, not `fn`.**
@@ -2628,22 +2586,17 @@ disable with a comment explaining why.
 - **`_syncFxLayout` batches all swaps into one
   `_batchPatches`.**
 - **Mode swaps are chord bindings, not runtime state.**
-- **Mode swaps use `_batchPatches`, not N `addPatch` calls.**
 - **Group-enable cells use a single-colour scheme, not a ramp.**
 - **`_warnOnce` dedupes per key per boot.**
 - **`_unbind` does not read `b.softTakeover`.**
 - **`_sendColor` short-circuits `mixxx`-typed LEDs when
   `isOn === 0`.**
-- **`_pulseCo({ deliberateLoopOff: true })` sets
-  `_expectingLoopOff[ch]` before firing.**
 - **THEME is read live by every shipped emitter.** `deckSelect`
   / `fxSelect` / `routeTo` (both overlays), `slotIndicator` /
   `activeSlotButton` (press rows), `fxScheme`, `FX_SCHEME_MAP`,
   `FX_COLOR_MAP`, `slipScheme` — all wrap THEME in a function
   scheme or a deferred map entry, so a runtime mutation
-  propagates on the next repaint of an affected LED. `selDeck*`
-  / `selFx*` / `btnLoadA` / `btnLoadB` are still registered but
-  unreferenced by shipped configs.
+  propagates on the next repaint of an affected LED.
 - **`bootCat` is the entry point for every non-lab preset.**
 - **`_bootWith(devices, Ctor, label)` spawns one controller per
   entry.**
@@ -2654,14 +2607,6 @@ disable with a comment explaining why.
 - **`_snapshotBinding` is generated from `_SNAPSHOT_FIELDS`.**
 - **`_emitAt` splits into `_channelEmit` + `_saturation`.**
 - **`_tokenFields(cfg)` is the single field enumerator.**
-- **The `_inferRateClass` and `_validateBindings` inKey
-  patterns are intentionally different widths.** The classifier
-  maps specific movement COs (`beatjump_forward`,
-  `reloop_toggle`, `beatloop_activate`) to specific classes. The
-  audit flags anything loop-adjacent
-  (`/^(beatjump_|beatloop_|reloop_|loop_)/`) as a warning
-  heuristic. Do not fold them into one predicate: the classifier
-  must not label `beatjump_size` as `jump`.
 - **Every file after `lib-core.js` throws on missing prereqs.**
 - **`this.bindings` is the only name for the binding map.**
 - **`_bindConns` skips the `outKey` connection when `_csOn` is
@@ -2674,10 +2619,6 @@ disable with a comment explaining why.
 - **Controller split means `.midi.xml` file lists must match.**
   A missing `lib-controller-*.js` in any preset's XML will throw
   at load. `test/harness.js` has the same list.
-- **`_inferRateClass` matches func identity, not shape.**
-  `_validateBindings` warns when a custom func + loop-adjacent
-  `inKey` + no explicit `rate:` is detected — the binding has
-  silently become `free`.
 - **`_sendSysExLED`'s drain timer bails on an empty queue
   only.** There is no `_shuttingDown` bail — the drain is
   expected to run to completion even during shutdown, and
@@ -2686,22 +2627,7 @@ disable with a comment explaining why.
   `_stopSysExDrain` is the explicit stop.
 - **`_validateBindings` token warnings go through `_warnOnce`.**
   They fire once per boot regardless of `_debugPrintsOn` — a
-  broken token is an error, not a hint. The rate warnings in the
-  same function gate on `_debugPrintsOn`.
-- **Unresolvable rate-class string names warn at bind time.**
-  `_resolveRateClass` validates against `RATE_CLASSES` before
-  storing the class on the binding. On a miss it warns via
-  `_warnOnce('rateUnknown:' + name)` and stores `null`, so the
-  binding becomes ungated — `Binding.input`'s
-  `if (gateable && this._rateClass)` check short-circuits and
-  `_claimRate` is never called with a bad string. The defensive
-  `if (!cls) return true` inside `_claimRate` is a safety net
-  for direct callers, not a live code path.
-- **Unexpected `rate` types warn once and fall through to
-  inference.** `rate: 5` or `rate: true` — where the author
-  probably meant an object or a class name — fires
-  `_warnOnce('rateBadType:' + typeof cfg.rate)`. `rate: true`
-  is treated as "use inference" and does not warn.
+  broken token is an error, not a hint.
 - **`LabController.shutdown` runs the slot dump synchronously**
   before calling `K3Controller.prototype.shutdown`. Dumping from
   `_shutdownExtra` would race the async sysex drain. See §18.
@@ -2735,10 +2661,11 @@ XoneK3.controllers[0].inspect('patches')    // activePatches, stack
 XoneK3.controllers[0].inspect('beat')       // clock, counters, timelines
 XoneK3.controllers[0].inspect('tokens')     // token → bindings
 XoneK3.controllers[0].inspect('dark')       // unbound bindings
-XoneK3.controllers[0].inspect('rate')       // gate state, stats, escapes
-XoneK3.controllers[0].inspect('rate', 'reset')   // zero counters
 XoneK3.controllers[0].inspect('why', 'layer')    // pipeline walk for one binding
 ```
+
+`inspect('rate')` is a stub — prints one line pointing at
+`BEATJUMP_GAP_MS`. No rate diagnostics exist.
 
 `inspect('why', name)` walks the render pipeline for a single
 binding and prints where it stopped. It is read-only and safe to
@@ -2776,19 +2703,18 @@ verdict.
 | Mode swap does nothing | Chord not held, or the swap func doesn't see the expected base patch. |
 | Mini mode won't reach focus | `setTopMode('focus')` should unwind every owned patch. Check `TOP_MODES` owns lists. |
 | Mode swap flickers through intermediate stacks | Using `addPatch` / `removePatch` in a loop instead of `_batchPatches`. |
-| `[k3] _batchPatches mutator threw: …` | The mutator hit an exception. `activePatches` was rolled back; check the func that called `_batchPatches`. |
+| `[k3] _batchPatches cannot nest` | A mutator called `_batchPatches`. Mutate the array argument. |
+| `[k3] addPatch called inside a _batchPatches mutator — mutate the array argument instead` | Same class. Use the array argument. |
+| `[k3] _batchPatches mutator threw: …` | The mutator hit an exception. `activePatches` was not modified (mutator edits a copy). |
 | `[k3] _applyBinding(<name>) threw: …` | One binding's bind path threw. The rest of the pass continued; check the named binding's config. |
 | `[k3] _refreshAllLeds: <name> threw: …` | One binding's render threw. The rest of the pass continued. |
 | `[k3] colorScheme scheme function on <name> returns a fresh object each call` | Wrap with `composeScheme` or hoist the object out of the closure. |
 | `[k3] lab preview render threw: …` | A lab scheme function threw. Preview LED painted black. |
 | Group-enable LED is blue | Ramp scheme on a static LED. Use `FX_COLOR_MAP[n]`. |
 | `[k3] _syncFxLayout: fx-pattern patch … has no matching target` | An fx-family patch name is in `activePatches` but missing from `patches:`. Typo, or the boot config references a layout index that doesn't exist. |
-| `[k3] unknown rate class "…"` | A binding's `rate:` string doesn't match any registry entry. The bind is skipped for that class — the binding becomes ungated. Check `RATE_CLASSES` in `lib-core.js`, or fix the binding's `rate:` value. |
-| `[k3] binding rate must be a string, object, false, or undefined — got …` | A `rate:` value of an unexpected type (`rate: 5`, `rate: 'jump'`-as-something-else). Warn-once; the binding falls through to inference. |
-| Rate class isn't throttling | `inspect('rate')` — if the binding isn't listed, inference didn't classify it. Add `rate:` explicitly. |
-| Rate class warning on boot | Custom func + loop-adjacent inKey. Add `rate: 'jump'` / `'edit'`, or `rate: false`. |
+| Beatjump doesn't fire in a tight loop | Gated by `_beatjumpAllowed` — less than `BEATJUMP_GAP_MS` since the last loop-touching event. Expected. Set `XoneK3._debugPrintsOn = true` to see the `[k3] beatjump gated:` line. |
+| Beatjump fires but immediately exits a loop | Loop is shorter than the jump step (e.g. 1-beat jump into a 1/16 beatloop). Geometry, not a bug — the playhead lands past `loop_out`. The gate doesn't prevent this; it only prevents *rapid* loop edits from stacking into a jump. |
 | `[k3] binding X declares accel but has no func` | `accel` does nothing without a custom func. Remove `accel`, or add a func. |
-| Loop turned off unexpectedly | Search the log for `LOOP ESCAPE`. `inspect('rate')` shows claimed by. |
 | Warning appears once, then disappears | `_warnOnce` deduped. Reload to re-arm. |
 | `func:_47` style ids grow every reload | Was a `_funcIdCounter` reset bug. Now reset per boot — reload and ids start at `_0`. |
 | Track colours are off, virtual is right | Intro marker isn't where you think. |
@@ -2802,240 +2728,7 @@ verdict.
 
 ---
 
-# 27. Rate limits
-
-Every binding can carry a rate class. The gate sits in
-`Binding.input()` — checked *before* the func dispatches. See
-`XoneK3.RATE_CLASSES` in `lib-core.js`.
-
-## Registry shape
-
-```js
-XoneK3.RATE_CLASSES = {
-    jump:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 120, claimMs: 120 },
-    edit:  { selfCheckMs: 0,  selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  },
-    claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   },
-    free:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   }
-};
-```
-
-## Two timestamps
-
-| Field | Scope | Purpose |
-|---|---|---|
-| `ctrl._lastLoopChangeMs` | controller | shared clock |
-| `b._lastGateMs` | binding | per-binding self-check stamp |
-
-`selfScope: 'none'` classes never write `b._lastGateMs`.
-
-## Resolution
-
-`K3Controller._resolveRateClass(cfg)` (in `lib-controller-boot.js`):
-
-1. `cfg.rate === false` → null (no gate)
-2. `cfg.rate` is a string → lookup in `RATE_CLASSES`
-3. `cfg.rate` is an object → used inline
-4. otherwise → `XoneK3._inferRateClass(cfg)`
-
-`_inferRateClass` matches on `cfg.func` first, then on `cfg.inKey`:
-
-```
-encBeatjump, beatjumpButton, reloopToggleResetAnchor,
-beatloopActivateResetAnchor          → 'jump'
-encLoopMove, encLoopMoveAccel        → 'edit'
-encBeatjumpStepScale                 → 'claim'
-pressSetValue on beatloop_size       → 'edit'
-pressSetValue on beatjump_size       → 'claim'
-inKey beatjump_forward               → 'jump'
-inKey beatjump_backward              → 'jump'
-inKey reloop_toggle                  → 'jump'
-inKey beatloop_activate              → 'jump'
-```
-
-The inKey branches are narrow and specific. They are *not* the
-same pattern `_validateBindings` uses for its audit — see §22
-and §25. Do not fold them together.
-
-## The gate
-
-```js
-K3Controller._claimRate(b, rateSpec) {
-    // rateSpec is pre-validated by _resolveRateClass at bind
-    // time — string names resolve there and warn-once there.
-    // The lookup here is defensive: direct callers (tests,
-    // hypothetical future code) get a silent pass-through.
-    cls = (typeof rateSpec === 'string')
-        ? RATE_CLASSES[rateSpec]
-        : rateSpec
-    if !cls: return true
-
-    now = Date.now()
-
-    // 0. out-of-loop bypass. The gate's whole purpose is to
-    //    keep rapid loop moves from destabilising an active
-    //    loop. With no loop there is nothing to escape from —
-    //    skip the gate, skip the clock and _lastRateClaim
-    //    writes, don't record a gate. _rateAccepted still
-    //    increments so inspect('rate') sees the event.
-    if !this._bindingInActiveLoop(b):
-        b._recordRateAccept(now)
-        return true
-
-    gated = false
-
-    // 1. self-check
-    if (cls.selfCheckMs > 0 && cls.selfScope === 'binding')
-        if (now - b._lastGateMs < cls.selfCheckMs) gated = true
-
-    // 2. jump-block
-    if (!gated && cls.jumpBlockMs > 0)
-        if (now - ctrl._lastLoopChangeMs < cls.jumpBlockMs) gated = true
-
-    if (gated) { b._recordRateGate(); return false }
-
-    // 3. claim
-    if (cls.claimMs > 0) {
-        // Claim floor algebra:
-        //   _lastLoopChangeMs := now - jumpMax + claimMs
-        // A subsequent jump-class event gates while
-        //   (now' - _lastLoopChangeMs) < jumpMax
-        // Substituting:
-        //   now' - (now - jumpMax + claimMs) < jumpMax
-        //   now' - now < claimMs
-        // So the next jump-class event is blocked for exactly
-        // `claimMs` ms from this claim — the class's declared
-        // tail. jump.claimMs (120ms) is the reference.
-        jumpMax = RATE_CLASSES.jump.jumpBlockMs
-        floor = now - (jumpMax - cls.claimMs)
-        if (ctrl._lastLoopChangeMs < floor) ctrl._lastLoopChangeMs = floor
-    }
-
-    // 4. self-stamp
-    if (cls.selfScope === 'binding') b._lastGateMs = now
-
-    // 5. diagnostics
-    b._recordRateAccept(now)
-    ctrl._lastRateClaim = { binding: b._name, className, ts: now }
-
-    return true
-}
-```
-
-**Step 0 — the out-of-loop bypass.** `_bindingInActiveLoop(b)`
-reads `loop_enabled` on the binding's target channel. Returns
-false when the binding has no group, the group isn't a
-`[ChannelN]` group, or the channel's loop is off. True when the
-loop is on.
-
-Reads the CO directly rather than `_decks[ch].loopActive`
-because the cached state is only fresh while beat clocks are
-open — a custom config that drops every beat scheme closes the
-clocks and leaves the cache stale. The CO is always accurate.
-
-With the bypass in place, `_lastLoopChangeMs` only ever
-reflects in-loop activity, so the escape detector never fires
-on a claim made before the loop existed.
-
-The `floor` calculation makes the classes composable: an `edit`
-at 60 ms leaves a 60 ms tail; a `jump` reads the same clock and
-waits its full 120 ms from that point.
-
-**Unresolvable class names resolve at bind time, not at event
-time.** `_resolveRateClass` runs during `_applyBinding`, checks
-the string against `RATE_CLASSES`, and on a miss warns via
-`_warnOnce('rateUnknown:' + name)` and stores `null` on the
-binding. The binding then becomes ungated — `Binding.input`'s
-`if (gateable && this._rateClass)` check short-circuits and
-`_claimRate` never runs. A config typo therefore leaves the
-control live but unthrottled, and the warn-once names the
-missing class so you can fix it. `_claimRate`'s own defensive
-string lookup is unreachable by design; it exists so that a
-future code path calling `_claimRate` directly with an
-unresolved string still allows the event through.
-
-**Unexpected `rate` types warn and fall through to inference.**
-`rate: 5` is a probable typo. Warn-once via
-`_warnOnce('rateBadType:' + typeof cfg.rate)`. `rate: true` is
-treated as "use inference" and does not warn.
-
-## Why `edit` leaves a tail but `jump` doesn't
-
-`jump` moves both loop boundaries at once — Mixxx re-anchors on
-every event, so it needs the full 120 ms on the shared clock.
-`edit` moves one boundary (via the anchor trick), so Mixxx has
-less state to update and tolerates a faster event rate. The
-shipped config gives `edit` a 0 ms self-gate (encoder spins
-freely) and a 60 ms tail on the shared clock (a jump after an
-edit waits for the loop to settle). Both `selfCheckMs` and
-`claimMs` are tunable per binding.  
-
-## `encLoopMoveAccel`
-
-Self-accelerating, but still gated. The gate runs *first*, so its
-`_loopAccelEvents` window records only accepted events. Args:
-
-```
-[side, step, cap, divisor]
-```
-
-Window length is `XoneK3.ENC_LOOP_ACCEL_WINDOW_MS` (150 ms).
-
-## Diagnostics
-
-Three read-only consumers:
-
-**`ctrl._lastRateClaim`** — `{ binding, className, ts }`.
-
-**`b._rateAccepted` / `b._rateGated`** — counters.
-`_rateIntervals` is a bounded ring of accepted-event gaps.
-
-**`ctrl._escapes`** — bounded ring of loop-escape records.
-
-Escape path:
-
-```
-loop_enabled observer
-   │
-   ├── 1 → 0 transition
-   │
-   ├── was it deliberate?
-   │       _expectingLoopOff[ch] set — the marker is consumed
-   │       either way. If within 1s: return silently.
-   │       If stale: fall through to escape detection.
-   │       (markers set by _pulseCo({deliberateLoopOff:true})
-   │       and track_loaded)
-   │
-   ├── was it within ESCAPE_DETECT_WINDOW_MS of a claim?
-   │       no  — return silently
-   │       yes — record + (maybe) log
-   │
-   └── every escape is pushed to _escapes (bounded ring).
-       The console print is deduped by (deck, claimedBy) within a
-       100ms bucket — repeat escapes from the same binding in the
-       same instant collapse to one line. Full detail is always
-       available via inspect('rate').
-```
-
-## Audits
-
-- `_validateBindings` (boot) has two halves. Token warnings route
-  through `_warnOnce` and fire once per boot regardless of
-  `_debugPrintsOn` — a broken token is an error, not a hint. The
-  rate warnings gate on `_debugPrintsOn` and cover `rate: false`
-  declared on something `_inferRateClass` would have classified,
-  `rate:` disagreeing with inference, and custom func +
-  loop-adjacent `inKey` + no explicit `rate:`.
-- The escape detector logs, but doesn't mutate state.
-
-## Not rate-limited
-
-Overlay toggles, `toggleTopMode`, `toggleMiniFx`,
-`cycleDisplaySource`. Rapid toggling is expensive but doesn't
-corrupt state.
-
----
-
-# 28. Limits
+# 27. Limits
 
 - `chain_selector` only steps ±1 through the QuickFX chain
   preset list. Not a readable index.
@@ -3051,9 +2744,7 @@ corrupt state.
 - THEME changes propagate live for every shipped emitter
   (`deckSelect`, `fxSelect`, `routeTo`, `slotIndicator`,
   `activeSlotButton`, `fxScheme`, `FX_SCHEME_MAP`,
-  `FX_COLOR_MAP`, `slipScheme`). The `selDeck*` / `selFx*` /
-  `btnLoadA` / `btnLoadB` schemes are still registered but
-  unreferenced by shipped configs.
+  `FX_COLOR_MAP`, `slipScheme`).
 - The four `fxLayout*` / `fxMini*` patterns are the only top-half
   layout families the runtime knows about. Adding a fifth means
   extending `_resolveFxPatchName` and the mode table.
@@ -3088,5 +2779,14 @@ corrupt state.
   colorLab has its own.
 - **Two presets on the same MIDI channel fight over outputs.**
 - **Controller split is load-order sensitive.** Five files
-  extend `K3Controller.prototype`
-```
+  extend `K3Controller.prototype`.
+- **Beatjump gate is a global rule.** One value
+  (`BEATJUMP_GAP_MS`), one gate per channel. No per-binding
+  override exists (unlike the old rate-class system).
+- **Loop-boundary encoders are ungated.** They stamp
+  `_lastLoopTouchMs[ch]` on every accepted event, but the gate
+  doesn't restrict their own fire rate. Only beatjumps gate
+  against that timestamp.
+- **`pressSetValue` on `beatjump_size` does not stamp
+  `_lastLoopTouchMs`.** It changes the *next* jump's size, not
+  the active loop. Only `beatloop_size` writes stamp.

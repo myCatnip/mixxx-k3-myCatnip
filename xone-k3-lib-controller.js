@@ -1,28 +1,21 @@
 // xone-k3-lib-controller.js — K3Controller core: constructor,
-// patch resolution, focus, top-half mode table, chord.
+// patch resolution, focus, top-half mode table, chord, binding
+// application.
 //
 // Split across five files, all extending K3Controller.prototype:
 //
 //   lib-controller.js          this file — constructor, patches,
 //                              focus, top modes, chord, binding
 //                              application
-//   lib-controller-colour.js   colour-scheme parser (on:, scheme,
-//                              schemeFromState, setup)
+//   lib-controller-colour.js   colour-scheme parser
 //   lib-controller-beat.js     timeline, loop clock, display-
 //                              source resolution, beat pipeline,
 //                              beat clock connections
 //   lib-controller-render.js   LED writes, sysex, calibration,
-//                              ramp sampling
-//   lib-controller-boot.js     rate gate, escape detector,
-//                              init/shutdown, boot, halt
+//                              ramp sampling, beatjump gate
+//   lib-controller-boot.js     init/shutdown, boot, halt
 //
-// Load order matters:
-//   lib-controller.js
-//   lib-controller-colour.js
-//   lib-controller-beat.js
-//   lib-controller-render.js
-//   lib-controller-boot.js
-//
+// Load order: controller → colour → beat → render → boot.
 // Inspection probes live in lib-inspect.js.
 
 'use strict';
@@ -36,7 +29,7 @@ if (typeof XoneK3._requireLoad !== 'function') {
 XoneK3._requireLoad('xone-k3-lib-controller.js',
     ['Binding', '_bindingDefaults', '_SNAPSHOT_FIELDS',
      '_snapshotTransform', '_parseAccel', '_buildTransferRGB',
-     '_tokenFields', 'RATE_CLASSES', '_inferRateClass', 'PATCH_NAMES']);
+     '_tokenFields', 'PATCH_NAMES']);
 
 (function() {
     var PN = XoneK3.PATCH_NAMES;
@@ -44,11 +37,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // TOP-HALF MODE TABLE
     // ============================================================
-    // One entry per mode. `owns` lists every patch name that
-    // belongs to the mode. `activate(ctrl)` returns the list to
-    // activate for the mode given the current focus selections.
-    // setTopMode unwinds every patch owned by ANY mode, then adds
-    // the target's activate list.
+    // owns      every patch name belonging to the mode, for unwind.
+    // activate  the exact list to add given the current focus.
     XoneK3.TOP_MODES = {};
     XoneK3.TOP_MODES.focus = {
         owns: [
@@ -111,8 +101,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         };
     }
 
-    // Exposed for beat.js so _resetBeat / _closeBeatClocks can
-    // build fresh state. Not part of the public API.
     XoneK3._freshDeckState = freshDeckState;
 
     // ============================================================
@@ -145,45 +133,27 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this.isShifted = false;
         this._chordActive = false;
 
-        // Rate gate + escape detector state.
-        this._lastLoopChangeMs = 0;
-        this._lastRateClaim = null;
-        this._expectingLoopOff = { 1: 0, 2: 0, 3: 0, 4: 0 };
-        this._escapes = [];
-        this._lastEscapePrintKey = null;
-        this._lastEscapePrintBucket = 0;
+        // Per-channel timestamp of the last loop-touching event
+        // (beatjump, loop-boundary edit, loop size/state change).
+        // Consumed by the beatjump gate in lib-controller-render.js.
+        this._lastLoopTouchMs = { 1: 0, 2: 0, 3: 0, 4: 0 };
 
         this._shuttingDown = false;
         this.loadState = { pressed: false };
 
-        // Phase model. _recomputeDepth > 0 while a recompute is
-        // running. _recomputeCompletedAt is stamped after the
-        // recompute's internal _refreshAllLeds returns. Used by
-        // _refreshAllLeds to warn when a caller refreshes
-        // standalone right after a recompute, which is a
-        // double-repaint.
+        // _batchPatches re-entrancy guard. addPatch / removePatch /
+        // replacePatch throw while active; nested _batchPatches
+        // throws.
+        this._batchPatchesActive = false;
+
+        // Recompute phase tracking + LED re-entrancy guard.
         this._recomputeDepth = 0;
         this._recomputeCompletedAt = 0;
-        // Re-entrancy guard for _refreshAllLeds. The only legitimate
-        // nested path today is
-        //   _refreshAllLeds → _syncBeatClocks → _openBeatClocks
-        //     → _startVirtualClock → _resolveDisplaySource
-        //       → _refreshAllLeds('display-source')
-        // Skipping the nested call is safe: the outer call iterates
-        // every binding after _syncBeatClocks returns, so the new
-        // displaySource is picked up there.
         this._refreshAllLedsDepth = 0;
 
         // Memo for _resolvedTargetHash. WeakMap keyed on cfg
-        // objects (owned by _resolvePatch's memo, never mutated,
-        // collected with the patch). Entries carry a token
-        // fingerprint — a positional snapshot of every field the
-        // token table reads. Two reads with the same fingerprint
-        // are guaranteed to resolve every token to the same value.
-        // Because the fingerprint derives from XoneK3.TOKENS, any
-        // state change that could alter a token's resolved value
-        // changes the fingerprint, invalidating the entry. No
-        // counter to remember to bump.
+        // objects owned by _resolvePatch (never mutated, collected
+        // with the patch).
         this._resolvedTargetHashCache = new WeakMap();
 
         this.sysex = (cfg.sysex === false) ? false : true;
@@ -233,17 +203,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this._trackMetaCache = {};
         this._hwCache = {};
         this._hwCacheSize = 0;
-        // Per-controller cache for _flatTarget. Keyed first by a
-        // per-segments-array id (segs._cacheId, assigned lazily),
-        // then by _calibKey on read. Two controllers with
-        // different _calibKey no longer thrash each other's
-        // entries on the same compiled scheme.
         this._flatCache = {};
-        // Curve name is part of the key: two controllers with
-        // different LED transfer curves (same wbGain / perceptual /
-        // hkBoost / lumGamma) must not share the flat target cache,
-        // or the wrong flat target gets solved. 'none' covers the
-        // "curve missing, calibration disabled" fallback above.
         this._calibKey = [
             cfg.calibration || 'none',
             this.calibrationMode,
@@ -280,12 +240,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this._applied = {};
         this._appliedHashes = {};
         this._appliedCfgs = {};
-        // Patches are set once at construction and never mutated.
-        // Memoize the merged result per name so a repeated recompute
-        // over the same stack reuses the same cfg object references.
-        // That keeps _applyResolved's `oldCfgs[name] === cfg`
-        // short-circuit live — otherwise every binding re-hashes on
-        // every recompute.
         this._resolvedPatchCache = {};
 
         for (var pi = 0; pi < this.activePatches.length; pi++) {
@@ -349,15 +303,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     };
 
     XoneK3.K3Controller.prototype._resolvePatch = function(name, seen) {
-        // Memoized. Patches are fixed at construction; a resolved
-        // patch is stable for the controller's lifetime. Returning
-        // the cached object keeps cfg references identical across
-        // recomputes, which is what makes the hash short-circuit
-        // in _applyResolved fire.
-        //
-        // `seen` still guards cycle detection during the first
-        // resolution. Cached results are only written on success,
-        // so a cycle throws before anything is stored.
         var cached = this._resolvedPatchCache[name];
         if (cached !== undefined) return cached;
 
@@ -441,25 +386,19 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // RECOMPUTE
     // ============================================================
-    // The recompute cycle is self-contained: it ends with
-    // _refreshAllLeds, so callers do not refresh afterward.
-    // _recomputeDepth is incremented for the duration so that
-    // _refreshAllLeds can distinguish "called from inside a
-    // recompute" (expected) from "called standalone right after
-    // one" (usually a double repaint — warn).
+    // Self-contained: ends with _refreshAllLeds. Callers do not
+    // refresh afterward.
     XoneK3.K3Controller.prototype._recompute = function() {
         this._recomputeDepth++;
         try {
             var resolved = this._resolveStack(this._buildStack());
             this._applyResolved(resolved);
-            // loadState.pressed is controller-scoped and is only
+            // loadState.pressed is controller-scoped and only
             // cleared by loadSelectedTrack's release branch. A
             // patch change can swap the binding under a held
-            // pressR; the release event then goes to a different
-            // binding, and the flag sticks true. The next
-            // k3Select press would load a track instead of
-            // selecting a channel. Clearing here keeps the flag
-            // consistent with the current stack.
+            // pressR; the release goes to a different binding and
+            // the flag sticks true. Reset here so the next
+            // k3Select press selects a channel instead of loading.
             this.loadState.pressed = false;
             this._afterRecompute();
             this._refreshAllLeds();
@@ -473,19 +412,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     XoneK3.K3Controller.prototype._onInput = function(b) {};
     XoneK3.K3Controller.prototype._onPatchChange = function(from, to) {};
 
-    // ============================================================
-    // PER-BINDING TRY/CATCH HELPER
-    // ============================================================
-    // A single throwing binding (bad scheme, bad config, transient
-    // CO miss) must not stop a pass over every binding. _applyResolved
-    // and _refreshAllLeds both use this so one bad binding warns
-    // once and lets the rest of the pass continue.
-    //
-    // The method reference and its argument array are passed
-    // separately. Loop variables are captured into `args` at the
-    // call site, before entering the helper — so no closure over
-    // `var`-scoped names exists, and the helper is safe under any
-    // future change that would make it asynchronous or re-entrant.
+    // One throwing binding must not stop the pass. Caller
+    // captures loop variables into `args` at the call site.
     XoneK3.K3Controller.prototype._safeBinding = function(fn, thisArg, args, warnKey, warnPrefix) {
         try {
             fn.apply(thisArg, args);
@@ -572,7 +500,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         b._accel      = XoneK3._parseAccel(cfg.accel);
         b._valueCurve = (typeof cfg.valueCurve === 'number' && cfg.valueCurve > 0)
             ? cfg.valueCurve : 1;
-        b._rateClass  = this._resolveRateClass(cfg);
     };
 
     XoneK3.K3Controller.prototype._collectTokens = function(b, cfg) {
@@ -596,21 +523,12 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         engine.softTakeover(b.group, b.inKey, false);
         engine.softTakeover(b.group, b.inKey, true);
 
-        // Bridge. After rearm, Mixxx is uninitialized and will
-        // drop the next write unless it lands within its internal
-        // tolerance of the current CO. A physical that is already
-        // near CO at rearm time — the common case when switching
-        // back to a deck whose fader/knob hasn't moved — would
-        // otherwise get stuck at the endpoint, because no physical
-        // step can cross into tolerance when the physical sits at
-        // the limit. Write CO's own value back to itself: diff is
-        // zero, Mixxx's check passes, initialized flips to true,
-        // subsequent writes are accepted regardless of step size.
-        //
-        // Tolerance is TAKEOVER_EPSILON, deliberately larger than
-        // CO_MATCH_EPSILON. LED "matched" state implies control.
-        // LED "unmatched" inside the gap is a false negative —
-        // harmless, control is live, first touch flips the LED.
+        // Bridge. Mixxx uninitialises soft takeover on rearm and
+        // drops the next write unless it lands within its own
+        // tolerance of the current CO. A physical already near CO
+        // at rearm — the common case — would otherwise get stuck.
+        // A zero-distance write (CO's own value back to itself)
+        // flips initialised without a value change.
         if (b._normalized !== undefined) {
             var co = engine.getParameter(b.group, b.inKey);
             if (Math.abs(co - b._normalized) <= XoneK3.TAKEOVER_EPSILON) {
@@ -634,8 +552,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
     XoneK3.K3Controller.prototype._bindConns = function(b) {
         b._armOwnConn();
-        // A hotcue LED also watches the hotcue's colour CO, so the
-        // LED repaints when the user re-colours the pad in Mixxx.
+        // A hotcue LED also watches the pad's colour CO so it
+        // repaints when the user recolours in Mixxx.
         if (b.outKey && b.group) {
             var m = b.outKey.match(/^(hotcue_\d+)_status$/);
             if (m) {
@@ -644,9 +562,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
                 }));
             }
         }
-        // Wire the outKey listener — unless on: already owns the
-        // on/off source (see _parseCsOn). _csOn is null when unset,
-        // true/false for unconditional, or an object for conditional.
+        // outKey listener, unless on: already owns the on/off
+        // source (see _parseCsOn).
         if (b.group && b.outKey && (b._csOn === null || b._csOn === undefined)) {
             b._conns.push(engine.makeConnection(b.group, b.outKey, function() {
                 b._refresh();
@@ -657,12 +574,9 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // RESOLVED-TARGET HASH
     // ============================================================
-    // Fingerprint of every controller field the token table reads
-    // from. Positional, `|`-separated, so [1, 12] cannot collide
-    // with [11, 2]. Derived from XoneK3.TOKENS — a new token
-    // added to the registry is automatically covered, no counter
-    // to remember to bump. Two fingerprints that compare equal
-    // guarantee that every token resolves to the same value.
+    // Positional fingerprint of every controller field the token
+    // table reads from. Derived from XoneK3.TOKENS so a new token
+    // is covered automatically.
     XoneK3.K3Controller.prototype._tokenFingerprint = function() {
         var parts = [];
         for (var i = 0; i < XoneK3.TOKENS.length; i++) {
@@ -671,18 +585,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         return parts.join('|');
     };
 
-    // Resolve a binding's token-bearing fields to their current
-    // targets and hash the result. Used by _reapplyByTokens to
-    // skip bindings whose resolved target didn't change when a
-    // focus token moved. Covers every field _tokenFields
-    // enumerates, so the hash is complete.
-    //
-    // Memoized per (cfg, token fingerprint). The cfg object is
-    // owned by _resolvePatch's memo, never mutated, so a cfg's
-    // resolved hash is stable as long as the fingerprint is.
-    // Callers that already hold a fingerprint (the hot path in
-    // _reapplyByTokens, and _applyBinding when called from there)
-    // pass it in; others let it compute on demand.
     XoneK3.K3Controller.prototype._resolvedTargetHash = function(cfg, fingerprint) {
         if (!cfg) return '';
         if (fingerprint === undefined) fingerprint = this._tokenFingerprint();
@@ -741,34 +643,15 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         this._bindConns(b);
 
-        // Store the resolved-target hash so _reapplyByTokens can
-        // skip this binding on the next focus flip if the token
-        // resolution is unchanged. Cheap (one resolve per token
-        // field), only runs on actual rebinds.
-        //
-        // _reapplyByTokens already holds a fingerprint for the
-        // current pass and threads it in — the resolver then hits
-        // its memo instead of recomputing the fingerprint. Other
-        // callers (tests, direct invocations) pass undefined and
-        // pay one fingerprint computation, which is fine.
         b._resolvedTargetHash = this._resolvedTargetHash(cfg, fingerprint);
 
-        // Refresh this binding immediately. During a full _recompute
-        // the trailing _refreshAllLeds also walks it — compute is
-        // duplicated, wire send is deduped by _ledCache. Callers
-        // that apply a single binding outside a recompute (tests,
-        // _reapplyByTokens first pass, H.bind) rely on this.
+        // Standalone callers (tests, _reapplyByTokens first pass)
+        // rely on this refresh. During a full recompute the
+        // trailing _refreshAllLeds also walks it — duplicate wire
+        // send deduped by _ledCache.
         b._refresh();
     };
 
-    // ============================================================
-    // SCHEME COMPILATION — render-time entry point.
-    // ============================================================
-    // The parse-time half (on:, scheme, schemeFromState, setup)
-    // lives in lib-controller-colour.js. This wrapper is called
-    // from _evaluateScheme on every render of a scheme-function
-    // binding, so it stays here with the other render-adjacent
-    // core helpers.
     XoneK3.K3Controller.prototype._resolveSchemeRef = function(ref) {
         if (ref === undefined || ref === null) return null;
         return XoneK3.compileScheme(ref);
@@ -777,7 +660,63 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // PATCH LIST MUTATIONS
     // ============================================================
+    // The mutator receives a *copy* of activePatches. It may
+    // mutate the copy in place (return ignored) or return a
+    // fresh array. Whatever ends up in the copy (or in the return
+    // value) becomes the new activePatches. activePatches is
+    // untouched until the mutator returns cleanly.
+    //
+    // addPatch / removePatch / replacePatch throw while a mutator
+    // is active. Nested _batchPatches throws too. Both are
+    // programmer errors: mutate the array argument.
+    XoneK3.K3Controller.prototype._batchPatches = function(mutator) {
+        if (this._batchPatchesActive) {
+            throw new Error('_batchPatches cannot nest');
+        }
+        var before = this.activePatches.slice();
+        var copy = before.slice();
+        var returned;
+        this._batchPatchesActive = true;
+        try {
+            returned = mutator(copy);
+        } catch (e) {
+            print('[k3] _batchPatches mutator threw: ' + (e && e.message ? e.message : e));
+            throw e;
+        } finally {
+            this._batchPatchesActive = false;
+        }
+        var result = Array.isArray(returned) ? returned : copy;
+
+        var beforeSet = {};
+        for (var i = 0; i < before.length; i++) beforeSet[before[i]] = true;
+        var afterSet = {};
+        for (var j = 0; j < result.length; j++) afterSet[result[j]] = true;
+
+        var anyChange = (before.length !== result.length);
+        if (!anyChange) {
+            for (var k = 0; k < before.length; k++) {
+                if (before[k] !== result[k]) { anyChange = true; break; }
+            }
+        }
+        if (!anyChange) return;
+
+        this.activePatches.length = 0;
+        for (var m = 0; m < result.length; m++) this.activePatches.push(result[m]);
+
+        this._recompute();
+
+        for (var r = 0; r < before.length; r++) {
+            if (!afterSet[before[r]]) this._onPatchChange(before[r], null);
+        }
+        for (var a = 0; a < result.length; a++) {
+            if (!beforeSet[result[a]]) this._onPatchChange(null, result[a]);
+        }
+    };
+
     XoneK3.K3Controller.prototype.addPatch = function(name) {
+        if (this._batchPatchesActive) {
+            throw new Error('addPatch called inside a _batchPatches mutator — mutate the array argument instead');
+        }
         if (!this.patches[name]) { print('Unknown patch: ' + name); return; }
         if (this.activePatches.indexOf(name) !== -1) return;
         this.activePatches.push(name);
@@ -786,6 +725,9 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     };
 
     XoneK3.K3Controller.prototype.removePatch = function(name) {
+        if (this._batchPatchesActive) {
+            throw new Error('removePatch called inside a _batchPatches mutator — mutate the array argument instead');
+        }
         var i = this.activePatches.indexOf(name);
         if (i === -1) return;
         this.activePatches.splice(i, 1);
@@ -794,47 +736,15 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     };
 
     XoneK3.K3Controller.prototype.replacePatch = function(from, to) {
+        if (this._batchPatchesActive) {
+            throw new Error('replacePatch called inside a _batchPatches mutator — mutate the array argument instead');
+        }
         if (!this.patches[to]) { print('Unknown patch: ' + to); return; }
         var i = this.activePatches.indexOf(from);
         if (i === -1) return;
         this.activePatches[i] = to;
         this._recompute();
         this._onPatchChange(from, to);
-    };
-
-    XoneK3.K3Controller.prototype._batchPatches = function(mutator) {
-        var before = this.activePatches.slice();
-        try {
-            mutator(this.activePatches);
-        } catch (e) {
-            this.activePatches.length = 0;
-            for (var b = 0; b < before.length; b++) this.activePatches.push(before[b]);
-            print('[k3] _batchPatches mutator threw: ' + (e && e.message ? e.message : e));
-            throw e;
-        }
-        var after = this.activePatches;
-
-        var beforeSet = {};
-        for (var i = 0; i < before.length; i++) beforeSet[before[i]] = true;
-        var afterSet = {};
-        for (var j = 0; j < after.length; j++) afterSet[after[j]] = true;
-
-        var anyChange = (before.length !== after.length);
-        if (!anyChange) {
-            for (var k = 0; k < before.length; k++) {
-                if (before[k] !== after[k]) { anyChange = true; break; }
-            }
-        }
-        if (!anyChange) return;
-
-        this._recompute();
-
-        for (var r = 0; r < before.length; r++) {
-            if (!afterSet[before[r]]) this._onPatchChange(before[r], null);
-        }
-        for (var a = 0; a < after.length; a++) {
-            if (!beforeSet[after[a]]) this._onPatchChange(null, after[a]);
-        }
     };
 
     // ============================================================
@@ -848,12 +758,9 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         return null;
     };
 
-    // Unwinds every patch owned by ANY top mode, then re-inserts
-    // the target's activate list at the position where the first
-    // owned patch sat. Non-owned patches (cue, overlays, …) keep
-    // their relative order and stay on the same side of the
-    // top-half block, so resolution precedence between top and
-    // non-top patches is preserved across mode swaps.
+    // Unwinds every patch owned by ANY mode, then re-inserts the
+    // target's activate list at the position where the first owned
+    // patch sat. Non-owned patches keep their relative order.
     XoneK3.K3Controller.prototype.setTopMode = function(mode) {
         var target = XoneK3.TOP_MODES[mode];
         if (!target) { print('[k3] unknown top mode: ' + mode); return; }
@@ -920,19 +827,12 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // LED REPAINT
     // ============================================================
-    // Re-entrancy guard. The only legitimate nested path today is
+    // Re-entrancy guard. Legitimate nested path is
     //   _refreshAllLeds → _syncBeatClocks → _openBeatClocks
     //     → _startVirtualClock → _resolveDisplaySource
     //       → _refreshAllLeds('display-source')
-    // Skipping the nested call is safe: the outer call iterates
-    // every binding after _syncBeatClocks returns, so the new
-    // displaySource is picked up there.
-    //
-    // Per-binding try/catch via _safeBinding. A single throwing
-    // binding (bad scheme, transient CO miss) must not stop the
-    // pass — later bindings (layer, shift) would otherwise never
-    // repaint, and the layer/shift beat pulse would visibly freeze
-    // even though the clocks were open.
+    // Skipping the nested call is safe — outer sweeps every
+    // binding after _syncBeatClocks returns.
     XoneK3.K3Controller.prototype._refreshAllLeds = function(why) {
         if (this._refreshAllLedsDepth > 0) return;
         this._refreshAllLedsDepth++;
@@ -943,9 +843,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
                 why === undefined) {
                 XoneK3._warnOnce('redundantRefresh:' + this.label,
                     this.label + ': _refreshAllLeds called outside a recompute ' +
-                    'within 10ms of one finishing — the recompute already ' +
-                    'refreshed. If this standalone refresh is intentional ' +
-                    '(token reapply, timesig change, lab), pass a reason string.');
+                    'within 10ms of one finishing — pass a reason string if intentional');
             }
             this._syncBeatClocks();
             for (var k in this.bindings) {
@@ -990,42 +888,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
                     issues++;
                 }
             }
-
-            if (XoneK3._debugPrintsOn) {
-                var cfg = b._rawCfg;
-                var inferred = XoneK3._inferRateClass(cfg);
-                var declared = cfg.rate;
-                if (declared === false && inferred) {
-                    print('[k3] binding ' + name +
-                        ' writes loop-relevant CO but rate: false — ' +
-                        'loop could skip on this control (inferred: ' +
-                        inferred + ')');
-                    issues++;
-                } else if (typeof declared === 'string' && inferred &&
-                           declared !== inferred) {
-                    print('[k3] binding ' + name +
-                        ' declares rate "' + declared +
-                        '" but inKey/func implies "' + inferred + '"');
-                    issues++;
-                } else if (inferred === null && declared === undefined &&
-                           typeof cfg.func === 'function' &&
-                           cfg.inKey &&
-                           // Broad audit predicate — deliberately wider
-                           // than _inferRateClass's inKey branches. The
-                           // classifier maps specific movement COs to
-                           // specific classes and must NOT, e.g., label
-                           // beatjump_size as 'jump'. The audit just
-                           // wants to catch "custom func touches a
-                           // loop-adjacent CO without declaring a rate".
-                           // Do not fold these two predicates together.
-                           /^(beatjump_|beatloop_|reloop_|loop_)/.test(cfg.inKey)) {
-                    print('[k3] binding ' + name +
-                        ' — custom func + loop-relevant inKey, no rate class ' +
-                        "inferred. Set rate: 'jump' / 'edit', or rate: false " +
-                        'to silence.');
-                    issues++;
-                }
-            }
         }
 
         if (issues > 0) {
@@ -1034,14 +896,27 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     };
 
     // ============================================================
-    // SELECT / STATE
+    // FOCUS
     // ============================================================
+    // Shared tail for the three focus setters:
+    //   1. _refreshActiveAlt  — recompute derived fields.
+    //   2. _reapplyByTokens   — rebind token-carrying bindings
+    //                           whose resolved target moved.
+    //   3. _syncFxLayout      — swap focused FX layout patch if
+    //                           needed; its recompute refreshes.
+    //   4. _refreshAllLeds    — only when step 3 didn't swap.
+    // Exactly one repaint per focus change on every path.
+    XoneK3.K3Controller.prototype._afterFocusChanged = function(tokens, reason) {
+        this._refreshActiveAlt();
+        this._reapplyByTokens(tokens, { skipRefresh: true });
+        if (!this._syncFxLayout().swapped) this._refreshAllLeds(reason);
+    };
+
     XoneK3.K3Controller.prototype.setSelectedFor = function(kind, which, value) {
         if (value < 1 || value > 4) return;
         var stateProp = XoneK3._selProp(kind, which);
         if (this[stateProp] === undefined || this[stateProp] === value) return;
         this[stateProp] = value;
-        this._refreshActiveAlt();
 
         var upper = kind.toUpperCase();
         var tokens = [
@@ -1051,52 +926,30 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         if (kind === 'deck') {
             if (which === this.activeDeck) tokens.push('$DECK_ACTIVE$', '$DECK_ACTIVE_N$');
             else                          tokens.push('$DECK_ALT$',    '$DECK_ALT_N$');
-        } else if (kind === 'fx') {
+        } else {
             if (which === this.activeFx)  tokens.push('$FX_ACTIVE$', '$FX_ACTIVE_N$');
             else                          tokens.push('$FX_ALT$',    '$FX_ALT_N$');
         }
 
-        // FX path: skip the token-reapply refresh. _syncFxLayout
-        // runs its own recompute (which refreshes) when it
-        // actually swaps the layout patch; if it doesn't swap,
-        // refresh here instead. One repaint either way.
-        var isFx   = (kind === 'fx');
-        var isDeck = (kind === 'deck');
-        this._reapplyByTokens(tokens, { skipRefresh: isFx || isDeck });
-        if (isFx || isDeck) {
-            var r = this._syncFxLayout();
-            if (!r.swapped) this._refreshAllLeds(isFx ? 'focus-fx' : 'focus-deck');
-        }
+        this._afterFocusChanged(tokens, 'focus-' + kind);
     };
 
     XoneK3.K3Controller.prototype.setActiveDeck = function(slot) {
         if (slot !== 'A' && slot !== 'B') return;
         if (this.activeDeck === slot) return;
         this.activeDeck = slot;
-        this._refreshActiveAlt();
-        this._reapplyByTokens(['$DECK_ACTIVE$', '$DECK_ACTIVE_N$',
-                            '$DECK_ALT$',    '$DECK_ALT_N$'],
-                            { skipRefresh: true });
-        // _syncFxLayout refreshes via its own recompute when it
-        // swaps the fxLayoutA*/fxLayoutB* patches; we refresh here
-        // when it doesn't. One repaint per focus flip.
-        var r = this._syncFxLayout();
-        if (!r.swapped) this._refreshAllLeds('focus-deck');
+        this._afterFocusChanged(
+            ['$DECK_ACTIVE$', '$DECK_ACTIVE_N$', '$DECK_ALT$', '$DECK_ALT_N$'],
+            'focus-deck');
     };
 
     XoneK3.K3Controller.prototype.setActiveFx = function(slot) {
         if (slot !== 'A' && slot !== 'B') return;
         if (this.activeFx === slot) return;
         this.activeFx = slot;
-        this._refreshActiveAlt();
-        // Same skip pattern as setSelectedFor: _syncFxLayout
-        // refreshes via its recompute when it swaps; we refresh
-        // here when it doesn't. One repaint per focus flip.
-        this._reapplyByTokens(['$FX_ACTIVE$', '$FX_ACTIVE_N$',
-                            '$FX_ALT$',    '$FX_ALT_N$'],
-                            { skipRefresh: true });
-        var r = this._syncFxLayout();
-        if (!r.swapped) this._refreshAllLeds('focus-fx');
+        this._afterFocusChanged(
+            ['$FX_ACTIVE$', '$FX_ACTIVE_N$', '$FX_ALT$', '$FX_ALT_N$'],
+            'focus-fx');
     };
 
     XoneK3.K3Controller.prototype._refreshActiveAlt = function() {
@@ -1109,26 +962,10 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this._refreshDisplayFlags();
     };
 
+    // Short-circuit on resolved-target equality. b._resolvedTargetHash
+    // is written by _applyBinding at every bind, so this is a true
+    // identity compare — not a "have we seen this before" cache.
     XoneK3.K3Controller.prototype._reapplyByTokens = function(tokens, opts) {
-        // Short-circuit: if the resolved target (after token
-        // substitution) is identical to what the binding already
-        // has, skip the rebind. A focus flip between two slots
-        // that resolve to the same channel no longer disconnects
-        // and reconnects every token-carrying binding's CO
-        // listeners.
-        //
-        // b._resolvedTargetHash is written by _applyBinding at
-        // every successful bind, so this is a true identity
-        // comparison, not a "have we seen this before" cache.
-        // _resolvedTargetHash itself is memoized per (cfg, token
-        // fingerprint), so the per-binding compare is a WeakMap
-        // hit against a fingerprint computed once for the whole
-        // pass — not a fresh resolve per binding. The fingerprint
-        // is also threaded into _applyBinding so a real rebind
-        // reuses the same fingerprint for its hash write.
-        //
-        // Fingerprint is computed lazily on first hit. A stack
-        // with no token-carrying bindings never pays for it.
         var fingerprint = null;
 
         for (var name in this.bindings) {
@@ -1144,10 +981,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             if (b._resolvedTargetHash === h) continue;
             this._applyBinding(name, b._rawCfg, fingerprint);
         }
-        // Callers that will refresh themselves — setSelectedFor and
-        // setActiveFx via _syncFxLayout — pass { skipRefresh: true }
-        // to avoid a double repaint on a focus flip. Everything else
-        // (deck focus, direct callers) refreshes here.
         if (!(opts && opts.skipRefresh)) {
             this._refreshAllLeds('token-reapply');
         }

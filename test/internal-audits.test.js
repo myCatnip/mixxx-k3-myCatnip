@@ -51,50 +51,6 @@ test('_validateBindings: unknown token in schemeFromState.co warns', function(t)
     t.contains(_printLog.join('\n'), 'unknown token $BAD$');
 });
 
-test('_validateBindings: rate: false on inferred binding warns (debug on)', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encBeatjump,
-        group: '[Channel1]',
-        rate: false
-    });
-    c._validated = false;
-    XoneK3._debugPrintsOn = true;
-    _printLog.length = 0;
-    c._validateBindings();
-    XoneK3._debugPrintsOn = false;
-    t.contains(_printLog.join('\n'), 'writes loop-relevant CO but rate: false');
-});
-
-test('_validateBindings: rate string disagreeing with inference warns', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encLoopMove,
-        group: '[Channel1]', inKey: 'beatloop_size',
-        rate: 'jump'      // infers to 'edit'
-    });
-    c._validated = false;
-    XoneK3._debugPrintsOn = true;
-    _printLog.length = 0;
-    c._validateBindings();
-    XoneK3._debugPrintsOn = false;
-    t.contains(_printLog.join('\n'),
-        'declares rate "jump" but inKey/func implies "edit"');
-});
-
-test('_validateBindings: rate audit silent when debug off', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encBeatjump,
-        group: '[Channel1]',
-        rate: false
-    });
-    c._validated = false;
-    _printLog.length = 0;
-    c._validateBindings();
-    t.eq(_printLog.length, 0);
-});
-
 test('_validateBindings: runs once per controller', function(t) {
     var c = H.ctrl();
     c._applyBinding('press0', {group: '$BOGUS$', inKey: 'play'});

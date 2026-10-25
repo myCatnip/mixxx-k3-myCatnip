@@ -151,11 +151,6 @@ test('_hashBinding: null / undefined cfg → null', function(t) {
     t.eq(XoneK3._hashBinding(undefined), null);
 });
 
-test('_hashBinding: rate field affects hash', function(t) {
-    t.neq(XoneK3._hashBinding({group: 'g', inKey: 'i', rate: 'edit'}),
-          XoneK3._hashBinding({group: 'g', inKey: 'i', rate: 'jump'}));
-});
-
 // ── _parseAccel ───────────────────────────────────────────────
 
 test('_parseAccel: falsy → null', function(t) {

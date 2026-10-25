@@ -117,7 +117,7 @@ test('playposition advances running virtual clocks in trackTempo mode', function
     var c = setup();
     withBeat(c);
     XoneK3.VIRTUAL_CLOCKS.loop.trackTempo = true;
-    c._startVirtualClock(1, 'loop');
+    c._startVirtualClock(1);
     c._decks[1].loopClock.lastTrackPos = 0.4;
     engine._set('[Channel1]', 'playposition', 0.6);
     engine._trigger('[Channel1]', 'playposition', 0.6);
@@ -164,7 +164,7 @@ test('track mode guard: recent beat_active suppresses position repaint', functio
 test('play_indicator=1 resyncs clock anchors', function(t) {
     var c = setup();
     withBeat(c);
-    c._startVirtualClock(1, 'loop');
+    c._startVirtualClock(1);
     c._decks[1].loopClock.lastTs = 0;
     engine._trigger('[Channel1]', 'play_indicator', 1);
     t.ok(c._decks[1].loopClock.lastTs > 0);
@@ -205,6 +205,16 @@ test('track_loaded resets beat state', function(t) {
     engine._trigger('[Channel1]', 'track_loaded', 1);
     t.eq(c._decks[1].count, 1);
     t.eq(c._phraseOrigin[1], 0);
+});
+
+test('track_loaded clears _lastLoopTouchMs for that channel', function(t) {
+    var c = setup();
+    withBeat(c);
+    c._lastLoopTouchMs[1] = Date.now();
+    c._lastLoopTouchMs[2] = Date.now();
+    engine._trigger('[Channel1]', 'track_loaded', 1);
+    t.eq(c._lastLoopTouchMs[1], 0);
+    t.ok(c._lastLoopTouchMs[2] > 0);
 });
 
 test('track_loaded starts loop clock when incoming track has loop', function(t) {

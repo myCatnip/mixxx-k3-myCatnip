@@ -1,30 +1,20 @@
-// xone-k3-lib-core.js — bootstrap, tunables, rate classes,
-// patch names, timeline config, utilities, tokens, transfer
-// curve, sysex math, beat math, K2 palette.
+// xone-k3-lib-core.js — bootstrap, tunables, patch names, timeline
+// config, utilities, tokens, transfer curve, sysex math, beat
+// math, K2 palette.
 //
-// Leaf module. Loads first. Defines no Binding or K3Controller —
-// those live in lib-binding.js and lib-controller.js.
-//
-// Defines XoneK3._requireLoad, the load-order guard every later
-// file calls at IIFE top.
+// Leaf module. Loads first. Defines XoneK3._requireLoad, the
+// load-order guard every later file calls at IIFE top.
 
 'use strict';
 
-// Bootstrap XoneK3. Mixxx's Qt engine evaluates every preset's
-// script files into the same global object, so a top-level `var`
-// here becomes a shared global for subsequent files. This is the
-// only file that creates XoneK3 — every other file assumes it
-// exists and throws clearly if it doesn't.
+// Bootstrap. Mixxx's Qt engine evaluates every preset's script
+// files into the same global object, so a top-level `var` here
+// becomes a shared global for subsequent files. Only file that
+// creates XoneK3.
 // eslint-disable-next-line no-implicit-globals
 var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
 
 (function() {
-    // ============================================================
-    // LOAD-ORDER GUARD
-    // ============================================================
-    // Every file after this one calls XoneK3._requireLoad at IIFE
-    // top with the symbols it needs. Missing symbol → throw with a
-    // clear message and the fix location.
     XoneK3._requireLoad = function(file, prereqs) {
         var missing = [];
         for (var i = 0; i < prereqs.length; i++) {
@@ -46,28 +36,21 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF = 12;
 
     XoneK3.CO_MATCH_EPSILON = 1 / 127;
-    
-    // Soft-takeover bridge tolerance. Strictly larger than
-    // CO_MATCH_EPSILON: the LED claims "matched" only inside the
-    // smaller band, so any matched display implies the bridge has
-    // fired and Mixxx has taken control. The extra half-band is a
-    // false-negative window (LED shows unmatched while control is
-    // live) — harmless, because the user keeps turning until the
-    // LED matches, at which point control has been live all along.
+
+    // Soft-takeover bridge tolerance, strictly larger than
+    // CO_MATCH_EPSILON: LED "matched" always implies control is
+    // live. The extra half-band is a harmless false-negative.
     XoneK3.TAKEOVER_EPSILON = 2 / 127;
-    
+
     XoneK3.DEFAULT_CO_SCHEME = 'coMatch';
 
     XoneK3.K2_RG_THRESHOLD = 60;
     XoneK3.CURVE_GAIN = 4.0;
     XoneK3.RATIO_GAIN = 12.0;
 
-    // Factory calibration for the K3. Single source of truth for
-    // these numbers — presets that want different values declare
-    // an override in init(); presets that don't inherit them via
-    // bootCat's merge. The `calibration` string is hashed into
-    // each controller's _calibKey, so changing it here is safe;
-    // changing it at runtime needs a preset reload.
+    // Factory calibration for the K3. Presets that want different
+    // values declare an override in init(); presets that don't
+    // inherit these via bootCat's merge.
     XoneK3.HARDWARE_CALIB = {
         calibration:       'measuredRGB',
         calibrationMode:   'rms',
@@ -84,140 +67,26 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     XoneK3.BEATJUMP_MIN = 1/32;
     XoneK3.BEATJUMP_MAX = 16;
 
-    // Beat repaint throttle. Caps sysex rate during tight loops.
     XoneK3.BEAT_REPAINT_THROTTLE_MS = 30;
 
-    // Loop-edit encoder self-accel rate window. encLoopMoveAccel
-    // reads the binding's own _loopAccelEvents list, bounded to
-    // this window.
+    // Self-accel rate window for encLoopMoveAccel. That func reads
+    // the binding's own _loopAccelEvents list, bounded to this
+    // window.
     XoneK3.ENC_LOOP_ACCEL_WINDOW_MS = 150;
 
     XoneK3.LAYER_BUTTON_NOTE = 0x0C;
     XoneK3.SHIFT_BUTTON_NOTE = 0x0F;
 
-    // ============================================================
-    // RATE CLASSES
-    // ============================================================
-    // One registry for every input-rate throttle in the system.
-    //
-    // The gate is applied per-binding in Binding.input(), before
-    // the func dispatches. Every binding gets a class either from
-    // its config's `rate:` field or by inference from its inKey /
-    // func — see XoneK3._inferRateClass.
-    //
-    // Why this exists: a loop is stable only while Mixxx can
-    // settle between actions that touch it. Rapid loop moves can
-    // push the playhead outside the loop and deactivate it. The
-    // shared `_lastLoopChangeMs` clock tracks the last loop-moving
-    // action on the controller; classes with jumpBlockMs > 0 wait
-    // that long before firing.
-    //
-    // Class shape:
-    //   selfCheckMs  minimum gap between two claims from the same
-    //                binding, in ms. 0 = no per-binding self-gate.
-    //   selfScope    'binding' — write a per-binding stamp so the
-    //                            next self-check reads it.
-    //                'none'    — no stamp written.
-    //   jumpBlockMs  minimum gap after the last shared-clock claim.
-    //                Reads _lastLoopChangeMs. 0 = no check.
-    //   claimMs      how far to leave the shared clock in the
-    //                future. jump.claimMs is the reference: a
-    //                class that claims X ms blocks the next jump
-    //                for X ms.
-    XoneK3.RATE_CLASSES = {
-        // Both loop boundaries move (beatjump, reloop, beatloop
-        // activate). Full 120 ms on the shared clock.
-        jump:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 120, claimMs: 120 },
-
-        // ABSOLUTELY NEEDED. I Still jump out at 50ms, 60ms not had any jump out.
-        // SELF CHECK MAY NOT BE. Was 10ms. Seems fine at 0ms.
-        // One boundary moves (loop-point nudge, size set). Self-
-        // gates spin at 10 ms per encoder; leaves a softer 60 ms
-        // tail on the jump clock so a jump after an edit doesn't
-        // try to fire before the loop is stable.
-        edit:  { selfCheckMs: 0, selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60  }, //was 60
-
-        // THIS SEEMS NOT TO BE NEEDED
-        // Doesn't move anything, but the change means a jump
-        // shouldn't fire right after. Used by beatjump-size
-        // stepping — the next jump reads the new size, so wait
-        // for the user to settle.
-        claim: { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0  },
-
-        // No gate.
-        free:  { selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0   }
-    };
-
-    // Infer a rate class from a binding's config. Func identity
-    // wins over inKey, because a func can write COs the config
-    // never mentions (encBeatjumpStepScale writes
-    // beatjump_size_halve/double, not beatjump_size).
-    //
-    // Called at bind time — FUNCS has been populated by then.
-    // Returns a class name, or null for "no inference" (binding
-    // is free unless it declares `rate:` explicitly).
-    XoneK3._inferRateClass = function(cfg) {
-        var F = XoneK3.FUNCS || {};
-        var fn = cfg.func;
-        var k = cfg.inKey || '';
-
-        // Func-driven inference.
-        if (fn === F.encBeatjump ||
-            fn === F.beatjumpButton ||
-            fn === F.reloopToggleResetAnchor ||
-            fn === F.beatloopActivateResetAnchor) return 'jump';
-
-        if (fn === F.encLoopMove ||
-            fn === F.encLoopMoveAccel) return 'edit';
-
-        if (fn === F.encBeatjumpStepScale) return 'claim';
-
-        if (fn === F.pressSetValue) {
-            if (k === 'beatloop_size') return 'edit';
-            if (k === 'beatjump_size') return 'claim';
-        }
-
-        // inKey-driven inference (CO-backed bindings, no func).
-        // Listed explicitly — the pattern form (/^beatjump_/)
-        // also matched beatjump_size, which would misclassify a
-        // size-set binding as movement. The classifier must stay
-        // narrower than _validateBindings' audit pattern; see
-        // INTERNALS §22 and §25.
-        if (k === 'beatjump_forward' || k === 'beatjump_backward') return 'jump';
-        if (k === 'reloop_toggle') return 'jump';
-        if (k === 'beatloop_activate') return 'jump';
-
-        return null;
-    };
-
-    // How long after the last shared-clock claim a loop-off is
-    // still attributed to that claim. Matches jump.jumpBlockMs:
-    // after the block window expires the next action could have
-    // fired, so a later death belongs to something else. Derived
-    // so the two stay in lockstep if the jump window is retuned.
-    //
-    // The offset math in _claimRate makes this equivalent to each
-    // class's own block window:
-    //   jump  → deaths ≤ 120ms after claim
-    //   edit  → deaths ≤ 60ms  after claim
-    //   claim → deaths ≤ 60ms  after claim
-    XoneK3.ESCAPE_DETECT_WINDOW_MS = XoneK3.RATE_CLASSES.jump.jumpBlockMs;
-
-    // Bounded ring of escape records kept on the controller.
-    XoneK3.ESCAPE_HISTORY_MAX = 16;
-
-    // Bounded ring of accepted-event intervals kept per binding.
-    // Used by inspect('rate') to compute min / p50 / max gaps.
-    XoneK3.RATE_INTERVAL_SAMPLES = 32;
+    // Beatjump gate. A beatjump is blocked if less than this many
+    // ms have elapsed since the last loop-touching event on its
+    // channel AND the channel is in an active loop. Loop-touching
+    // events: beatjumps and loop-boundary changes. 130 ms is the
+    // empirically confirmed safe margin (120 worked, 60 leaked).
+    XoneK3.BEATJUMP_GAP_MS = 130;
 
     // ============================================================
     // PATCH NAMES
     // ============================================================
-    // Canonical names for every patch the runtime code and the
-    // mode-swap funcs need to reference by string. Config files
-    // use these too. Keep the string values stable — the .midi.xml
-    // <scriptfiles> ordering and the CAT_LAYERS keys both depend
-    // on the literal names.
     XoneK3.PATCH_NAMES = {
         FOCUS_BASE:       'topShared',
         FOCUS_LAYOUT:     'fxLayout',      // + 1..4
@@ -242,23 +111,14 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // One virtual clock per channel: the loop clock. Starts on
     // loop-on, stops on loop-off, seeded from the playhead. Track
     // is the fallback reading whenever the loop clock isn't
-    // running — there is no priority tunable and no display
-    // question to answer.
+    // running.
     //
-    // Per-clock tempo-tracking mode:
-    //   trackTempo false (default) — advances in real seconds at
-    //                     file_bpm. Rate changes don't affect the
-    //                     clock. "Absolute phrasing timing."
-    //   trackTempo true — follows position delta, so rate changes
-    //                     count. Useful for tempo-building
-    //                     transitions.
+    // trackTempo false (default) — advance in real seconds.
+    // trackTempo true — follow position delta (rate-sensitive).
     XoneK3.VIRTUAL_CLOCKS = {
         loop: { trackTempo: false }
     };
 
-    // Global time-signature override. Null = per-scheme values win.
-    // Set via setTimeSig / clearTimeSig. Mutating TIME_SIG directly
-    // works too, but won't repaint — use the setters.
     XoneK3.TIME_SIG = null;
 
     XoneK3.setTimeSig = function(barBeats, phraseBars) {
@@ -351,22 +211,17 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // ============================================================
     // BINDING HASH
     // ============================================================
-    // Hash of every binding field that affects runtime behaviour
-    // or LED output. Used by _applyResolved to skip rebinds whose
-    // config didn't change. Fields starting with '_' are structural
-    // metadata and deliberately omitted.
     XoneK3._BINDING_CFG_FIELDS = [
         'group', 'inKey', 'outKey', 'type',
         'func', 'args',
         'valueCurve', 'softTakeover',
-        'noLED', 'k2', 'accel', 'rate',
+        'noLED', 'k2', 'accel',
         'colorScheme'
     ];
 
-    // Stable function identity for hashing. Functions get a
-    // monotonic id on first sight; two references to the same
-    // function return the same id, two different closures never
-    // collide.
+    // Stable function identity. Functions get a monotonic id on
+    // first sight; two references to the same function return the
+    // same id, two different closures never collide.
     XoneK3._funcIdCounter = 0;
     XoneK3._funcIdMap = new WeakMap();
     XoneK3._funcId = function(fn) {
@@ -409,9 +264,7 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         if (v === undefined) return '';
         if (field === 'func') return XoneK3._funcId(v);
         if (typeof v === 'object' && v !== null) return XoneK3._stableStringify(v);
-        // Strings are JSON-quoted so they can't introduce ambiguity
-        // at the field boundary. Without this, group 'a|b' + inKey
-        // 'c' hashed the same as group 'a' + inKey 'b|c'.
+        // JSON-quote strings so a '|' can't shift a field boundary.
         if (typeof v === 'string') return JSON.stringify(v);
         return String(v);
     };
@@ -423,9 +276,8 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
             var f = XoneK3._BINDING_CFG_FIELDS[i];
             parts.push(XoneK3._hashBindingValue(f, cfg[f]));
         }
-        // \u0001 is a control character that never appears in CO names
-        // or numeric output. JSON-quoted strings (change 1) can't leak
-        // a raw \u0001 either — JSON escapes it.
+        // \u0001 can't appear in CO names or numeric output;
+        // JSON-quoted strings escape it.
         return parts.join('\u0001');
     };
 
@@ -465,8 +317,7 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // SELECT TOKENS
     // ============================================================
     // Resolved at bind time in group, inKey, outKey,
-    // schemeFromState.group, schemeFromState.co, and on.group.
-    // See CUSTOMISE §2.4 for the full list.
+    // schemeFromState.group, schemeFromState.co, on.group.
     XoneK3.TOKENS = (function() {
         function channel(n) { return '[Channel' + n + ']'; }
         function unit(n)    { return '[EffectRack1_EffectUnit' + n + ']'; }
@@ -542,10 +393,8 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // ============================================================
     // LED TRANSFER CURVE
     // ============================================================
-    // Build a monotonic [hw, luminance] table per channel from a
-    // raw {r, g, b} object. Non-monotonic input is flattened to
-    // the previous value with a warn-once — hand-edited tables
-    // otherwise silently break the calibration solve.
+    // Monotonic [hw, luminance] table per channel. Non-monotonic
+    // input is flattened to the previous value with a warn-once.
     XoneK3._buildTransferRGB = function(obj) {
         if (!obj || !obj.r || !obj.g || !obj.b) return null;
         var lists = { r: obj.r, g: obj.g, b: obj.b };
@@ -666,8 +515,7 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
 
     XoneK3.applyBeat = function(entry, beat, count) {
         // Count 0 and negative counts are valid — the phrase origin
-        // can sit anywhere in the track. Only undefined / null /
-        // non-finite mean "nothing to apply".
+        // can sit anywhere in the track.
         if (!beat || typeof count !== 'number' || !isFinite(count)) return entry;
         var lc = XoneK3.beatLevel(beat, count);
         if (!lc) return entry;

@@ -7,7 +7,7 @@
 //
 // Between every test:
 //   - engine + midi mocks reset
-//   - XoneK3 mutable globals reset (including RATE_CLASSES)
+//   - XoneK3 mutable globals reset
 //   - controllers array cleared, print log cleared
 //
 // SYSEX_THROTTLE_MS and BEAT_REPAINT_THROTTLE_MS are 0 in tests,
@@ -135,17 +135,7 @@ function resetGlobals() {
     X.BEAT_REPAINT_THROTTLE_MS = 0;
     X.BEATJUMP_MIN             = 1 / 32;
     X.BEATJUMP_MAX             = 16;
-    X.ESCAPE_DETECT_WINDOW_MS  = XoneK3.RATE_CLASSES.jump.jumpBlockMs;
-    X.ESCAPE_HISTORY_MAX       = 16;
-    X.RATE_INTERVAL_SAMPLES    = 32;
-    // Deep copy so a test mutating a class doesn't leak into the
-    // next one.
-    X.RATE_CLASSES = {
-        jump:  {selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 120, claimMs: 120},
-        edit:  {selfCheckMs: 10, selfScope: 'binding', jumpBlockMs: 60,  claimMs: 60 },
-        claim: {selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 60 },
-        free:  {selfCheckMs: 0,  selfScope: 'none',    jumpBlockMs: 0,   claimMs: 0  }
-    };
+    X.BEATJUMP_GAP_MS          = 130;
     X._debugPrintsOn           = false;
     X.MODE_PRINTS              = false;
     X._warned                  = {};
@@ -153,10 +143,8 @@ function resetGlobals() {
     X._schemeCache             = {};
     X._compiledCache           = {};
     X.controllers              = [];
-    X.VIRTUAL_PRIORITY         = 'latest';
     X.VIRTUAL_CLOCKS           = {
-        loop:      { trackTempo: false },
-        metronome: { trackTempo: false }
+        loop: { trackTempo: false }
     };
     X.TIME_SIG = null;
     global.engine._reset();

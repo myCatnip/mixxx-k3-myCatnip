@@ -1,17 +1,14 @@
 // xone-k3-lib-binding.js — Binding primitive, its colour-scheme
-// render path, the rate gate, and the snapshot field list that
-// describes which binding state survives a rebind.
+// render path, and the snapshot field list that describes which
+// binding state survives a rebind.
 //
 // Loaded after lib-core and lib-schemes. Loaded before
 // lib-controller, which constructs Bindings in _buildHardware.
 //
 // Session-scoped fields — _normalized, _accelEvents,
-// _loopAccelEvents, _lastGateMs, pressHeld, turnHappened,
-// _ledObservers, and the rate diagnostics (_rateAccepted,
-// _rateGated, _rateLastAcceptedMs, _rateIntervals) — live
-// outside XoneK3._bindingDefaults on purpose. All are set in the
-// constructor; none are reset by _reset. See "Mod state survives
-// rebind" in INTERNALS.md.
+// _loopAccelEvents, pressHeld, turnHappened, _ledObservers —
+// live outside XoneK3._bindingDefaults on purpose. All are set
+// in the constructor; none are reset by _reset.
 
 'use strict';
 
@@ -23,8 +20,7 @@ if (typeof XoneK3._requireLoad !== 'function') {
 }
 XoneK3._requireLoad('xone-k3-lib-binding.js',
     ['_funcId', '_parseAccel', 'resolve', 'readPath',
-     '_tokenFields', 'CO_MATCH_EPSILON', 'BEAT_HOLD', 'applyBeat',
-     'RATE_INTERVAL_SAMPLES']);
+     '_tokenFields', 'CO_MATCH_EPSILON', 'BEAT_HOLD', 'applyBeat']);
 
 (function() {
     // ============================================================
@@ -32,7 +28,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     // ============================================================
     // Every field wiped on _reset (and therefore also set at
     // construction). Add a new reset-able field here, not in the
-    // constructor and not in _reset. One list.
+    // constructor and not in _reset.
     XoneK3._bindingDefaults = function() {
         return {
             // Binding target
@@ -66,9 +62,6 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             // Input mods
             _accel:      null,
             _valueCurve: 1,
-            // Rate gate — resolved class name, inline class object,
-            // or null (no gate).
-            _rateClass:  null,
             // Timers
             _shutdownHoldTimer: null
         };
@@ -84,33 +77,22 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         this.type = spec.type;
         this.idx = spec.idx;
 
-        // Reset-able fields — one factory, one source of truth.
         var d = XoneK3._bindingDefaults();
         for (var k in d) {
             if (d.hasOwnProperty(k)) this[k] = d[k];
         }
-        // Override the constructor default for pots — knobs and
-        // faders want soft-takeover on; buttons don't.
+        // Pots want soft-takeover on; buttons don't.
         if (spec.type === 'knob' || spec.type === 'fader') {
             this.softTakeover = true;
         }
 
-        // Session-scoped fields — survive _reset. See INTERNALS.
+        // Session-scoped — survive _reset.
         this._normalized = undefined;
         this._accelEvents = [];
         this._loopAccelEvents = [];
-        this._lastGateMs = 0;
         this.pressHeld = false;
         this.turnHappened = false;
         this._ledObservers = [];
-
-        // Rate diagnostics. Session-scoped, survives _reset.
-        // _rateIntervals is a bounded ring of gaps between accepted
-        // events. Consumed by inspect('rate').
-        this._rateAccepted = 0;
-        this._rateGated = 0;
-        this._rateLastAcceptedMs = 0;
-        this._rateIntervals = [];
     };
 
     XoneK3.Binding.prototype._scaleValue = function(v) {
@@ -119,42 +101,25 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     };
 
     XoneK3.Binding.prototype.input = function(ch, cc, v, s) {
-        // Fires before the type check, and for every binding —
-        // including noLED cells and idx < 0 controls with no physical
-        // LED. The hook tracks controller state (lab bumps its
-        // compile-cache version here), not per-LED output, so it
-        // doesn't care which control fired or whether that control
-        // has an LED.
+        // Fires for every binding including noLED cells and idx < 0
+        // controls. Hook tracks controller state, not per-LED output.
         if (this._ctrl._onInput) this._ctrl._onInput(this);
 
         if (this.type === 'knob' || this.type === 'fader') {
             this._normalized = this._scaleValue(v);
         }
 
-        // Rate gate. Applies to the action edge only — a button
-        // release is cleanup, not a state change worth throttling.
-        // A gated event still updates _normalized (physical
-        // position is real) and still repaints observing LEDs, but
-        // the func never fires.
-        var gateable = (this.type === 'button') ? (v > 0) : true;
-        var gated = false;
-        if (gateable && this._rateClass) {
-            if (!this._ctrl._claimRate(this, this._rateClass)) gated = true;
-        }
+        var now = Date.now();
+        var reps = this._applyInputMods(now);
 
-        if (!gated) {
-            var now = Date.now();
-            var reps = this._applyInputMods(now);
-
-            if (reps > 0) {
-                var fn = this._func;
-                if (fn) {
-                    for (var r = 0; r < reps; r++) {
-                        fn.call(this, this._funcArgs, ch, cc, v, s);
-                    }
-                } else {
-                    this._defaultInput(v, s);
+        if (reps > 0) {
+            var fn = this._func;
+            if (fn) {
+                for (var r = 0; r < reps; r++) {
+                    fn.call(this, this._funcArgs, ch, cc, v, s);
                 }
+            } else {
+                this._defaultInput(v, s);
             }
         }
 
@@ -200,31 +165,6 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         return Math.pow(n, c);
     };
 
-    // ============================================================
-    // RATE DIAGNOSTICS
-    // ============================================================
-    XoneK3.Binding.prototype._recordRateAccept = function(now) {
-        this._rateAccepted++;
-        if (this._rateLastAcceptedMs) {
-            this._rateIntervals.push(now - this._rateLastAcceptedMs);
-            if (this._rateIntervals.length > XoneK3.RATE_INTERVAL_SAMPLES) {
-                this._rateIntervals.shift();
-            }
-        }
-        this._rateLastAcceptedMs = now;
-    };
-
-    XoneK3.Binding.prototype._recordRateGate = function() {
-        this._rateGated++;
-    };
-
-    XoneK3.Binding.prototype._resetRateStats = function() {
-        this._rateAccepted = 0;
-        this._rateGated = 0;
-        this._rateLastAcceptedMs = 0;
-        this._rateIntervals = [];
-    };
-
     XoneK3.Binding.prototype.addObserver = function(led) {
         if (this._ledObservers.indexOf(led) === -1) this._ledObservers.push(led);
     };
@@ -234,11 +174,8 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         if (i >= 0) this._ledObservers.splice(i, 1);
     };
 
-    // Repaint every observer. Guarded: a single throwing observer
-    // (bad scheme, transient CO miss) must not starve the rest of
-    // the loop. Called from Binding.input and from the valueConn
-    // callback — the two observer-repaint paths that sit outside
-    // _refreshAllLeds' own _safeBinding wrapper.
+    // A single throwing observer (bad scheme, transient CO miss)
+    // must not starve the rest of the loop.
     XoneK3.Binding.prototype._refreshObservers = function() {
         for (var i = 0; i < this._ledObservers.length; i++) {
             var obs = this._ledObservers[i];
@@ -253,7 +190,6 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     };
 
     XoneK3.Binding.prototype._reset = function() {
-        // Detach and disconnect everything holding a live reference.
         this._ctrl._detachBeatLed(this);
 
         if (this._valueConn) { this._valueConn.disconnect(); }
@@ -266,7 +202,6 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             engine.stopTimer(this._shutdownHoldTimer);
         }
 
-        // Wipe to defaults — one list, one loop.
         var d = XoneK3._bindingDefaults();
         for (var k in d) {
             if (d.hasOwnProperty(k)) this[k] = d[k];
@@ -376,12 +311,9 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         this._sendColor(entry, isOn);
     };
 
-    // Shared preamble for every beat-aware render path. Returns the
-    // deck state for this binding's scheme when the deck has seen at
-    // least one beat; null otherwise (no beat block, no deck, or the
-    // deck hasn't fired a beat yet). Callers use the return value
-    // directly — `st.count` for the cascade, `!st.active` for the
-    // phase, both in one read.
+    // Shared preamble for every beat-aware render path. Returns
+    // the deck state for this binding's scheme when the deck has
+    // fired at least one beat; null otherwise.
     XoneK3.Binding.prototype._beatStateFor = function(compiled) {
         if (!compiled || !compiled.beat) return null;
         var st = this._ctrl._deckStateFor(compiled);
@@ -444,11 +376,9 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             var ref = this._csSchemeFn();
             if (ref !== undefined && ref !== null) {
                 if (ref !== this._csSchemeMemo) {
-                    // Fresh-inline-object detection: identity
-                    // changed but the previous ref was a plain
-                    // object of the same shape. composeScheme caches
-                    // these; a raw inline literal doesn't, and
-                    // recompiles every render. Warn once per binding.
+                    // Fresh-inline-object detection: identity changed
+                    // but shape is identical. composeScheme caches;
+                    // a raw inline literal recompiles per render.
                     if (typeof ref === 'object' && !Array.isArray(ref) &&
                         typeof this._csSchemeMemo === 'object' &&
                         this._csSchemeMemo !== null &&
@@ -476,7 +406,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         if (this._csFailed) { this._send(0, 0, 0, 0); return; }
 
         var logicalOn = this._isOn();
-        var  scheme = this._evaluateScheme();
+        var scheme = this._evaluateScheme();
         if (!scheme) { this._send(0, 0, 0, 0); return; }
 
         var beatOffPhase = this._isBeatOffPhase(scheme);
@@ -498,9 +428,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     // SNAPSHOT FIELD LIST
     // ============================================================
     // Source fields for K3Controller._snapshotBinding. Left column
-    // is read from the binding before _reset; right column is the
-    // key the snapshot exposes. Consumers — _unbind and
-    // _rearmSoftTakeover — read the right column.
+    // read before _reset, right column the key consumers read.
     XoneK3._SNAPSHOT_FIELDS = [
         ['group',   'group'],
         ['inKey',   'inKey'],
@@ -511,9 +439,9 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         ['idx',     'idx']
     ];
 
-    // Reset-able Binding fields that _unbind and _rearmSoftTakeover
-    // do not read. Anything reset-able that isn't in
-    // _SNAPSHOT_FIELDS and isn't here triggers a boot-time warning.
+    // Reset-able fields _unbind and _rearmSoftTakeover do not read.
+    // Anything reset-able that isn't a snapshot source and isn't
+    // here triggers a boot-time warning.
     XoneK3._SNAPSHOT_IGNORED = [
         'outKey', 'buttonMode', 'softTakeover',
         '_func', '_funcArgs', '_usedTokens',
@@ -521,7 +449,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         '_csSchemeMemo', '_csCompiledMemo',
         '_csKnob', '_csFromStateConn', '_csOn',
         '_valueConn', '_conns',
-        '_accel', '_valueCurve', '_rateClass',
+        '_accel', '_valueCurve',
         '_shutdownHoldTimer'
     ];
 
@@ -531,10 +459,6 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         return v;
     };
 
-    // Boot-time drift check. Walks _bindingDefaults and warns about
-    // any reset-able field that's neither snapshot-source nor
-    // explicitly ignored. Fires once per boot, gated on
-    // _debugPrintsOn.
     XoneK3._auditSnapshotFields = function() {
         if (!XoneK3._debugPrintsOn) return;
         var defaults = XoneK3._bindingDefaults();

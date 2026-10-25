@@ -88,21 +88,6 @@
                  colorScheme: { scheme: scheme } };
     }
 
-    // The four shift overrides shared by CUE_SHIFT and LOOP_SHIFT:
-    // phrase origin nudge / set-here, and toggle active deck.
-    // ODD_SHIFT gets the two nudge cells through LOOP_SHIFT via the
-    // parent chain, and re-declares the other two for clarity.
-    function shiftPhraseCells() {
-        return {
-            grid2_0: { group: '$DECK_ACTIVE$',
-                       colorScheme: { knob: 'fader2', scheme: eqRamp(), on: false } },
-            grid2_1: { func: F.toggleActiveDeck,
-                       group: '$DECK_ACTIVE$',
-                       outKey: 'slip_enabled',
-                       colorScheme: CAT.slipScheme() }
-        };
-    }
-
     // ============================================================
     // CUE
     // ============================================================
@@ -138,20 +123,33 @@
         grid0_3: hotcue(5), grid1_3: hotcue(6), grid2_3: hotcue(7), grid3_3: hotcue(8)
     };
 
-    var CUE_SHIFT = Object.assign({}, shiftPhraseCells(), {
+    var CUE_SHIFT = {
+        // Shifted, the display toggle becomes a dim LED-only
+        // indicator. Ramp on fader2, no input. Unshifted grid2_0
+        // is cycleDisplaySource.
+        grid2_0: { group: '$DECK_ACTIVE$',
+                   colorScheme: { knob: 'fader2', scheme: eqRamp(), on: false } },
+        // Shifted, the slip toggle becomes "flip active deck A↔B".
+        // LED still tracks slip_enabled, colour from slipScheme.
+        grid2_1: { func: F.toggleActiveDeck,
+                   group: '$DECK_ACTIVE$',
+                   outKey: 'slip_enabled',
+                   colorScheme: CAT.slipScheme() },
+
         encoderL: { func: F.encStepParam, args: ['[Master]', 'gain', 0.01] },
         encoderR: { func: F.encStepParam, args: ['[Master]', 'headVolume', 0.01] },
 
-        // NO CUE FUNCTION IF SHIFTED (not in the phrase overlay becaause cue is only in cue layer)
+        // Shifted, the cue button becomes "clear the main cue point".
         grid3_0: { group: '$DECK_ACTIVE$', inKey: 'cue_clear', outKey: 'cue_indicator',
                    colorScheme: { knob: 'fader3', scheme: eqRamp() }, type: 'push' },
-        //could also: grid3_1: Object.assign({}, playCell(), { inKey: undefined }), //same thing
-        // NO PLAY FUNCTION IF SHIFTED
-        grid3_1: { group: '$DECK_ACTIVE$', outKey: 'play_indicator', colorScheme: CAT.PLAY_LED_SCHEME },
+        // Shifted, the play button is LED-only (no toggle input).
+        // Could also be Object.assign({}, playCell(), { inKey: undefined }).
+        grid3_1: { group: '$DECK_ACTIVE$', outKey: 'play_indicator',
+                   colorScheme: CAT.PLAY_LED_SCHEME },
 
         grid0_2: hotcueClear(1), grid1_2: hotcueClear(2), grid2_2: hotcueClear(3), grid3_2: hotcueClear(4),
         grid0_3: hotcueClear(5), grid1_3: hotcueClear(6), grid2_3: hotcueClear(7), grid3_3: hotcueClear(8)
-    });
+    };
     CUE._shift = 'cueShift';
 
     // ============================================================
@@ -159,10 +157,10 @@
     // ============================================================
     var LOOP = {
         layer: layerButton('loop', 'oddLoop'),
-        encoderL: { func: F.encLoopMoveAccel, args: ['in', 0.010],
+        encoderL: { func: F.encLoopMove, args: ['in', 0.010],
                     group: '$DECK_ACTIVE$', inKey: 'beatloop_size' },
         pressL:   { func: F.reloopToggleResetAnchor, group: '$DECK_ACTIVE$' },
-        encoderR: { func: F.encLoopMoveAccel, args: ['out', 0.010],
+        encoderR: { func: F.encLoopMove, args: ['out', 0.010],
                     group: '$DECK_ACTIVE$', inKey: 'beatloop_size' },
         pressR:   { func: F.beatloopActivateResetAnchor, group: '$DECK_ACTIVE$' },
 
@@ -201,52 +199,57 @@
         grid2_3: loopSize('1/4','green'),  grid3_3: loopSize('1/2',   'teal2')
     };
 
-    var LOOP_SHIFT = Object.assign({}, shiftPhraseCells(), {
-        encoderL: { func: F.encBeatjump, group: '$DECK_ACTIVE$' },
-        pressL:   { func: F.reloopToggleResetAnchor, group: '$DECK_ACTIVE$' },
-        encoderR: { func: F.encBeatjumpStepScale, args: ['1/32', 16], group: '$DECK_ACTIVE$' },
-        pressR:   { func: F.beatloopActivateResetAnchor, group: '$DECK_ACTIVE$' },
+    var LOOP_SHIFT = {
+        // Same two overrides as CUE_SHIFT — see comments there.
+        grid2_0: { group: '$DECK_ACTIVE$',
+                   colorScheme: { knob: 'fader2', scheme: eqRamp(), on: false } },
+        grid2_1: { func: F.toggleActiveDeck,
+                   group: '$DECK_ACTIVE$',
+                   outKey: 'slip_enabled',
+                   colorScheme: CAT.slipScheme() },
 
-        //could also: grid3_1: Object.assign({}, playCell(), { inKey: undefined }), //same thing
-        grid3_1: { group: '$DECK_ACTIVE$', outKey: 'play_indicator', colorScheme: CAT.PLAY_LED_SCHEME },
+        encoderL: { func: F.encBeatjump, group: '$DECK_ACTIVE$' },
+        encoderR: { func: F.encBeatjumpStepScale, args: ['1/32', 16], group: '$DECK_ACTIVE$' },
+        // pressL / pressR inherit from LOOP unchanged
+        // (LAYOUT.md: "+shift: inherit").
+
+        // Shifted, the play button is LED-only.
+        grid3_1: { group: '$DECK_ACTIVE$', outKey: 'play_indicator',
+                   colorScheme: CAT.PLAY_LED_SCHEME },
 
         grid0_2: beatjumpSize('8', 'teal2'), grid1_2: beatjumpSize('4',   'teal2'),
         grid2_2: beatjumpSize('2', 'teal2'), grid3_2: beatjumpSize('1',   'green'),
         grid0_3: beatjumpSize('1/16', 'teal2'), grid1_3: beatjumpSize('1/8',   'teal2'),
         grid2_3: beatjumpSize('1/4','teal2'), grid3_3: beatjumpSize('1/2',   'green')
-    });
+    };
     LOOP._shift = 'loopShift';
 
     // ============================================================
     // ODD — inherits from LOOP
     // ============================================================
+    // grid0_1 / grid1_1 / grid2_1 / grid3_1 are byte-identical
+    // to LOOP's and come through patch: ['loop'] — not
+    // redeclared here.
     var ODD = {
         patch: ['loop'],
         layer: layerButton('oddLoop', 'cue'),
-        grid0_1: { func: F.beatjumpButton, args: ['beatjump_backward'],
-                   group: '$DECK_ACTIVE$', outKey: 'track_loaded',
-                   colorScheme: { scheme: 'magenta' } },
-        grid1_1: { func: F.beatjumpButton, args: ['beatjump_forward'],
-                   group: '$DECK_ACTIVE$', outKey: 'track_loaded',
-                   colorScheme: { scheme: 'magenta' } },
-        grid2_1: slipCell(),
-        grid3_1: playCell(),
         grid0_2: loopSize('7',  'cyan'), grid1_2: loopSize('5',    'cyan'),
         grid2_2: loopSize('3',  'cyan'), grid3_2: loopSize('1',    'sky2'),
         grid0_3: loopSize('3/32', 'cyan'), grid1_3: loopSize('3/16', 'cyan'),
         grid2_3: loopSize('3/8', 'cyan'), grid3_3: loopSize('1/2',    'sky2')
     };
 
-    var ODD_SHIFT = Object.assign({}, shiftPhraseCells(), {
-        // Shift companions collect LOOP_SHIFT first (because ODD
-        // inherits LOOP), so grid0_0 / grid1_0 come through even
-        // if not declared here.
-        
+    var ODD_SHIFT = {
+        // grid2_0 / grid2_1 are provided by LOOP_SHIFT, which is
+        // in the stack whenever ODD_SHIFT is — ODD inherits LOOP,
+        // so _collectShiftPatches walks loop → loopShift before
+        // pushing oddLoopShift. Not redeclared here.
+
         grid0_2: beatjumpSize('7',  'sky2'), grid1_2: beatjumpSize('5',   'sky2'),
         grid2_2: beatjumpSize('3',  'sky2'), grid3_2: beatjumpSize('1',   'cyan'),
         grid0_3: beatjumpSize('3/32', 'sky2'), grid1_3: beatjumpSize('3/16',   'sky2'),
         grid2_3: beatjumpSize('3/8', 'sky2'), grid3_3: beatjumpSize('1/2',   'cyan')
-    });
+    };
     ODD._shift = 'oddLoopShift';
 
     // ============================================================

@@ -303,15 +303,6 @@ test('encLoopMove: writes loop_anchor 0 for out', function(t) {
     t.eq(engine.getValue('[Channel1]', 'loop_anchor'), 0);
 });
 
-test('encLoopMove: inferred rate class is "edit"', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encLoopMove, args: ['in', 0.01],
-        group: '[Channel1]', inKey: 'beatloop_size'
-    });
-    t.eq(c.bindings.encoderL._rateClass, 'edit');
-});
-
 // ── encLoopMoveAccel ───────────────────────────────────────
 
 test('encLoopMoveAccel: writes loop_anchor 1 for in', function(t) {
@@ -372,15 +363,6 @@ test('encLoopMoveAccel: higher cap allows faster climb', function(t) {
     t.ok(delta > 0.5, 'delta=' + delta);
 });
 
-test('encLoopMoveAccel: inferred rate class is "edit"', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encLoopMoveAccel, args: ['in', 0.01],
-        group: '[Channel1]', inKey: 'beatloop_size'
-    });
-    t.eq(c.bindings.encoderL._rateClass, 'edit');
-});
-
 // ── encBeatjump ────────────────────────────────────────────
 
 test('encBeatjump: CW → beatjump_forward pulse', function(t) {
@@ -401,14 +383,6 @@ test('encBeatjump: CCW → beatjump_backward pulse', function(t) {
     });
     H.send(c, 'encoderL', 127);
     t.eq(engine.getValue('[Channel1]', 'beatjump_backward'), 1);
-});
-
-test('encBeatjump: inferred rate class is "jump"', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encBeatjump, group: '[Channel1]'
-    });
-    t.eq(c.bindings.encoderL._rateClass, 'jump');
 });
 
 // ── encBeatjumpStepScale ───────────────────────────────────
@@ -435,15 +409,6 @@ test('encBeatjumpStepScale: CCW halves', function(t) {
     t.eq(engine.getValue('[Channel1]', 'beatjump_size_halve'), 1);
 });
 
-test('encBeatjumpStepScale: inferred rate class is "claim"', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('encoderR', {
-        func: XoneK3.FUNCS.encBeatjumpStepScale, args: ['1/32', 16],
-        group: '[Channel1]'
-    });
-    t.eq(c.bindings.encoderR._rateClass, 'claim');
-});
-
 // ── pressSetValue ──────────────────────────────────────────
 
 test('pressSetValue: writes value', function(t) {
@@ -454,50 +419,6 @@ test('pressSetValue: writes value', function(t) {
     });
     H.press(c, 'grid0_2');
     t.eq(engine.getValue('[Channel1]', 'beatloop_size'), 0.25);
-});
-
-test('pressSetValue: beatloop_size claims shared clock via rate gate', function(t) {
-    var c = H.ctrl();
-    c._lastLoopChangeMs = 0;
-    c._applyBinding('grid0_2', {
-        func: XoneK3.FUNCS.pressSetValue, args: ['1/4'],
-        group: '[Channel1]', inKey: 'beatloop_size'
-    });
-    // Gate is only active with an active loop on the target
-    // channel. Without this the out-of-loop bypass short-
-    // circuits before _lastLoopChangeMs is touched.
-    engine._set('[Channel1]', 'loop_enabled', 1);
-    t.eq(c.bindings.grid0_2._rateClass, 'edit');
-    H.press(c, 'grid0_2');
-    t.ok(c._lastLoopChangeMs > 0);
-});
-
-test('pressSetValue: beatloop_size does NOT claim out-of-loop', function(t) {
-    var c = H.ctrl();
-    c._lastLoopChangeMs = 0;
-    c._applyBinding('grid0_2', {
-        func: XoneK3.FUNCS.pressSetValue, args: ['1/4'],
-        group: '[Channel1]', inKey: 'beatloop_size'
-    });
-    // no loop_enabled set — bypass fires
-    H.press(c, 'grid0_2');
-    t.eq(c._lastLoopChangeMs, 0,
-         'out-of-loop bypass must not touch the shared clock');
-    t.eq(engine.getValue('[Channel1]', 'beatloop_size'), 0.25,
-         'func must still run');
-});
-
-test('pressSetValue: beatjump_size uses "claim" class', function(t) {
-    var c = H.ctrl();
-    c._lastLoopChangeMs = 0;
-    c._applyBinding('grid0_2', {
-        func: XoneK3.FUNCS.pressSetValue, args: ['1/2'],
-        group: '[Channel1]', inKey: 'beatjump_size'
-    });
-    engine._set('[Channel1]', 'loop_enabled', 1);
-    t.eq(c.bindings.grid0_2._rateClass, 'claim');
-    H.press(c, 'grid0_2');
-    t.ok(c._lastLoopChangeMs > 0);
 });
 
 // ── beatjumpButton ─────────────────────────────────────────
@@ -514,15 +435,6 @@ test('beatjumpButton: pulses the given CO', function(t) {
     t.eq(engine.getValue('[Channel1]', 'beatjump_1_backward'), 0);
 });
 
-test('beatjumpButton: inferred rate class is "jump"', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('grid0_0', {
-        func: XoneK3.FUNCS.beatjumpButton, args: ['beatjump_1_backward'],
-        group: '[Channel1]'
-    });
-    t.eq(c.bindings.grid0_0._rateClass, 'jump');
-});
-
 // ── reloopToggleResetAnchor ────────────────────────────────
 
 test('reloopToggleResetAnchor: anchor 0 + reloop pulse', function(t) {
@@ -534,15 +446,6 @@ test('reloopToggleResetAnchor: anchor 0 + reloop pulse', function(t) {
     H.press(c, 'pressL');
     t.eq(engine.getValue('[Channel1]', 'loop_anchor'), 0);
     t.eq(engine.getValue('[Channel1]', 'reloop_toggle'), 1);
-});
-
-test('reloopToggleResetAnchor: sets deliberateLoopOff marker', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('pressL', {
-        func: XoneK3.FUNCS.reloopToggleResetAnchor, group: '[Channel1]'
-    });
-    H.press(c, 'pressL');
-    t.ok(c._expectingLoopOff[1] > 0);
 });
 
 // ── beatloopActivateResetAnchor ────────────────────────────
