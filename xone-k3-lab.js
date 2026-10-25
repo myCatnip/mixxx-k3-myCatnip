@@ -870,7 +870,7 @@
             // treatment: nothing is providing a colour, so don't
             // paint a stale one.
             var applied = this._applied[name];
-            if (applied === undefined || Object.keys(applied).length === 0) {
+            if (applied == null || Object.keys(applied).length === 0) {
                 this._paintRGB(name, 0, 0, 0, 0);
                 continue;
             }
