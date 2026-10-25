@@ -197,6 +197,24 @@ Do NOT read `[ChannelN],rate` directly — that CO is the slider
 position (~-0.08..+0.08). Use `_channelRate(ch)`, which reads
 `rate_ratio`.
 
+BEAT DISPLAY MODES.
+
+  XoneK3.BEAT_PLAYING_MODE = 'pulse' | 'solid' | 'off'   default: 'pulse'
+  XoneK3.BEAT_PAUSED_MODE  = 'pulse' | 'solid' | 'off'   default: 'solid'
+
+  'pulse'  — bright first half of the beat, dim second, from
+             trackFrac < 0.5 (not time)
+  'solid'  — cascade colour, held
+  'off'    — off-ramp, no cascade
+
+  Both feed Binding._isBeatOffPhase. st.playing picks which one.
+  Playing with 'pulse' (the default) is the shipped behaviour.
+
+  For paused display to work, the LED's logicalOn source must
+  read 1 while the deck is stopped. Shipped layer/shift cells
+  use outKey: 'track_loaded'. play_indicator blanks the LED on
+  pause regardless of mode.
+
 DECK STATE shape (per channel, see `freshDeckState`):
 
   count           1-based cascade count
@@ -1279,3 +1297,8 @@ GOTCHAS THE CODE DOESN'T SHOUT ABOUT
 - `k2: true` on a binding routes its LED through MIDI notes
   (K2 mode). `k2Indices` is index-keyed, not binding-keyed, so
   a K2-listed LED stays K2-mode for the whole session.
+
+- Beat LEDs black out on pause if their `outKey` is
+  `play_indicator`. Use `track_loaded` for the countdown
+  LEDs, or `on: true` for custom beat LEDs that should
+  always render

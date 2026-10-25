@@ -97,6 +97,11 @@ test('beat_active fires in loop mode too (pulse is track-derived in both modes)'
 test('beat_active on channel 2 does not touch channel 1', function(t) {
     var c = setup();
     withBeat(c);
+    // _openBeatClocks catch-up already seeds hasBeat for any
+    // channel with metadata. Reset so the test isolates
+    // trigger routing, not the catch-up loop.
+    c._decks[1].hasBeat = false;
+    c._decks[2].hasBeat = false;
     engine._trigger('[Channel2]', 'beat_active', 1);
     t.eq(c._decks[1].hasBeat, false);
     t.eq(c._decks[2].hasBeat, true);
@@ -203,7 +208,11 @@ test('track_loaded resets beat state', function(t) {
     c._phraseOrigin[1] = 10;
 
     engine._trigger('[Channel1]', 'track_loaded', 1);
-    t.eq(c._decks[1].count, 1);
+    // _resetBeat clears the stale count; the handler tail's
+    // _syncBeatCount re-derives it from the current playhead
+    // (0.5 → beat 301). Origin stays 0 — no marker hotcues.
+    t.neq(c._decks[1].count, 42, 'stale count cleared');
+    t.eq(c._decks[1].count, 301, 'count re-derived from position');
     t.eq(c._phraseOrigin[1], 0);
 });
 

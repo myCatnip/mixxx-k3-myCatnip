@@ -294,9 +294,7 @@
                     'add them to SCHEMES or use $DECK_A$ / $DECK_B$ in the binding group');
                 return 'countdownIdle';
             }
-
-            if (!engine.getValue(grp, 'play_indicator')) return 'countdownIdle';
-
+            
             var ctrl = this._ctrl;
             var ch = ctrl ? ctrl._channelOf(grp) : null;
             if (!ch) return 'countdownIdle';

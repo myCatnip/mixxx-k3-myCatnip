@@ -486,6 +486,34 @@ the channel is the active deck. Those three call
 CO connection, so the toggle otherwise only appears at the next
 recompute.
 
+## Beat display modes
+
+Two tunables, one per deck state, same vocabulary:
+
+| | Default | Applies when |
+|---|---|---|
+| `XoneK3.BEAT_PLAYING_MODE` | `'pulse'` | Deck is playing |
+| `XoneK3.BEAT_PAUSED_MODE`  | `'solid'` | Deck is paused |
+
+| Value | Behaviour |
+|---|---|
+| `'pulse'` | Bright on the first half of the beat, dim on the second — from `trackFrac < 0.5`, not time |
+| `'solid'` | On-ramp + cascade, no brightness pulse |
+| `'off'` | Off-ramp, no cascade |
+
+`Binding._isBeatOffPhase` reads whichever matches `st.playing`.
+The playing path with `'pulse'` (the default) is byte-identical
+to pre-tunable behaviour.
+
+For a beat LED to light while paused, its `logicalOn` source
+must read 1 when the deck is stopped. Shipped `layer` / `shift`
+cells use `outKey: 'track_loaded'`; `play_indicator` blacks the
+LED regardless of mode.
+
+The cascade colour comes from `st.count`, kept current by the
+`playposition` handler — jog, beatjump, mouse drag all update
+it.
+
 ## Display cycle
 
 `cycleDisplaySource` toggles track ↔ loop while the loop clock
@@ -711,7 +739,7 @@ Six per channel:
 |---|---|---|
 | `_beatConns` | `beat_active` | Pulse source. Drives `st.active` transitions. |
 | `_playConns` | `playposition` | Advances the loop clock; position-tick repaint. |
-| `_playConns` | `play_indicator` | Resyncs the clock anchor; sets `st.playing`. |
+| `_playConns` | `play_indicator` | Sets `st.playing`; repaints on every transition. Resyncs the clock anchor on rising edge. |
 | `_playConns` | `track_loaded` | Clears `_trackMetaCache[ch]`, resets beat state, clears `_lastLoopTouchMs[ch]`, re-syncs beat clocks. |
 | `_playConns` | `loop_enabled` | Starts / stops the loop clock on edge. |
 | `_playConns` | `slip_enabled` | Count resync. |
@@ -721,10 +749,12 @@ Plus hotcue colour/position observers when
 hotcues × 2).
 
 `_openBeatClocks` ends with a catch-up loop: re-reads loop state
-for every channel and starts the loop clock where a loop is
-already active. CO connections fire on change, not on setup —
+for every channel, starts the loop clock where a loop is already
+active, re-reads `play_indicator` into `st.playing`, and syncs
+the beat count. CO connections fire on change, not on setup —
 without this, a preset reload during an active loop leaves the
-loop clock idle.
+loop clock idle, and a reload during playback leaves
+`st.playing = false` so paused mode renders on a playing deck.
 
 `_syncBeatClocks` is the only caller of open/close. Runs once per
 recompute, from `_refreshAllLeds`. Gate is `_needsBeatClocks` —
@@ -1398,8 +1428,9 @@ XoneK3` in `lib-core.js` carries an inline disable.
   hasn't moved; the derivation would produce the same value on
   the next tick anyway.
 - **`hasBeat` means "position is meaningful", not "deck is
-  playing".** `st.playing` mirrors `play_indicator` and is
-  diagnostic-only.
+  playing".** `st.playing` mirrors `play_indicator` and selects
+  which of `BEAT_PLAYING_MODE` / `BEAT_PAUSED_MODE` applies in
+  `_isBeatOffPhase`.
 - **The loop clock is the only virtual timeline.**
 - **Boot-time beat-clock reopen.** See §3.
 - **`_openBeatClocks` catches up state on open.** See §10.
@@ -1558,7 +1589,10 @@ XoneK3` in `lib-core.js` carries an inline disable.
 - Markers bypass the flat solve but DO get beat cascades.
 - Co-match does not get beat cascades.
 - Boot-white is session-scoped.
-- Beat requires a playing deck.
+- Beat displays on paused decks too; `BEAT_PLAYING_MODE` /
+  `BEAT_PAUSED_MODE` pick the behaviour. A beat LED whose
+  `logicalOn` reads 0 while paused (`play_indicator`, a
+  mismatched `on:`) blacks out regardless of mode.
 - `barBeats` / `phraseBars` clamped 1..32 in the lab.
 - `prePhraseBeats` clamped 0..`phraseLen - 1`.
 - Bake: structural samples at segment count; sampled / wire at

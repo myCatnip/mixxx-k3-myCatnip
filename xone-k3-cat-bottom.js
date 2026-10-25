@@ -54,7 +54,7 @@
     function layerButton(from, to) {
         return { func: F.layerButton, args: [from, to],
                  group: '$DECK_A$',
-                 outKey: 'play_indicator',
+                 outKey: 'track_loaded',
                  colorScheme: { scheme: CAT.countdownScheme() } };
     }
 

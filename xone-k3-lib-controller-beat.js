@@ -270,8 +270,9 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var beatF = this._trackBeatF(ch);
         if (beatF === null) return false;
         var count = this._cascadeCount(ch, beatF);
+        var wasHasBeat = st.hasBeat;
         st.hasBeat = true;
-        if (st.count === count) return false;
+        if (st.count === count && wasHasBeat) return false;
         st.count = count;
         this._refreshBeatLeds(ch);
         return true;
@@ -445,10 +446,14 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
 
                 wire(self._playConns, 'play_indicator', function(v) {
                     var st = self._decks[ch];
+                    var wasPlaying = st.playing;
                     st.playing = v > 0;
                     if (v === 1) {
                         st.loopClock.lastTs = Date.now();
                         self._syncBeatCount(ch);
+                    }
+                    if (wasPlaying !== st.playing) {
+                        self._refreshBeatLeds(ch);
                     }
                 });
 
@@ -467,6 +472,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
                     // immediately.
                     var pos = engine.getValue(grp, 'playposition');
                     self._deriveOriginFromPosition(ch, pos);
+                    self._syncBeatCount(ch);
                 });
 
                 wire(self._playConns, 'loop_enabled', function() {
@@ -509,6 +515,9 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             if (this._decks[ch2].loopActive) {
                 this._startVirtualClock(ch2);
             }
+            this._decks[ch2].playing =
+                engine.getValue('[Channel' + ch2 + ']', 'play_indicator') > 0;
+            this._syncBeatCount(ch2);
         }
     };
 

@@ -92,6 +92,7 @@ test('_isBeatOffPhase: active beat → false', function(t) {
     var c = H.ctrl();
     var b = c.bindings.press0;
     c._decks[2].hasBeat = true;
+    c._decks[2].playing = true;
     c._decks[2].active  = true;
     t.eq(b._isBeatOffPhase({beat: {deck: 2}}), false);
 });
@@ -100,6 +101,7 @@ test('_isBeatOffPhase: between beats → true', function(t) {
     var c = H.ctrl();
     var b = c.bindings.press0;
     c._decks[2].hasBeat = true;
+    c._decks[2].playing = true;
     c._decks[2].active  = false;
     t.eq(b._isBeatOffPhase({beat: {deck: 2}}), true);
 });
@@ -111,7 +113,8 @@ test('_isBeatOffPhase: token deck re-resolves on focus change', function(t) {
     c.setSelectedFor('deck', 'B', 3);
     c.setActiveDeck('A');
 
-    c._decks[1].hasBeat = true;  c._decks[1].active = false;
+    c._decks[1].hasBeat = true;  c._decks[1].playing = true;
+    c._decks[1].active = false;
     c._decks[3].hasBeat = false; c._decks[3].active = false;
 
     var scheme = {beat: {deck: '$DECK_ACTIVE$'}};
@@ -121,7 +124,105 @@ test('_isBeatOffPhase: token deck re-resolves on focus change', function(t) {
     t.eq(b._isBeatOffPhase(scheme), false);
 
     c._decks[3].hasBeat = true;
+    c._decks[3].playing = true;
     t.eq(b._isBeatOffPhase(scheme), true);
+});
+
+test('_isBeatOffPhase: playing + pulse → position-derived', function(t) {
+    var c = H.ctrl();
+    var b = c.bindings.press0;
+    c._decks[2].hasBeat = true;
+    c._decks[2].playing = true;
+    c._decks[2].active  = false;
+    t.eq(b._isBeatOffPhase({beat: {deck: 2}}), true);
+    c._decks[2].active = true;
+    t.eq(b._isBeatOffPhase({beat: {deck: 2}}), false);
+});
+
+test('_isBeatOffPhase: playing + solid → always on-phase', function(t) {
+    var orig = XoneK3.BEAT_PLAYING_MODE;
+    XoneK3.BEAT_PLAYING_MODE = 'solid';
+    var c = H.ctrl();
+    var b = c.bindings.press0;
+    c._decks[2].hasBeat = true;
+    c._decks[2].playing = true;
+    c._decks[2].active  = false;
+    t.eq(b._isBeatOffPhase({beat: {deck: 2}}), false);
+    XoneK3.BEAT_PLAYING_MODE = orig;
+});
+
+test('_isBeatOffPhase: playing + off → always off-phase', function(t) {
+    var orig = XoneK3.BEAT_PLAYING_MODE;
+    XoneK3.BEAT_PLAYING_MODE = 'off';
+    var c = H.ctrl();
+    var b = c.bindings.press0;
+    c._decks[2].hasBeat = true;
+    c._decks[2].playing = true;
+    c._decks[2].active  = true;
+    t.eq(b._isBeatOffPhase({beat: {deck: 2}}), true);
+    XoneK3.BEAT_PLAYING_MODE = orig;
+});
+
+test('_isBeatOffPhase: paused + solid → on-phase', function(t) {
+    var orig = XoneK3.BEAT_PAUSED_MODE;
+    XoneK3.BEAT_PAUSED_MODE = 'solid';
+    var c = H.ctrl();
+    var b = c.bindings.press0;
+    c._decks[2].hasBeat = true;
+    c._decks[2].playing = false;
+    c._decks[2].active  = false;
+    t.eq(b._isBeatOffPhase({beat: {deck: 2}}), false);
+    XoneK3.BEAT_PAUSED_MODE = orig;
+});
+
+test('_isBeatOffPhase: paused + pulse → position-derived', function(t) {
+    var orig = XoneK3.BEAT_PAUSED_MODE;
+    XoneK3.BEAT_PAUSED_MODE = 'pulse';
+    var c = H.ctrl();
+    var b = c.bindings.press0;
+    c._decks[2].hasBeat = true;
+    c._decks[2].playing = false;
+    c._decks[2].active  = false;
+    t.eq(b._isBeatOffPhase({beat: {deck: 2}}), true, 'second half → off-phase');
+    c._decks[2].active = true;
+    t.eq(b._isBeatOffPhase({beat: {deck: 2}}), false, 'first half → on-phase');
+    XoneK3.BEAT_PAUSED_MODE = orig;
+});
+
+test('_isBeatOffPhase: paused + off → always off-phase', function(t) {
+    var orig = XoneK3.BEAT_PAUSED_MODE;
+    XoneK3.BEAT_PAUSED_MODE = 'off';
+    var c = H.ctrl();
+    var b = c.bindings.press0;
+    c._decks[2].hasBeat = true;
+    c._decks[2].playing = false;
+    c._decks[2].active  = true;
+    t.eq(b._isBeatOffPhase({beat: {deck: 2}}), true);
+    XoneK3.BEAT_PAUSED_MODE = orig;
+});
+
+test('countdownScheme: paused with track loaded shows beat colour', function(t) {
+    H.bootCat();
+    H.setCO('[Channel1]', 'duration',            240);
+    H.setCO('[Channel1]', 'file_bpm',            128);
+    H.setCO('[Channel1]', 'track_samples',       1000000);
+    H.setCO('[Channel1]', 'outro_end_position',  1000000);
+    H.setCO('[Channel1]', 'playposition',        0.05);
+    H.setCO('[Channel1]', 'play_indicator',      0);
+    H.setCO('[Channel1]', 'track_loaded',        1);
+
+    // track_loaded must set hasBeat on its own — no jog needed.
+    H.fireCO('[Channel1]', 'track_loaded', 1);
+
+    var c = XoneK3.controllers[0];
+    t.eq(c._decks[1].hasBeat, true,
+         'track_loaded must set hasBeat without a playposition tick');
+
+    H.clearLeds(c);
+    c.bindings['layer']._refresh();
+    var frame = H.led(c, 'layer');
+    t.ok(frame && frame.r + frame.g + frame.b > 0,
+         'layer LED should show beat colour while paused');
 });
 
 // ── _beatStateFor ────────────────────────────────────────────
@@ -137,4 +238,55 @@ test('_beatStateFor: returns deck state when hasBeat', function(t) {
     var b = c.bindings.press0;
     c._decks[1].hasBeat = true;
     t.eq(b._beatStateFor({beat: {deck: 1}}), c._decks[1]);
+});
+
+test('pausing at off-phase with solid mode lights the LED', function(t) {
+    H.bootCat();
+    H.setCO('[Channel1]', 'duration',            240);
+    H.setCO('[Channel1]', 'file_bpm',            128);
+    H.setCO('[Channel1]', 'track_samples',       1000000);
+    H.setCO('[Channel1]', 'outro_end_position',  1000000);
+    H.setCO('[Channel1]', 'playposition',        0.6015);   // off-phase beat
+    H.setCO('[Channel1]', 'track_loaded',        1);
+    H.fireCO('[Channel1]', 'track_loaded', 1);
+
+    var c = XoneK3.controllers[0];
+
+    // Playing, off-phase: pulse mode → off-ramp, base colour black.
+    H.setCO('[Channel1]', 'play_indicator', 1);
+    H.fireCO('[Channel1]', 'play_indicator', 1);
+    c._decks[1].active = false;
+    H.clearLeds(c);
+    c.bindings['layer']._refresh();
+    var playingFrame = H.led(c, 'layer');
+    t.ok(!playingFrame || playingFrame.r + playingFrame.g + playingFrame.b === 0,
+         'playing pulse at off-phase is off-ramp');
+
+    // Pause. Falling edge must repaint; solid paused mode flips
+    // to on-ramp + cascade.
+    H.clearLeds(c);
+    H.setCO('[Channel1]', 'play_indicator', 0);
+    H.fireCO('[Channel1]', 'play_indicator', 0);
+
+    var pausedFrame = H.led(c, 'layer');
+    t.ok(pausedFrame && pausedFrame.r + pausedFrame.g + pausedFrame.b > 0,
+         'pausing at off-phase with solid mode must light the LED');
+});
+
+test('_openBeatClocks re-reads play_indicator', function(t) {
+    XoneK3.PHRASE_MARKER_COLORS = [];
+    var c = H.ctrl();
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl',
+        colorScheme: {scheme: {colors: [[127,0,0]], beat: {color: 'blue'}}}
+    });
+    c._refreshAllLeds();
+
+    // Simulate reload-during-playback: deck is playing, but the
+    // handler never fired because the CO tree pre-dates re-open.
+    H.setCO('[Channel1]', 'play_indicator', 1);
+    c._closeBeatClocks();               // freshDeckState → playing=false
+    c._openBeatClocks();                // must read play_indicator
+    t.eq(c._decks[1].playing, true,
+         '_openBeatClocks must sync st.playing from the CO');
 });

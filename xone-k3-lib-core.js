@@ -84,6 +84,14 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // empirically confirmed safe margin (120 worked, 60 leaked).
     XoneK3.BEATJUMP_GAP_MS = 130;
 
+    // What a beat-enabled LED shows while its deck is playing /
+    // paused. Same three values for both:
+    //   'pulse' — bright first half, dim second (position-derived)
+    //   'solid' — on-ramp + cascade, no brightness pulse
+    //   'off'   — off-ramp, no cascade
+    XoneK3.BEAT_PLAYING_MODE = 'pulse';
+    XoneK3.BEAT_PAUSED_MODE  = 'solid';
+
     // ============================================================
     // PATCH NAMES
     // ============================================================

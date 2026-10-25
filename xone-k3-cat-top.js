@@ -129,9 +129,9 @@
 
         // Shift button pulses with Deck B's track-end countdown.
         shift: { func: F.shiftToggle,
-                 group:  '$DECK_B$',
-                 outKey: 'play_indicator',
-                 colorScheme: { scheme: CAT.countdownScheme() } }
+                 group: '$DECK_B$',
+                 outKey: 'track_loaded',
+                 colorScheme: { scheme: CAT.countdownScheme() } },
     };
     TOP_SHARED._shift = 'topSharedShift';
 
@@ -155,7 +155,7 @@
     var TWO_DECK = {
         shift: { func: F.shiftToggle,
                  group: '$DECK_B$',
-                 outKey: 'play_indicator',
+                 outKey: 'track_loaded',
                  colorScheme: { scheme: CAT.countdownScheme() } },
 
         encoder0: { func: F.encPregainStep, args: [0.025], group: '$DECK_A$', inKey: 'pregain' },

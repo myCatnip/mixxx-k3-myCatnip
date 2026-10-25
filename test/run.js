@@ -136,6 +136,8 @@ function resetGlobals() {
     X.BEATJUMP_MIN             = 1 / 32;
     X.BEATJUMP_MAX             = 16;
     X.BEATJUMP_GAP_MS          = 130;
+    X.BEAT_PLAYING_MODE        = 'pulse';
+    X.BEAT_PAUSED_MODE         = 'solid';
     X._debugPrintsOn           = false;
     X.MODE_PRINTS              = false;
     X._warned                  = {};

@@ -323,7 +323,11 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
 
     XoneK3.Binding.prototype._isBeatOffPhase = function(compiled) {
         var st = this._beatStateFor(compiled);
-        return st ? !st.active : false;
+        if (!st) return false;
+        var mode = st.playing ? XoneK3.BEAT_PLAYING_MODE : XoneK3.BEAT_PAUSED_MODE;
+        if (mode === 'solid') return false;
+        if (mode === 'off')   return true;
+        return !st.active;
     };
 
     XoneK3.Binding.prototype._renderStatic = function(scheme, isOn) {

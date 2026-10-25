@@ -594,6 +594,7 @@ Preset definitions:
 | `grid2_0` flashes but nothing changes | No loop is running. The display toggle needs the loop clock. |
 | Beatjump doesn't fire after touching a loop control | Loop touched <130 ms ago (`XoneK3.BEATJUMP_GAP_MS`). |
 | Console silent when you want to see edits | Edit prints are off by default. `XoneK3._debugPrintsOn = true`. |
+| Layer / shift LED shows a colour when the deck is paused | Paused beat display. Jog or drag the playhead to move it. `XoneK3.BEAT_PAUSED_MODE = 'off'` disables. |
 
 Everything else lives in `CONCEPTS.md` (how it works) and
 `CUSTOMISE.md` (how to change it).

@@ -757,6 +757,9 @@ XoneK3.VIRTUAL_CLOCKS = {
 
 XoneK3.BEATJUMP_GAP_MS = 130;
 
+XoneK3.BEAT_PLAYING_MODE = 'pulse';  // 'pulse' | 'solid' | 'off'
+XoneK3.BEAT_PAUSED_MODE  = 'solid';  // 'pulse' | 'solid' | 'off'
+
 XoneK3.CO_MATCH_EPSILON = 1 / 127;
 XoneK3.TAKEOVER_EPSILON = 2 / 127;
 
@@ -771,6 +774,16 @@ Effect Chains.
 beatjumps only, only when the target channel is in an active
 loop. Set to `0` to disable, `150–200` for stricter. See
 INTERNALS §25 for the gate logic.
+
+**`BEAT_PLAYING_MODE` / `BEAT_PAUSED_MODE`** — what a beat
+scheme's LED shows, per deck state. `'pulse'` is the bright/dim
+half-beat alternation. `'solid'` shows the current beat's
+cascade colour, held. `'off'` disables the cascade. Paused with
+`'solid'` (the default) means jogging / beatjump / mouse-drag
+shows the beat colour of wherever you land — useful for finding
+the current beat without playing. For paused display to work on
+a custom beat LED, its `outKey` (or `on:`) must read 1 while
+paused — `track_loaded` works; `play_indicator` doesn't.
 
 **`CO_MATCH_EPSILON` < `TAKEOVER_EPSILON`** must hold. `CO_MATCH`
 sets how far the physical knob can be from its bound CO before
@@ -839,7 +852,8 @@ Fix the config, reload the preset, and the warning fires again.
 | Hotcue LED wrong | `outKey` doesn't match `hotcue_N_status`. |
 | Toggle LED never lights | No `outKey` and no `on:`. Add one. |
 | Group-enable LED shows blue | Ramp scheme on a static LED. Use `schemeFromState` alone with `map: FX_COLOR_MAP`. |
-| Beat doesn't pulse | Deck not playing. |
+| Beat doesn't pulse | Deck not playing, or `BEAT_PLAYING_MODE` is not `'pulse'`. |
+| Paused deck shows no beat colour | The binding's `outKey` (or `on:`) reads 0 while paused. Use `track_loaded` or `on: true`. |
 | Beat pulses but colour never changes | Only `beat.color` set. Add `bar` / `phrase`. |
 | Overlay does nothing | Patch doesn't have `_host`, or host isn't active. |
 | Grid buttons fire under an overlay | Overlay didn't null them. Add `{}` in the overlay. |

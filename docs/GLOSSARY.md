@@ -11,6 +11,8 @@ Alphabetical. One line each.
 | **Alt** | The slot that isn't focused. `$DECK_ALT$`, `selectedFxAlt`, etc. |
 | **Beat cascade** | The colour sequence driven by the beat count: `prePhrase > phrase > bar > beat`. |
 | **Beat count** | `absolute beat - phrase origin + 1`. Drives the cascade. |
+| **Beat playing mode** | What a beat LED shows while its deck plays: `'pulse'` (default), `'solid'`, or `'off'`. Set via `XoneK3.BEAT_PLAYING_MODE`. |
+| **Beat paused mode** | Same three values, applied when the deck is paused. Default `'solid'`. Set via `XoneK3.BEAT_PAUSED_MODE`. |
 | **Beatjump gate** | Beatjumps are blocked when the target channel has an active loop and less than `BEATJUMP_GAP_MS` (130 ms) has elapsed since the last loop-touching event on that channel. |
 | **Binding** | One physical control's full definition: which Mixxx CO it acts on, what its LED reads, what the LED looks like, optional custom func. |
 | **Chord** | Shift + layer, held. Reaches overlays and top-half mode swaps. |
