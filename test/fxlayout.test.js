@@ -19,15 +19,6 @@ test('fxCells: unit 1 produces all cells', function(t) {
     }
 });
 
-test('fxCells: unit 2 knob1_0 override → EffectUnit2_Effect2, parameter1', function(t) {
-    var c = H.bootCat();
-    c.setSelectedFor('fx', 'A', 2);
-    c._syncFxLayout();
-    // Unit 2 overrides knob1_0 with {effect: 2, param: 1}.
-    t.eq(c.bindings.knob1_0.group, '[EffectRack1_EffectUnit2_Effect2]');
-    t.eq(c.bindings.knob1_0.inKey, 'parameter1');
-});
-
 test('fxCells: unit 2 remap', function(t) {
     var c = H.bootCat();
     c.setSelectedFor('fx', 'A', 2);

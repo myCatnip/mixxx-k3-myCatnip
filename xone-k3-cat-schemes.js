@@ -197,14 +197,14 @@
         countdownIdle: { colors: [[0, 0, 0]] },
 
         countdownA1: countdownVariant('$DECK_A$', 'green',  'cyan'),
-        countdownA2: countdownVariant('$DECK_A$', 'yellow', 'amber'),
-        countdownA3: countdownVariant('$DECK_A$', 'amber',  'orange'),
-        countdownA4: countdownVariant('$DECK_A$', 'red',    'orange'),
+        countdownA2: countdownVariant('$DECK_A$', 'yellow', 'cyan'),
+        countdownA3: countdownVariant('$DECK_A$', 'amber',  'cyan'),
+        countdownA4: countdownVariant('$DECK_A$', 'red',    'yellow'),
 
         countdownB1: countdownVariant('$DECK_B$', 'green',  'cyan'),
-        countdownB2: countdownVariant('$DECK_B$', 'yellow', 'amber'),
-        countdownB3: countdownVariant('$DECK_B$', 'amber',  'orange'),
-        countdownB4: countdownVariant('$DECK_B$', 'red',    'orange')
+        countdownB2: countdownVariant('$DECK_B$', 'yellow', 'cyan'),
+        countdownB3: countdownVariant('$DECK_B$', 'amber',  'cyan'),
+        countdownB4: countdownVariant('$DECK_B$', 'red',    'yellow')
     });
 
     // ============================================================
