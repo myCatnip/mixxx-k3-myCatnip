@@ -60,9 +60,9 @@ var CUE = {
 Patches inherit:
 
 ```js
-var ODD = {
-    patch: ['loop'],
-    grid0_2: { ... }
+var fxLayout2 = {
+    patch: ['topShared'],
+    knob1_0: { ... }
 };
 ```
 
@@ -115,8 +115,8 @@ var CUE_SHIFT = { grid0_0: { ... } };
 ```
 
 Undeclared cells fall through to CUE. Companions inherit up the
-parent chain — ODD_SHIFT collects LOOP_SHIFT before its own
-overrides.
+parent chain — the shift override of a patch: parent lands
+before the child's own.
 
 **Overlays.** A patch can declare `_host`. It only applies while
 one of its hosts is active:

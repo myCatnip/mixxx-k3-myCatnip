@@ -2,17 +2,14 @@
 
 var H = require('./helpers');
 
-// Cue / loop / oddLoop layers through MIDI: hotcues, loops,
-// beatjumps, layer cycle, phrase origin.
+// Cue / loop layers, their overlays, hotcues, loops, beatjumps,
+// layer cycle, phrase origin.
 
 function setupCue() {
     return H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue']});
 }
 function setupLoop() {
     return H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'loop']});
-}
-function setupOdd() {
-    return H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'oddLoop']});
 }
 
 // ── hotcues ────────────────────────────────────────────────
@@ -106,20 +103,6 @@ test('loop grid3_3 writes beatloop_size 1/2', function(t) {
     t.eq(engine.getValue('[Channel1]', 'beatloop_size'), 0.5);
 });
 
-// ── odd loop sizes ─────────────────────────────────────────
-
-test('oddLoop grid0_2 writes beatloop_size 7', function(t) {
-    var c = setupOdd();
-    H.press(c, 'grid0_2');
-    t.eq(engine.getValue('[Channel1]', 'beatloop_size'), 7);
-});
-
-test('oddLoop grid3_3 writes beatloop_size 1/2', function(t) {
-    var c = setupOdd();
-    H.press(c, 'grid3_3');
-    t.eq(engine.getValue('[Channel1]', 'beatloop_size'), 0.5);
-});
-
 // ── layer cycle ────────────────────────────────────────────
 
 test('layer press cycles cue → loop', function(t) {
@@ -129,17 +112,172 @@ test('layer press cycles cue → loop', function(t) {
     t.notOk(c.activePatches.indexOf('cue') !== -1);
 });
 
-test('layer press cycles loop → oddLoop', function(t) {
+test('layer press cycles loop → cue', function(t) {
     var c = setupLoop();
     H.press(c, 'layer');
-    t.ok(c.activePatches.indexOf('oddLoop') !== -1);
+    t.ok(c.activePatches.indexOf('cue') !== -1);
     t.notOk(c.activePatches.indexOf('loop') !== -1);
 });
 
-test('layer press cycles oddLoop → cue', function(t) {
-    var c = setupOdd();
+// ── hotcue916 overlay (cue mode, chord + slip) ─────────────
+
+function enterChord(c) {
+    H.press(c, 'shift');
     H.press(c, 'layer');
-    t.ok(c.activePatches.indexOf('cue') !== -1);
+}
+function exitChord(c) {
+    H.release(c, 'layer');
+    H.release(c, 'shift');
+}
+
+test('hotcue916: chord + slip in cue activates it', function(t) {
+    var c = setupCue();
+    enterChord(c);
+    H.press(c, 'grid2_1');
+    exitChord(c);
+    t.contains(c.activePatches, 'hotcue916');
+    t.ok(c._patchActive('hotcue916'));
+});
+
+test('hotcue916: chord + slip again removes it', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
+    enterChord(c);
+    H.press(c, 'grid2_1');
+    exitChord(c);
+    t.notOk(c.activePatches.indexOf('hotcue916') !== -1);
+});
+
+test('hotcue916: does not toggle loopOdd', function(t) {
+    var c = setupCue();
+    enterChord(c);
+    H.press(c, 'grid2_1');
+    exitChord(c);
+    t.notOk(c.activePatches.indexOf('loopOdd') !== -1);
+});
+
+test('hotcue916: grid0_2 targets hotcue 9', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
+    engine._set('[Channel1]', 'hotcue_9_activate', 0);
+    H.press(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_activate'), 1);
+});
+
+test('hotcue916: grid3_3 targets hotcue 16', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
+    engine._set('[Channel1]', 'hotcue_16_activate', 0);
+    H.press(c, 'grid3_3');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_16_activate'), 1);
+});
+
+test('hotcue916: shift clears hotcue 9', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
+    H.press(c, 'shift');
+    H.press(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_clear'), 1);
+});
+
+test('hotcue916: hidden in loop, reappears in cue', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
+    t.ok(c._patchActive('hotcue916'));
+    H.press(c, 'layer');   // cue → loop
+    t.notOk(c._patchActive('hotcue916'));
+    t.contains(c.activePatches, 'hotcue916');
+    H.press(c, 'layer');   // loop → cue
+    t.ok(c._patchActive('hotcue916'));
+});
+
+// ── loopOdd overlay (loop mode, chord + slip) ──────────────
+
+test('loopOdd: chord + slip in loop activates it', function(t) {
+    var c = setupLoop();
+    enterChord(c);
+    H.press(c, 'grid2_1');
+    exitChord(c);
+    t.contains(c.activePatches, 'loopOdd');
+    t.ok(c._patchActive('loopOdd'));
+});
+
+test('loopOdd: chord + slip again removes it', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'loop', 'loopOdd']});
+    enterChord(c);
+    H.press(c, 'grid2_1');
+    exitChord(c);
+    t.notOk(c.activePatches.indexOf('loopOdd') !== -1);
+});
+
+test('loopOdd: does not toggle hotcue916', function(t) {
+    var c = setupLoop();
+    enterChord(c);
+    H.press(c, 'grid2_1');
+    exitChord(c);
+    t.notOk(c.activePatches.indexOf('hotcue916') !== -1);
+});
+
+test('loopOdd: grid0_2 writes beatloop_size 7', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'loop', 'loopOdd']});
+    H.press(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'beatloop_size'), 7);
+});
+
+test('loopOdd: grid3_3 writes beatloop_size 1/2', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'loop', 'loopOdd']});
+    H.press(c, 'grid3_3');
+    t.eq(engine.getValue('[Channel1]', 'beatloop_size'), 0.5);
+});
+
+test('loopOdd: shift+grid0_2 writes odd beatjump_size', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'loop', 'loopOdd']});
+    H.press(c, 'shift');
+    H.press(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'beatjump_size'), 7);
+});
+
+test('loopOdd: beatjump direction stays functional', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'loop', 'loopOdd']});
+    H.press(c, 'grid0_1');
+    t.eq(engine.getValue('[Channel1]', 'beatjump_backward'), 1);
+});
+
+test('loopOdd: hidden in cue, reappears in loop', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'loop', 'loopOdd']});
+    t.ok(c._patchActive('loopOdd'));
+    H.press(c, 'layer');   // loop → cue
+    t.notOk(c._patchActive('loopOdd'));
+    t.contains(c.activePatches, 'loopOdd');
+    H.press(c, 'layer');   // cue → loop
+    t.ok(c._patchActive('loopOdd'));
+});
+
+// ── overlays coexist ───────────────────────────────────────
+
+// ── overlays coexist across layer switches ─────────────────
+
+test('hotcue916 and loopOdd both persist; only host-active is visible', function(t) {
+    var c = setupCue();
+
+    // Add hotcue916 in cue mode.
+    enterChord(c);
+    H.press(c, 'grid2_1');
+    exitChord(c);
+    t.contains(c.activePatches, 'hotcue916');
+    t.ok(c._patchActive('hotcue916'));
+
+    // Switch to loop, add loopOdd. hotcue916 stays in activePatches
+    // but its host ('cue') is gone.
+    H.press(c, 'layer');
+    enterChord(c);
+    H.press(c, 'grid2_1');
+    exitChord(c);
+
+    t.contains(c.activePatches, 'hotcue916');
+    t.contains(c.activePatches, 'loopOdd');
+    t.notOk(c._patchActive('hotcue916'));
+    t.ok(c._patchActive('loopOdd'));
+
+    // Back to cue. hotcue916 visible again, loopOdd hidden.
+    H.press(c, 'layer');
+    t.ok(c._patchActive('hotcue916'));
+    t.notOk(c._patchActive('loopOdd'));
 });
 
 // ── reloop / beatloop activate via encoder presses ─────────
@@ -159,15 +297,6 @@ test('pressR beatloop activate resets anchor', function(t) {
     t.eq(engine.getValue('[Channel1]', 'loop_anchor'), 0);
     t.eq(engine.getValue('[Channel1]', 'beatloop_activate'), 1);
 });
-
-// ── phrase origin via shifted cells ────────────────────────
-//
-// shiftPhraseCells() no longer declares grid0_0 / grid1_0
-// (phrase ±1 nudge removed) and grid2_0 is LED-only (set-here
-// func commented out). Pressing shift+grid0_0 / shift+grid1_0
-// now falls through to the base beatjump1 bindings; shift+grid2_0
-// is a no-op. No integration test covers the origin writer —
-// hotcueWithPhraseCheck is tested in timelines.test.js.
 
 // ── display cycle from LOOP layer ──────────────────────────
 

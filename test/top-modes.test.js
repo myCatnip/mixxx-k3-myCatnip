@@ -174,7 +174,7 @@ test('PATCH_NAMES: has every referenced name', function(t) {
         'FOCUS_BASE', 'FOCUS_LAYOUT', 'TWODECK_BASE',
         'TWODECK_A_LAYOUT', 'TWODECK_B_LAYOUT',
         'MINI_BASE', 'MINI_LAYOUT',
-        'CHORD', 'CUE', 'LOOP', 'ODD'
+        'CHORD', 'CUE', 'LOOP'
     ];
     for (var i = 0; i < required.length; i++) {
         t.ok(P[required[i]] !== undefined, required[i]);

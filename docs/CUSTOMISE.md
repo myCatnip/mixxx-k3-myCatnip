@@ -830,11 +830,11 @@ is a category index.
 |---|---|
 | Select / focus | `k3Select`, `setActiveDeckTo`, `setActiveFxTo`, `toggleActiveDeck`, `toggleActiveFx` |
 | Timeline | `cycleDisplaySource` |
-| Patch / overlay / mode | `layerButton`, `toggleOverlay`, `toggleTopMode`, `toggleMiniFx` |
+| Patch / overlay / mode | `layerButton`, `toggleOverlay`, `toggleLayerOverlay`, `toggleTopMode`, `toggleMiniFx` |
 | Encoders | `encPregainStep`, `encLoopMove`, `encLoopMoveAccel`, `encBeatjump` |
 | Buttons | `pressSetValue`, `beatjumpButton`, `reloopToggleResetAnchor`, `shutdownHold` |
 | BPM | `bpmPress` |
-| Hotcues | *(no custom func — hotcues use the default push handler)* |
+| Hotcues | `hotcueSetPhraseColor` |
 
 ---
 

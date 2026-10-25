@@ -853,7 +853,9 @@ CHORD:
                 args: ['selectAB', ['fxRouting']] },
       press3: { func: XoneK3.FUNCS.shutdownHold },
       pressR: { func: XoneK3.FUNCS.toggleTopMode },
-      pressL: { func: XoneK3.FUNCS.toggleMiniFx }
+      pressL: { func: XoneK3.FUNCS.toggleMiniFx },
+      grid2_1: { func: XoneK3.FUNCS.toggleLayerOverlay,
+                 args: ['hotcue916', 'loopOdd'] }
   };
 
 `shutdownHold` is a 2-second hold. Releasing shift, layer, or
@@ -981,9 +983,13 @@ Timelines:
 
 Patch / overlay / mode:
 
-  layerButton      ['cue', 'loop']
-  toggleOverlay    ['name', ['sib']]
-  layerExitOverlay ['name']
+  layerButton        ['cue', 'loop']
+  toggleOverlay      ['name', ['sib']]
+  toggleLayerOverlay ['cueName', 'loopName']
+      Picks target by _patchActive('cue') / _patchActive('loop').
+      Both overlays can sit in activePatches at once; _host gates
+      visibility.
+  layerExitOverlay   ['name']
   toggleTopMode
   toggleMiniFx
 
@@ -1029,6 +1035,9 @@ Buttons:
   bpmPress             ['encoderL']
   loadSelectedTrack
   shutdownHold
+  hotcueSetPhraseColor ['N']
+      Activates hotcue N; if unset, also writes
+      PHRASE_MARKER_COLORS[0] as its colour. Release writes 0.
 
 ═══════════════════════════════════════════════════════════════
 SELF-ACCELERATING FUNCS
@@ -1302,3 +1311,10 @@ GOTCHAS THE CODE DOESN'T SHOUT ABOUT
   `play_indicator`. Use `track_loaded` for the countdown
   LEDs, or `on: true` for custom beat LEDs that should
   always render
+
+- `hotcue916` (`_host: 'cue'`) and `loopOdd` (`_host: 'loop'`)
+  are layer-scoped overlays, both toggled via chord + slip through
+  `toggleLayerOverlay`. Both can sit in `activePatches` at once;
+  `_host` gates visibility. To write a hotcue colour from script:
+  activate first (`hotcue_X_activate`), then set
+  `hotcue_X_color` (3-byte RGB). Writing colour first is ignored.

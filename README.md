@@ -142,16 +142,23 @@ LOOP    (loop sizes)   8    4    2    1     1/16 1/8  1/4  1/2
   +shift: beatjump
   size (same cell map) 8    4    2    1     1/16 1/8  1/4  1/2
 
-ODD     (odd loops)    7    5    3    1     3/32 3/16 3/8  1/2
-  +shift: beatjump
-  size (same cell map) 7    5    3    1     3/32 3/16 3/8  1/2
-
 LEDs
   CUE hotcues         per-hotcue colour read from Mixxx
   LOOP sizes          green · teal2 (grid3_2 / grid3_3)
   LOOP shift sizes    teal2 · green (grid3_2 / grid3_3)
-  ODD sizes           cyan · sky2  (grid3_2 / grid3_3)
-  ODD shift sizes     sky2 · cyan  (grid3_2 / grid3_3)
+
+Layer overlays (chord + slip, per layer, toggle again to exit):
+
+  hotcue916 (cue layer)
+    row 2-3: hotcues 9, 10, 11, 12 / 13, 14, 15, 16
+    press unset: creates with PHRASE_MARKER_COLORS[0]
+    +shift:      clears the hotcue
+    grid0_1 / grid1_1 (beatjump16): recolour yellow
+
+  loopOdd (loop layer)
+    row 2-3: loop sizes 7, 5, 3, 1 / 3/32, 3/16, 3/8, 1/2
+    +shift:  beatjump sizes (same cell map)
+    grid0_1 / grid1_1 (beatjump direction): recolour yellow
 
 
 ════════════════════════════════════════════════════════════
@@ -182,7 +189,7 @@ No shift companion, no chord override. Faders are identical in every state.
 LAYER BUTTON  (cycles bottom layer)
 ════════════════════════════════════════════════════════════
 
-press:  CUE → LOOP → ODD → CUE  (replacePatch swaps the active layer)
+press:  CUE ↔ LOOP  (replacePatch swaps the active layer)
 LED:    track-end countdown on DECK A (4 phases: green/yellow/amber/red)
 +shift: enters the chord (layer press is intercepted)
 
@@ -226,13 +233,14 @@ CHORD  (shift + layer, both held)
 Enter:  hold shift, press layer, keep both held
 Exit:   release shift OR layer, OR trigger shutdown timer
 
-Overrides (top press row only — CHORD patch declares just these):
+Overrides (CHORD patch declares just these):
 press0: toggle fxRouting overlay (clears selectAB)
 press1: toggle selectAB overlay  (clears fxRouting)
 press2: —
 press3: hold 2 s → shutdown
 pressR: toggleTopMode  (focus ↔ twoDeck-family; mini → focus)
 pressL: toggleMiniFx   (twoDeck ↔ mini; focus → no-op)
+grid2_1 (slip): toggle layer overlay (cue → hotcue916, loop → loopOdd)
 
 Passes through unchanged:
 enc0-3:  whatever the active top mode bound them to (chord holds shift, so
@@ -240,7 +248,7 @@ enc0-3:  whatever the active top mode bound them to (chord holds shift, so
 encL/R:  whatever the active bottom layer bound them to
 grids:   chord requires shift held, so grid cells behave as shifted
 
-Overlays (enter via chord, exit via layer press or toggle again):
+Overlays (enter via chord; exit via layer press or toggle again):
 
 selectAB
   grid row 0: deck A ← channel 1-4
@@ -253,6 +261,24 @@ selectAB
 fxRouting
   gridN_M: toggle FX(N+1) → channel(M+1) group-enable
   Layer press: exit
+
+Layer overlays (enter via chord + slip; exit via chord + slip):
+
+hotcue916 (cue mode only)
+  grid rows 2-3: hotcues 9-16 instead of 1-8
+  press unset: creates with PHRASE_MARKER_COLORS[0]
+  shift + press: clears
+  grid0_1 / grid1_1 (beatjump16) recolour yellow
+  hidden in LOOP, reapplies on return to CUE
+
+loopOdd (loop mode only)
+  grid rows 2-3: odd loop sizes 7/5/3/1/3/32/3/16/3/8/1/2
+  shift: odd beatjump sizes (same cell map)
+  grid0_1 / grid1_1 (beatjump direction) recolour yellow
+  hidden in CUE, reapplies on return to LOOP
+
+Both overlays can be on at once; each is visible only in its
+own layer.
 ```
 
 ---

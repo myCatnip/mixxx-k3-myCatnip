@@ -354,7 +354,48 @@
             if (!this._ctrl._isPress(v, s)) return;
             this._ctrl.removePatch(args[0]);
         },
-
+        
+        // Layer-aware overlay toggle. Picks the target name from
+        // args[0] (cue layer) or args[1] (loop layer). Each overlay
+        // toggles independently — both can sit in activePatches,
+        // _host gates which is visible. No-op outside cue / loop.
+        toggleLayerOverlay: function(args, ch, c, v, s) {
+            if (!this._ctrl._isPress(v, s)) return;
+            var ctrl = this._ctrl;
+            var name = null;
+            if      (ctrl._patchActive('cue'))  name = args[0];
+            else if (ctrl._patchActive('loop')) name = args[1];
+            if (!name) return;
+            if (ctrl.activePatches.indexOf(name) !== -1) {
+                ctrl.removePatch(name);
+            } else {
+                ctrl.addPatch(name);
+            }
+        },
+        // Press: activates hotcue N. If the hotcue was unset, also
+        // writes the first PHRASE_MARKER_COLORS entry as its colour.
+        // Release: writes 0, matching the default push handler.
+        //
+        // Order matters — hotcue_X_activate creates the hotcue;
+        // hotcue_X_color sets its colour. Writing colour first is
+        // ignored by Mixxx when the hotcue doesn't exist yet.
+        hotcueSetPhraseColor: function(args, ch, c, v, s) {
+            var n = parseInt(args[0], 10);
+            if (isNaN(n) || n < 1) return;
+            var ctrl = this._ctrl;
+            if (!ctrl._isPress(v, s)) {
+                engine.setValue(this.group, 'hotcue_' + n + '_activate', 0);
+                return;
+            }
+            var markers = XoneK3.PHRASE_MARKER_COLORS;
+            var color = (Array.isArray(markers) && markers.length > 0)
+                ? markers[0] : null;
+            var wasSet = engine.getValue(this.group, 'hotcue_' + n + '_status') > 0;
+            engine.setValue(this.group, 'hotcue_' + n + '_activate', 1);
+            if (!wasSet && color !== null) {
+                engine.setValue(this.group, 'hotcue_' + n + '_color', color);
+            }
+        },
         // ----------------------------------------------------------
         // Top-half mode swap
         // ----------------------------------------------------------

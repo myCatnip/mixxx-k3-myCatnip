@@ -26,7 +26,9 @@ Alphabetical. One line each.
 | **FX layout table** | The per-unit cell mapping for the middle cells, one table per mode. |
 | **Group** | A Mixxx group string. `[Channel1]`, `[EffectRack1_EffectUnit2]`, etc. |
 | **Host** | An overlay patch's `_host` field — the patches it may apply over. |
+| **Hotcue 9-16 overlay** | A cue-mode-only overlay toggled by chord + slip. Grid rows 2–3 target hotcues 9–16; unset presses create the hotcue with the first `PHRASE_MARKER_COLORS` entry. Beatjump16 indicator recolours yellow. |
 | **Loop clock** | The virtual timeline. Advances in musical time, seeded from the playhead when a loop starts, stopped when the loop ends. |
+| **Loop-odd overlay** | A loop-mode-only overlay toggled by chord + slip. Grid rows 2–3 target odd loop sizes. shift targets matching odd beatjump sizes. Beatjump direction indicator recolours yellow. |
 | **Main cue** | The track's primary cue point. Cleared by writing `1` to `[ChannelN],cue_clear`; a `cue_point` write moves it. |
 | **Marker** | A colour band on a scheme. Shown when a deviation LED samples within `markerPosition ± markerWidth`. |
 | **Origin** | The beat number where "count 1" sits. Derived from marker hotcues. |

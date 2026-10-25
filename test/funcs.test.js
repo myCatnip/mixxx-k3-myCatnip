@@ -515,3 +515,180 @@ test('bpmPress: missing encoder arg no-op', function(t) {
     });
     H.press(c, 'pressL');
 });
+// ── hotcueSetPhraseColor ────────────────────────────────────
+
+test('hotcueSetPhraseColor: creates hotcue with first phrase color', function(t) {
+    var orig = XoneK3.PHRASE_MARKER_COLORS;
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08, 0x0044FF];
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'hotcue_9_status', 0);
+    c._applyBinding('grid0_2', {
+        func: XoneK3.FUNCS.hotcueSetPhraseColor, args: [9],
+        group: '[Channel1]', inKey: 'hotcue_9_activate'
+    });
+    H.press(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_activate'), 1);
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_color'), 0xC50A08);
+    XoneK3.PHRASE_MARKER_COLORS = orig;
+});
+
+test('hotcueSetPhraseColor: leaves existing hotcue color alone', function(t) {
+    var orig = XoneK3.PHRASE_MARKER_COLORS;
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'hotcue_9_status', 1);
+    engine._set('[Channel1]', 'hotcue_9_color', 0xFF8000);
+    c._applyBinding('grid0_2', {
+        func: XoneK3.FUNCS.hotcueSetPhraseColor, args: [9],
+        group: '[Channel1]', inKey: 'hotcue_9_activate'
+    });
+    H.press(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_color'), 0xFF8000);
+    XoneK3.PHRASE_MARKER_COLORS = orig;
+});
+
+test('hotcueSetPhraseColor: no color write when marker list empty', function(t) {
+    var orig = XoneK3.PHRASE_MARKER_COLORS;
+    XoneK3.PHRASE_MARKER_COLORS = [];
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'hotcue_9_status', 0);
+    c._applyBinding('grid0_2', {
+        func: XoneK3.FUNCS.hotcueSetPhraseColor, args: [9],
+        group: '[Channel1]', inKey: 'hotcue_9_activate'
+    });
+    H.press(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_color'), 0);
+    XoneK3.PHRASE_MARKER_COLORS = orig;
+});
+
+test('hotcueSetPhraseColor: release writes 0', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('grid0_2', {
+        func: XoneK3.FUNCS.hotcueSetPhraseColor, args: [9],
+        group: '[Channel1]', inKey: 'hotcue_9_activate'
+    });
+    H.release(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_activate'), 0);
+});
+
+// ── hotcueSetPhraseColor ────────────────────────────────────
+
+test('hotcueSetPhraseColor: creates hotcue with first phrase color', function(t) {
+    var orig = XoneK3.PHRASE_MARKER_COLORS;
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08, 0x0044FF];
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'hotcue_9_status', 0);
+    c._applyBinding('grid0_2', {
+        func: XoneK3.FUNCS.hotcueSetPhraseColor, args: [9],
+        group: '[Channel1]', inKey: 'hotcue_9_activate'
+    });
+    H.press(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_activate'), 1);
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_color'), 0xC50A08);
+    XoneK3.PHRASE_MARKER_COLORS = orig;
+});
+
+test('hotcueSetPhraseColor: leaves existing hotcue color alone', function(t) {
+    var orig = XoneK3.PHRASE_MARKER_COLORS;
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'hotcue_9_status', 1);
+    engine._set('[Channel1]', 'hotcue_9_color', 0xFF8000);
+    c._applyBinding('grid0_2', {
+        func: XoneK3.FUNCS.hotcueSetPhraseColor, args: [9],
+        group: '[Channel1]', inKey: 'hotcue_9_activate'
+    });
+    H.press(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_color'), 0xFF8000);
+    XoneK3.PHRASE_MARKER_COLORS = orig;
+});
+
+test('hotcueSetPhraseColor: no color write when marker list empty', function(t) {
+    var orig = XoneK3.PHRASE_MARKER_COLORS;
+    XoneK3.PHRASE_MARKER_COLORS = [];
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'hotcue_9_status', 0);
+    c._applyBinding('grid0_2', {
+        func: XoneK3.FUNCS.hotcueSetPhraseColor, args: [9],
+        group: '[Channel1]', inKey: 'hotcue_9_activate'
+    });
+    H.press(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_color'), 0);
+    XoneK3.PHRASE_MARKER_COLORS = orig;
+});
+
+test('hotcueSetPhraseColor: release writes 0', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('grid0_2', {
+        func: XoneK3.FUNCS.hotcueSetPhraseColor, args: [9],
+        group: '[Channel1]', inKey: 'hotcue_9_activate'
+    });
+    H.release(c, 'grid0_2');
+    t.eq(engine.getValue('[Channel1]', 'hotcue_9_activate'), 0);
+});
+
+// ── toggleLayerOverlay ──────────────────────────────────────
+
+test('toggleLayerOverlay: cue layer toggles args[0]', function(t) {
+    var c = H.ctrl({patches: {
+        cue: {}, loop: {},
+        ovCue: {_host: 'cue'}, ovLoop: {_host: 'loop'}
+    }});
+    c.activePatches = ['cue'];
+    c._applyBinding('press0', {
+        func: XoneK3.FUNCS.toggleLayerOverlay, args: ['ovCue', 'ovLoop']
+    });
+    H.press(c, 'press0');
+    t.contains(c.activePatches, 'ovCue');
+    t.notOk(c.activePatches.indexOf('ovLoop') !== -1);
+});
+
+test('toggleLayerOverlay: loop layer toggles args[1]', function(t) {
+    var c = H.ctrl({patches: {
+        cue: {}, loop: {},
+        ovCue: {_host: 'cue'}, ovLoop: {_host: 'loop'}
+    }});
+    c.activePatches = ['loop'];
+    c._applyBinding('press0', {
+        func: XoneK3.FUNCS.toggleLayerOverlay, args: ['ovCue', 'ovLoop']
+    });
+    H.press(c, 'press0');
+    t.contains(c.activePatches, 'ovLoop');
+    t.notOk(c.activePatches.indexOf('ovCue') !== -1);
+});
+
+test('toggleLayerOverlay: second press toggles off', function(t) {
+    var c = H.ctrl({patches: {
+        cue: {}, ovCue: {_host: 'cue'}
+    }});
+    c.activePatches = ['cue', 'ovCue'];
+    c._applyBinding('press0', {
+        func: XoneK3.FUNCS.toggleLayerOverlay, args: ['ovCue', null]
+    });
+    H.press(c, 'press0');
+    t.notOk(c.activePatches.indexOf('ovCue') !== -1);
+});
+
+test('toggleLayerOverlay: no-op outside cue / loop', function(t) {
+    var c = H.ctrl({patches: {
+        cue: {}, ovCue: {_host: 'cue'}
+    }});
+    c.activePatches = [];
+    c._applyBinding('press0', {
+        func: XoneK3.FUNCS.toggleLayerOverlay, args: ['ovCue', null]
+    });
+    H.press(c, 'press0');
+    t.notOk(c.activePatches.indexOf('ovCue') !== -1);
+});
+
+test('toggleLayerOverlay: release event no-op', function(t) {
+    var c = H.ctrl({patches: {
+        cue: {}, ovCue: {_host: 'cue'}
+    }});
+    c.activePatches = ['cue'];
+    c._applyBinding('press0', {
+        func: XoneK3.FUNCS.toggleLayerOverlay, args: ['ovCue', null]
+    });
+    H.release(c, 'press0');
+    t.notOk(c.activePatches.indexOf('ovCue') !== -1);
+});

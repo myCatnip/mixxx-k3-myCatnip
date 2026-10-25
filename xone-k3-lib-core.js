@@ -107,7 +107,6 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         CHORD:            'chord',
         CUE:              'cue',
         LOOP:             'loop',
-        ODD:              'oddLoop',
 
         SELECT_AB:        'selectAB',
         FX_ROUTING:       'fxRouting'

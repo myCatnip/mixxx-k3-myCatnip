@@ -215,8 +215,9 @@ Returning the cached object keeps `resolved[name]` references
 identical across recomputes — that's what makes `_applyResolved`'s
 `oldCfgs[name] === cfg` short-circuit fire.
 
-**Sibling layers do not inherit.** `CUE` and `LOOP` are siblings.
-`ODD` inherits from `LOOP` via `patch: ['loop']`.
+**Sibling layers do not inherit.** `CUE` and `LOOP` are siblings —
+a cell defined in one is invisible when only the other is active.
+`twoDeckMini` inherits from `twoDeck` via `patch: ['twoDeck']`.
 
 ## Patch name constants
 
@@ -233,7 +234,6 @@ MINI_LAYOUT:      'fxMini',
 CHORD:            'chord',
 CUE:              'cue',
 LOOP:             'loop',
-ODD:              'oddLoop',
 SELECT_AB:        'selectAB',
 FX_ROUTING:       'fxRouting'
 ```
@@ -638,6 +638,13 @@ if (!pressed && ctrl._chordActive) { ctrl._exitChord(); return; }
 if (!pressed) return;
 ctrl.replacePatch(args[0], args[1]);
 ```
+
+The shipped chord declares `grid2_1` as
+`toggleLayerOverlay(['hotcue916', 'loopOdd'])` — the func picks
+target by `_patchActive('cue')` / `_patchActive('loop')`. Both
+overlays may sit in `activePatches` simultaneously; `_host: 'cue'`
+/ `_host: 'loop'` gate visibility. Toggling in cue does not touch
+the loop overlay's state and vice versa.
 
 `shutdownHold` is a 2-second hold; releasing shift, layer, or the
 binding cell cancels the timer via `Binding._reset`.

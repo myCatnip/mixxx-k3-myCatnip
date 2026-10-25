@@ -64,10 +64,12 @@
         // Bottom
         cue:              CAT.CUE,
         cueShift:         CAT.CUE_SHIFT,
+        hotcue916:        CAT.CUE_916,
+        hotcue916Shift:   CAT.CUE_916_SHIFT,
         loop:             CAT.LOOP,
         loopShift:        CAT.LOOP_SHIFT,
-        oddLoop:          CAT.ODD,
-        oddLoopShift:     CAT.ODD_SHIFT,
+        loopOdd:          CAT.LOOP_ODD,
+        loopOddShift:     CAT.LOOP_ODD_SHIFT,
 
         // Overlays
         selectAB:         CAT.SELECT_AB,

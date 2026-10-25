@@ -134,7 +134,13 @@
                                  on: { patchActive: ['twoDeck', 'twoDeckMini'] } } },
         pressL: { func: F.toggleMiniFx,
                   colorScheme: { scheme: 'overlayChord',
-                                 on: { patchActive: 'twoDeckMini' } } }
+                                 on: { patchActive: 'twoDeckMini' } } },
+
+        // chord + slip: layer-scoped overlay toggle.
+        //   cue  → hotcue 9-16
+        //   loop → odd loop sizes + yellow beatjump indicator
+        grid2_1: { func: F.toggleLayerOverlay,
+                   args: ['hotcue916', 'loopOdd'] }
     };
 
     // ============================================================
