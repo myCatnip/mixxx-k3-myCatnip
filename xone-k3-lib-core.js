@@ -30,7 +30,7 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // ============================================================
     // TUNABLES
     // ============================================================
-    XoneK3.SYSEX_THROTTLE_MS = 1;
+    XoneK3.SYSEX_THROTTLE_MS = 10;
 
     XoneK3.DEFAULT_RGB_BRIGHTNESS     = 110;
     XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF = 12;
@@ -216,15 +216,108 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     };
 
     // ============================================================
-    // BINDING HASH
+    // BINDING FIELD TABLE
     // ============================================================
-    XoneK3._BINDING_CFG_FIELDS = [
-        'group', 'inKey', 'outKey', 'type',
-        'func', 'args',
-        'valueCurve', 'softTakeover',
-        'noLED', 'k2', 'accel',
-        'colorScheme'
+    // One table describing every field the binding pipeline
+    // recognises. Each row is a cfg field (hash: true), a tokenable
+    // field (token: <label>), a binding-side state field snapshotted
+    // by _snapshotBinding (snapshot: {...}), or a reset-able field
+    // _unbind / _rearmSoftTakeover don't need (ignored: true).
+    //
+    // Adding a new binding field: add a row. That is the only edit.
+    // _BINDING_CFG_FIELDS, _SNAPSHOT_FIELDS, _SNAPSHOT_IGNORED,
+    // _tokenFields and _resolvedTargetHash all derive from this
+    // array — nothing else to keep in sync.
+    //
+    // Row shape:
+    //   name       cfg path (dot-paths allowed, e.g. 'colorScheme.on.group')
+    //   hash       include in _hashBinding's field list
+    //   token      emit from _tokenFields + resolve in _resolvedTargetHash;
+    //              value is the label used in warnings
+    //   snapshot   { dest, source?, transform? }
+    //              source defaults to name; transform is a name in
+    //              XoneK3._snapshotTransform
+    //   ignored    reset-able binding field that _unbind /
+    //              _rearmSoftTakeover do not read
+    XoneK3._BINDING_FIELDS = [
+        // ---- cfg fields (hashed) ----
+        { name: 'group',        hash: true, token: 'group', snapshot: { dest: 'group' } },
+        { name: 'inKey',        hash: true, token: 'inKey', snapshot: { dest: 'inKey' } },
+        { name: 'outKey',       hash: true, token: 'outKey', ignored: true },
+        { name: 'type',         hash: true, snapshot: { dest: 'wasPot', transform: 'isPot' } },
+        { name: 'func',         hash: true },
+        { name: 'args',         hash: true },
+        { name: 'valueCurve',   hash: true },
+        { name: 'softTakeover', hash: true, ignored: true },
+        { name: 'noLED',        hash: true, snapshot: { dest: 'wasNoLED', source: '_noLED' } },
+        { name: 'k2',           hash: true, snapshot: { dest: 'wasK2',    source: '_k2'    } },
+        { name: 'accel',        hash: true },
+        { name: 'colorScheme',  hash: true },
+
+        // ---- tokenable cfg sub-fields (hashed as part of colorScheme) ----
+        { name: 'colorScheme.on.group',              token: 'on.group' },
+        { name: 'colorScheme.schemeFromState.group', token: 'schemeFromState.group' },
+        { name: 'colorScheme.schemeFromState.co',    token: 'schemeFromState.co' },
+
+        // ---- binding-side fields snapshotted by _snapshotBinding ----
+        { name: '_rawCfg', snapshot: { dest: 'wasBound', transform: 'truthy' } },
+        { name: 'idx',     snapshot: { dest: 'idx' } },
+
+        // ---- binding-side fields, reset but not snapshotted ----
+        { name: 'buttonMode',         ignored: true },
+        { name: '_func',              ignored: true },
+        { name: '_funcArgs',          ignored: true },
+        { name: '_usedTokens',        ignored: true },
+        { name: '_csActive',          ignored: true },
+        { name: '_csFailed',          ignored: true },
+        { name: '_csDeviation',       ignored: true },
+        { name: '_csScheme',          ignored: true },
+        { name: '_csSchemeFn',        ignored: true },
+        { name: '_csSchemeMemo',      ignored: true },
+        { name: '_csCompiledMemo',    ignored: true },
+        { name: '_csKnob',            ignored: true },
+        { name: '_csFromStateConn',   ignored: true },
+        { name: '_csOn',              ignored: true },
+        { name: '_valueConn',         ignored: true },
+        { name: '_conns',             ignored: true },
+        { name: '_accel',             ignored: true },
+        { name: '_valueCurve',        ignored: true },
+        { name: '_shutdownHoldTimer', ignored: true }
     ];
+
+    // Derived view: hashed cfg fields, in table order. Consumed by
+    // _hashBinding and _auditBindingCfg.
+    XoneK3._BINDING_CFG_FIELDS = (function() {
+        var out = [];
+        for (var i = 0; i < XoneK3._BINDING_FIELDS.length; i++) {
+            if (XoneK3._BINDING_FIELDS[i].hash) out.push(XoneK3._BINDING_FIELDS[i].name);
+        }
+        return out;
+    })();
+
+    // Derived view: [source, dest, transform] triples consumed by
+    // _snapshotBinding. transform is a name in
+    // XoneK3._snapshotTransform, or null for identity.
+    XoneK3._SNAPSHOT_FIELDS = (function() {
+        var out = [];
+        for (var i = 0; i < XoneK3._BINDING_FIELDS.length; i++) {
+            var row = XoneK3._BINDING_FIELDS[i];
+            if (!row.snapshot) continue;
+            var s = row.snapshot;
+            out.push([s.source || row.name, s.dest, s.transform || null]);
+        }
+        return out;
+    })();
+
+    // Derived view: reset-able fields _snapshotBinding doesn't
+    // capture. Consumed by _auditSnapshotFields.
+    XoneK3._SNAPSHOT_IGNORED = (function() {
+        var out = [];
+        for (var i = 0; i < XoneK3._BINDING_FIELDS.length; i++) {
+            if (XoneK3._BINDING_FIELDS[i].ignored) out.push(XoneK3._BINDING_FIELDS[i].name);
+        }
+        return out;
+    })();
 
     // Stable function identity. Functions get a monotonic id on
     // first sight; two references to the same function return the
@@ -399,20 +492,19 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         return out;
     };
 
+    // Tokenable fields, in _BINDING_FIELDS order. Consumed by
+    // _collectTokens (populates b._usedTokens) and _validateBindings
+    // (unknown-token warnings).
     XoneK3._tokenFields = function(cfg) {
         var out = [];
-        if (cfg.group  !== undefined) out.push(['group',  cfg.group]);
-        if (cfg.inKey  !== undefined) out.push(['inKey',  cfg.inKey]);
-        if (cfg.outKey !== undefined) out.push(['outKey', cfg.outKey]);
-        var cs = cfg.colorScheme;
-        if (cs && cs.schemeFromState) {
-            if (cs.schemeFromState.group !== undefined)
-                out.push(['schemeFromState.group', cs.schemeFromState.group]);
-            if (cs.schemeFromState.co    !== undefined)
-                out.push(['schemeFromState.co',    cs.schemeFromState.co]);
+        for (var i = 0; i < XoneK3._BINDING_FIELDS.length; i++) {
+            var row = XoneK3._BINDING_FIELDS[i];
+            if (!row.token) continue;
+            var v = XoneK3.readPath(cfg, row.name);
+            if (v === undefined) continue;
+            var label = (typeof row.token === 'string') ? row.token : row.name;
+            out.push([label, v]);
         }
-        if (cs && cs.on && cs.on.group !== undefined)
-            out.push(['on.group', cs.on.group]);
         return out;
     };
 

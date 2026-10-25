@@ -9,6 +9,10 @@
 // _loopAccelEvents, pressHeld, turnHappened, _ledObservers —
 // live outside XoneK3._bindingDefaults on purpose. All are set
 // in the constructor; none are reset by _reset.
+//
+// _SNAPSHOT_FIELDS / _SNAPSHOT_IGNORED are derived from
+// XoneK3._BINDING_FIELDS in lib-core.js. The transform names
+// referenced from that table live here.
 
 'use strict';
 
@@ -20,15 +24,17 @@ if (typeof XoneK3._requireLoad !== 'function') {
 }
 XoneK3._requireLoad('xone-k3-lib-binding.js',
     ['_funcId', '_parseAccel', 'resolve', 'readPath',
-     '_tokenFields', 'CO_MATCH_EPSILON', 'BEAT_HOLD', 'applyBeat']);
+     '_tokenFields', 'CO_MATCH_EPSILON', 'BEAT_HOLD', 'applyBeat',
+     '_BINDING_FIELDS', '_SNAPSHOT_FIELDS', '_SNAPSHOT_IGNORED']);
 
 (function() {
     // ============================================================
     // RESET-ABLE BINDING FIELD FACTORY
     // ============================================================
     // Every field wiped on _reset (and therefore also set at
-    // construction). Add a new reset-able field here, not in the
-    // constructor and not in _reset.
+    // construction). Add a new reset-able field here AND to
+    // XoneK3._BINDING_FIELDS in lib-core.js (as either snapshot
+    // or ignored) so the boot-time audit stays clean.
     XoneK3._bindingDefaults = function() {
         return {
             // Binding target
@@ -489,37 +495,15 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     };
 
     // ============================================================
-    // SNAPSHOT FIELD LIST
+    // SNAPSHOT TRANSFORM
     // ============================================================
-    // Source fields for K3Controller._snapshotBinding. Left column
-    // read before _reset, right column the key consumers read.
-    XoneK3._SNAPSHOT_FIELDS = [
-        ['group',   'group'],
-        ['inKey',   'inKey'],
-        ['type',    'wasPot'],
-        ['_rawCfg', 'wasBound'],
-        ['_noLED',  'wasNoLED'],
-        ['_k2',     'wasK2'],
-        ['idx',     'idx']
-    ];
-
-    // Reset-able fields _unbind and _rearmSoftTakeover do not read.
-    // Anything reset-able that isn't a snapshot source and isn't
-    // here triggers a boot-time warning.
-    XoneK3._SNAPSHOT_IGNORED = [
-        'outKey', 'buttonMode', 'softTakeover',
-        '_func', '_funcArgs', '_usedTokens',
-        '_csActive', '_csFailed', '_csDeviation', '_csScheme', '_csSchemeFn',
-        '_csSchemeMemo', '_csCompiledMemo',
-        '_csKnob', '_csFromStateConn', '_csOn',
-        '_valueConn', '_conns',
-        '_accel', '_valueCurve',
-        '_shutdownHoldTimer'
-    ];
-
-    XoneK3._snapshotTransform = function(sourceName, v) {
-        if (sourceName === 'type')    return (v === 'knob' || v === 'fader');
-        if (sourceName === '_rawCfg') return !!v;
+    // Named transforms referenced from XoneK3._BINDING_FIELDS[i].
+    // snapshot.transform in lib-core.js. _SNAPSHOT_FIELDS /
+    // _SNAPSHOT_IGNORED are derived from that table; this file
+    // only provides the transform implementations.
+    XoneK3._snapshotTransform = function(transform, v) {
+        if (transform === 'isPot')  return (v === 'knob' || v === 'fader');
+        if (transform === 'truthy') return !!v;
         return v;
     };
 

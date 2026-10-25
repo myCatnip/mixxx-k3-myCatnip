@@ -29,7 +29,7 @@ if (typeof XoneK3._requireLoad !== 'function') {
 XoneK3._requireLoad('xone-k3-lib-controller.js',
     ['Binding', '_bindingDefaults', '_SNAPSHOT_FIELDS',
      '_snapshotTransform', '_parseAccel', '_buildTransferRGB',
-     '_tokenFields', 'PATCH_NAMES']);
+     '_tokenFields', '_BINDING_FIELDS', 'PATCH_NAMES']);
 
 (function() {
     var PN = XoneK3.PATCH_NAMES;
@@ -425,6 +425,17 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         }
     };
 
+    // Explicit single-binding refresh. _applyBinding no longer
+    // refreshes on its own — every batch caller (_applyResolved,
+    // _unbindRemoved, _reapplyByTokens) passes skipRefresh=true
+    // and relies on the trailing _refreshAllLeds. Standalone
+    // callers (tests, external scripts) should either omit
+    // skipRefresh on the _applyBinding call or invoke this after.
+    XoneK3.K3Controller.prototype._refreshBinding = function(name) {
+        var b = this.bindings[name];
+        if (b) b._refresh();
+    };
+
     // ============================================================
     // APPLY RESOLVED
     // ============================================================
@@ -434,7 +445,13 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         var newHashes = {};
         var newCfgs   = {};
 
-        this._unbindRemoved(resolved, oldHashes);
+        // Per-binding refresh is redundant only when _recompute follows
+        // with _refreshAllLeds. Direct callers (tests, external
+        // scripts) don't get that sweep, so they still need
+        // _applyBinding to refresh.
+        var skipRefresh = this._recomputeDepth > 0;
+
+        this._unbindRemoved(resolved, oldHashes, skipRefresh);
 
         for (var name in resolved) {
             if (!resolved.hasOwnProperty(name)) continue;
@@ -446,7 +463,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             newHashes[name] = h;
             newCfgs[name]   = cfg;
             if (oldHashes[name] === h) continue;
-            this._applyOneSafe(name, cfg);
+            this._applyOneSafe(name, cfg, skipRefresh);
         }
 
         this._applied = resolved;
@@ -454,20 +471,22 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this._appliedCfgs = newCfgs;
     };
 
-    XoneK3.K3Controller.prototype._unbindRemoved = function(resolved, oldHashes) {
+    XoneK3.K3Controller.prototype._unbindRemoved = function(resolved, oldHashes, skipRefresh) {
         for (var oldName in oldHashes) {
             if (!oldHashes.hasOwnProperty(oldName)) continue;
             if (oldName.charAt(0) === '_') continue;
             if (resolved[oldName] !== undefined) continue;
-            this._applyOneSafe(oldName, null);
+            this._applyOneSafe(oldName, null, skipRefresh);
         }
     };
 
     // A single throwing binding must not abort the pass. cfg ===
-    // null / undefined means "unbind".
-    XoneK3.K3Controller.prototype._applyOneSafe = function(name, cfg) {
+    // null / undefined means "unbind". skipRefresh is passed
+    // through to _applyBinding — batch callers set it true and
+    // rely on the trailing _refreshAllLeds.
+    XoneK3.K3Controller.prototype._applyOneSafe = function(name, cfg, skipRefresh) {
         try {
-            this._applyBinding(name, cfg);
+            this._applyBinding(name, cfg, undefined, skipRefresh);
         } catch (e) {
             var isUnbind = (cfg === null || cfg === undefined);
             var key    = (isUnbind ? 'applyUnbindThrow:' : 'applyBindThrow:') + name;
@@ -482,7 +501,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         for (var i = 0; i < XoneK3._SNAPSHOT_FIELDS.length; i++) {
             var src = XoneK3._SNAPSHOT_FIELDS[i][0];
             var dst = XoneK3._SNAPSHOT_FIELDS[i][1];
-            snap[dst] = XoneK3._snapshotTransform(src, b[src]);
+            var tr  = XoneK3._SNAPSHOT_FIELDS[i][2];
+            snap[dst] = XoneK3._snapshotTransform(tr, b[src]);
         }
         return snap;
     };
@@ -600,6 +620,10 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         return parts.join('|');
     };
 
+    // Table-driven. Iterates XoneK3._BINDING_FIELDS rows that
+    // carry a token label, resolves each against current focus,
+    // and joins the results. Adding a new tokenable field is a
+    // single row in lib-core.js — no edit here.
     XoneK3.K3Controller.prototype._resolvedTargetHash = function(cfg, fingerprint) {
         if (!cfg) return '';
         if (fingerprint === undefined) fingerprint = this._tokenFingerprint();
@@ -608,29 +632,19 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         if (cached && cached.fingerprint === fingerprint) return cached.value;
 
         var parts = [];
-        parts.push(XoneK3.resolve(cfg.group,  this) || '');
-        parts.push(XoneK3.resolve(cfg.inKey,  this) || '');
-        parts.push(XoneK3.resolve(cfg.outKey, this) || '');
-        var cs = cfg.colorScheme;
-        if (cs) {
-            if (cs.on && cs.on.group !== undefined) {
-                parts.push(XoneK3.resolve(cs.on.group, this) || '');
-            }
-            if (cs.schemeFromState) {
-                if (cs.schemeFromState.group !== undefined) {
-                    parts.push(XoneK3.resolve(cs.schemeFromState.group, this) || '');
-                }
-                if (cs.schemeFromState.co !== undefined) {
-                    parts.push(XoneK3.resolve(cs.schemeFromState.co, this) || '');
-                }
-            }
+        for (var i = 0; i < XoneK3._BINDING_FIELDS.length; i++) {
+            var row = XoneK3._BINDING_FIELDS[i];
+            if (!row.token) continue;
+            var v = XoneK3.readPath(cfg, row.name);
+            if (v === undefined) v = '';
+            parts.push(XoneK3.resolve(v, this) || '');
         }
         var value = parts.join('\u0001');
         this._resolvedTargetHashCache.set(cfg, { fingerprint: fingerprint, value: value });
         return value;
     };
 
-    XoneK3.K3Controller.prototype._applyBinding = function(name, cfg, fingerprint) {
+    XoneK3.K3Controller.prototype._applyBinding = function(name, cfg, fingerprint, skipRefresh) {
         var b = this.bindings[name];
         if (!b) return;
 
@@ -660,11 +674,12 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         b._resolvedTargetHash = this._resolvedTargetHash(cfg, fingerprint);
 
-        // Standalone callers (tests, _reapplyByTokens first pass)
-        // rely on this refresh. During a full recompute the
-        // trailing _refreshAllLeds also walks it — duplicate wire
-        // send deduped by _ledCache.
-        b._refresh();
+        // Every batch caller (_applyResolved, _unbindRemoved,
+        // _reapplyByTokens) passes skipRefresh=true and relies on
+        // the trailing _refreshAllLeds. Standalone callers (tests,
+        // external scripts) should either omit skipRefresh here or
+        // call _refreshBinding(name) explicitly.
+        if (!skipRefresh) b._refresh();
     };
 
     XoneK3.K3Controller.prototype._resolveSchemeRef = function(ref) {
@@ -720,8 +735,9 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
     // Structural diff between two patch-name arrays. Returns
     // { added, removed } or null when the arrays are identical
-    // (same length, same element order — a re-order counts as
-    // unchanged because the stack is rebuilt from the same set).
+    // (same length, same element order). A re-order is a change —
+    // later patches override earlier ones, so shifting a name
+    // changes resolution and needs a recompute.
     XoneK3.K3Controller.prototype._diffPatches = function(before, after) {
         var same = (before.length === after.length);
         if (same) {
@@ -1012,7 +1028,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             if (fingerprint === null) fingerprint = this._tokenFingerprint();
             var h = this._resolvedTargetHash(b._rawCfg, fingerprint);
             if (b._resolvedTargetHash === h) continue;
-            this._applyBinding(name, b._rawCfg, fingerprint);
+            this._applyBinding(name, b._rawCfg, fingerprint, true);
         }
         if (!(opts && opts.skipRefresh)) {
             this._refreshAllLeds('token-reapply');

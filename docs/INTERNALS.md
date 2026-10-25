@@ -518,7 +518,41 @@ it.
 
 `cycleDisplaySource` toggles track ↔ loop while the loop clock
 runs. No-op when it doesn't. The manual choice sticks until the
-next loop start/stop.
+next loop start/stop or play/pause transition.
+
+**The loop clock runs iff `loopActive && playing`.** Pause is
+treated as exiting the loop; resume as entering it.
+
+All four start/stop call sites route through
+`_syncVirtualClock(ch)`, the single decision point:
+
+```js
+if (st.loopActive && st.playing && !st.loopClock.running)  start
+if (!(st.loopActive && st.playing) && st.loopClock.running) stop
+else                                                          no-op
+```
+
+Returns `true` when the clock state changed, `false` on no-op.
+
+| Caller | Uses the return value? |
+|---|---|
+| `_onLoopEnabled` | No — `_resolveDisplaySource` fires the repaint |
+| `_onPlayIndicator` | Yes — no-op branch needs an explicit `_refreshBeatLeds` so `_isBeatOffPhase` picks up the new `st.playing` (the no-loop pause case has no display-source change to piggyback on) |
+| `_catchUpChannel` | No |
+| `_onTrackLoaded` | No |
+
+`displaySource` is always `'track'` while the clock is stopped,
+so paused / jogged playback reads from `playposition` and shows
+the correct beat colour.
+
+Behavioural consequence: pausing inside a loop resets the
+iteration count. Resume lands on whatever loop beat the playhead
+is on. Jogging while paused moves the resume point — the next
+`play` seeds from there.
+
+A manual `cycleDisplaySource` toggle to `'track'` while playing
+is overwritten by the resume re-seed. If you want to hold 'track'
+across a pause, cycle again after resume. 
 
 ---
 
@@ -583,7 +617,7 @@ K3Controller._reapplyByTokens = function(tokens, opts) {
         if (fingerprint === null) fingerprint = this._tokenFingerprint();
         var h = this._resolvedTargetHash(b._rawCfg, fingerprint);
         if (b._resolvedTargetHash === h) continue;
-        this._applyBinding(name, b._rawCfg, fingerprint);
+        this._applyBinding(name, b._rawCfg, fingerprint, true);
     }
     if (!(opts && opts.skipRefresh)) this._refreshAllLeds('token-reapply');
 };
@@ -604,13 +638,14 @@ value changes the fingerprint, invalidating the entry. Adding a
 token to the registry covers it automatically.
 
 `_usedTokens` is populated in `_collectTokens`. Both it and
-`_validateBindings` share `XoneK3._tokenFields(cfg)`, which
-enumerates every binding field that can carry a `$TOKEN$`
-(`group`, `inKey`, `outKey`, `schemeFromState.group`,
-`schemeFromState.co`, `on.group`).
+`_validateBindings` share `XoneK3._tokenFields(cfg)`, which walks
+every `XoneK3._BINDING_FIELDS` row that carries a `token:` label
+and reads the corresponding cfg path. `_resolvedTargetHash` walks
+the same rows to resolve each target against current focus.
 
-Adding a new token-bearing field means editing `_tokenFields` and
-`_resolvedTargetHash` — the two must stay in sync.
+Adding a new token-bearing field is one row in
+`XoneK3._BINDING_FIELDS` — both `_tokenFields` and
+`_resolvedTargetHash` pick it up automatically. 
 
 **`skipRefresh: true`** — all three focus setters use it, then
 refresh via `_syncFxLayout`'s recompute or their own trailing
@@ -1016,9 +1051,10 @@ of acceleration per binding.
 
 `_applyResolved` diffs hashes, not object identity.
 
-`_BINDING_CFG_FIELDS` enumerates every field that affects runtime
-behaviour or LED output. Fields starting with `_` are structural
-metadata and deliberately omitted.
+`_BINDING_CFG_FIELDS` is derived from `XoneK3._BINDING_FIELDS` in
+`lib-core.js` — every row with `hash: true`, in table order.
+Fields starting with `_` are structural metadata and deliberately
+omitted from the table's cfg-field rows.
 
 `_hashBindingValue`:
 
@@ -1081,21 +1117,28 @@ _ledObservers      LED observers
 Before every `_reset`, `_applyBinding` captures fields that
 `_unbind` and `_rearmSoftTakeover` need after the wipe.
 
-```js
-XoneK3._SNAPSHOT_FIELDS = [
-    ['group',   'group'],
-    ['inKey',   'inKey'],
-    ['type',    'wasPot'],
-    ['_rawCfg', 'wasBound'],
-    ['_noLED',  'wasNoLED'],
-    ['_k2',     'wasK2'],
-    ['idx',     'idx']
-];
-```
+`_SNAPSHOT_FIELDS` is derived from `XoneK3._BINDING_FIELDS` in
+`lib-core.js` — every row with a `snapshot:` clause, expanded to
+`[source, dest, transform]`. The current table:
 
-`_SNAPSHOT_IGNORED` lists every reset-able field that consumers
-don't read. Anything reset-able not in either list triggers a
-boot-time warning (gated on `_debugPrintsOn`).
+| source    | dest       | transform |
+|-----------|------------|-----------|
+| `group`   | `group`    | —         |
+| `inKey`   | `inKey`    | —         |
+| `type`    | `wasPot`   | `isPot`   |
+| `_rawCfg` | `wasBound` | `truthy`  |
+| `_noLED`  | `wasNoLED` | —         |
+| `_k2`     | `wasK2`    | —         |
+| `idx`     | `idx`      | —         |
+
+`_SNAPSHOT_IGNORED` is derived the same way — every row with
+`ignored: true`. Anything reset-able not classified as snapshot
+or ignored triggers a boot-time warning (gated on
+`_debugPrintsOn`).
+
+Transform names are implemented in `XoneK3._snapshotTransform` in
+`lib-binding.js`. Adding one means editing that function plus the
+table row.
 
 `_resolvedTargetHash` is controller-set, not in
 `_bindingDefaults`, so the snapshot audit doesn't see it.
@@ -1317,16 +1360,22 @@ Full behaviour-driven symptoms (config author's view): CUSTOMISE §3.
 
 ## Adding a binding field
 
-1. If it affects runtime behaviour or LED output, add it to
-   `_BINDING_CFG_FIELDS`.
+1. Add a row to `XoneK3._BINDING_FIELDS` in `lib-core.js`. Set:
+   - `hash: true` if it affects runtime behaviour or LED output
+   - `token: '<label>'` if it can carry a `$TOKEN$`
+   - `snapshot: { dest, transform? }` if `_unbind` /
+     `_rearmSoftTakeover` must read it after a rebind
+   - `ignored: true` if it's reset-able but neither snapshotted
+     nor hashed
+
+   `_BINDING_CFG_FIELDS`, `_SNAPSHOT_FIELDS`, `_SNAPSHOT_IGNORED`,
+   `_tokenFields` and `_resolvedTargetHash` all derive from this
+   table — nothing else to edit for those five.
 2. If `_bindCore` should read it, add a branch there.
-3. If it can carry a `$TOKEN$`, add it to `_tokenFields` AND
-   `_resolvedTargetHash`. The two must stay in sync.
-4. If reset-able, add it to `XoneK3._bindingDefaults`.
-5. If reset-able and `_unbind` / `_rearmSoftTakeover` should
-   read it, add it to `_SNAPSHOT_FIELDS`. Otherwise add it to
-   `_SNAPSHOT_IGNORED`.
-6. Turn on `XoneK3._debugPrintsOn` and reload.
+3. If reset-able, add it to `XoneK3._bindingDefaults`.
+4. Turn on `XoneK3._debugPrintsOn` and reload. The boot-time
+   audits (`_auditBindingCfg`, `_auditSnapshotFields`) fire if a
+   reset-able field isn't classified.
 
 ## Adding a func
 
@@ -1444,6 +1493,12 @@ XoneK3` in `lib-core.js` carries an inline disable.
 - **`beat_active` drives the pulse in both modes.** The cascade
   reads `clock.pos` in loop mode; the pulse reads the track
   fraction.
+- **`_syncVirtualClock(ch)` is the single start/stop decision.**
+  Starts when `loopActive && playing && !running`; stops when
+  `!(loopActive && playing) && running`; returns `true` if the
+  state changed. Four call sites — `_onLoopEnabled`,
+  `_onPlayIndicator`, `_catchUpChannel`, `_onTrackLoaded` — all
+  route through it.
 - **`_refreshDisplayFlags` is the only writer of the three
   derived flags.**
 - **All three focus setters refresh exactly once on every path**
@@ -1538,10 +1593,14 @@ XoneK3` in `lib-core.js` carries an inline disable.
 - **Numeric `on.state` without `equals` warns once per binding,
   from `_isOn` only.** A binding whose LED never renders never
   fires the warning.
-- **`_applyBinding` refreshes at the end.** The recompute path
-  also runs `_refreshAllLeds` — duplicate wire send deduped by
-  `_ledCache`. The refresh exists for callers outside a
-  recompute.
+- **`_applyBinding` refreshes only when the caller asks.** Batch
+  callers (`_applyResolved`, `_unbindRemoved`, `_reapplyByTokens`)
+  pass `skipRefresh: true` and rely on the trailing
+  `_refreshAllLeds`. `_applyResolved` gates the flag on
+  `_recomputeDepth > 0` so direct callers (tests, external
+  scripts) still get a per-binding refresh without an explicit
+  `_refreshBinding(name)` call. One wire send per binding per
+  recompute, not two.
 - **Hash cache relies on cfg object identity being stable.**
 - **`_hashBinding` uses `\u0001` as the separator and
   JSON-quotes strings.** A `|` inside a `group` can't shift the

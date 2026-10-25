@@ -35,19 +35,11 @@ test('BEATJUMP_GAP_MS: default is 130', function(t) {
 
 // ═══ _beatjumpAllowed: group resolution ══════════════════════
 
-test('_beatjumpAllowed: undefined group → true', function(t) {
+test('_beatjumpAllowed: non-Channel group → true (undefined / null / [Master])', function(t) {
     var c = H.ctrl();
-    t.eq(c._beatjumpAllowed(undefined), true);
-});
-
-test('_beatjumpAllowed: null group → true', function(t) {
-    var c = H.ctrl();
-    t.eq(c._beatjumpAllowed(null), true);
-});
-
-test('_beatjumpAllowed: non-Channel group → true', function(t) {
-    var c = H.ctrl();
-    t.eq(c._beatjumpAllowed('[Master]'), true);
+    t.eq(c._beatjumpAllowed(undefined),  true, 'undefined');
+    t.eq(c._beatjumpAllowed(null),       true, 'null');
+    t.eq(c._beatjumpAllowed('[Master]'), true, '[Master]');
 });
 
 test('_beatjumpAllowed: non-Channel group does not stamp any channel', function(t) {

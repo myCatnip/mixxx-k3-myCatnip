@@ -69,9 +69,10 @@ test('beatLevel: half skips odd beats at beat level', function(t) {
 
 // ── beatLevel: negative & zero counts ───────────────────────
 
-test('beatLevel: count=0 normalizes to previous phrase', function(t) {
-    var r = XoneK3.beatLevel({barBeats: 4, phraseBars: 4}, 0);
-    t.ok(r.level !== undefined);
+test('beatLevel: count=0 lands on beat 16 of previous phrase', function(t) {
+    // count=0 → phrasePos = 15 → 'beat' (same phrase-relative
+    // position as count=16 and count=32).
+    t.eq(XoneK3.beatLevel({barBeats: 4, phraseBars: 4}, 0).level, 'beat');
 });
 
 test('beatLevel: count=-1 same as count=15', function(t) {
@@ -106,19 +107,12 @@ test('applyBeat: no beat → unchanged', function(t) {
     t.eq(XoneK3.applyBeat(e, null, 1), e);
 });
 
-test('applyBeat: null count → unchanged', function(t) {
+test('applyBeat: null / undefined / NaN count → unchanged', function(t) {
     var e = {rgb: [10,20,30], brightness: 100};
-    t.eq(XoneK3.applyBeat(e, {color: 'red'}, null), e);
-});
-
-test('applyBeat: undefined count → unchanged', function(t) {
-    var e = {rgb: [10,20,30], brightness: 100};
-    t.eq(XoneK3.applyBeat(e, {color: 'red'}, undefined), e);
-});
-
-test('applyBeat: NaN count → unchanged', function(t) {
-    var e = {rgb: [10,20,30], brightness: 100};
-    t.eq(XoneK3.applyBeat(e, {color: 'red'}, NaN), e);
+    var beat = {color: 'red'};
+    t.eq(XoneK3.applyBeat(e, beat, null),      e, 'null');
+    t.eq(XoneK3.applyBeat(e, beat, undefined), e, 'undefined');
+    t.eq(XoneK3.applyBeat(e, beat, NaN),       e, 'NaN');
 });
 
 test('applyBeat: zero count passes through (valid)', function(t) {
@@ -197,10 +191,4 @@ test('applyBeat: half does not skip bar/phrase', function(t) {
     var beat = {barBeats: 4, phraseBars: 4, half: true, color: 'red'};
     t.ok(XoneK3.applyBeat({rgb: [0,0,0], brightness: 100}, beat, 5) !== XoneK3.BEAT_HOLD);
     t.ok(XoneK3.applyBeat({rgb: [0,0,0], brightness: 100}, beat, 1) !== XoneK3.BEAT_HOLD);
-});
-
-// ── BEAT_HOLD identity ───────────────────────────────────────
-
-test('BEAT_HOLD: a shared opaque object', function(t) {
-    t.eq(XoneK3.BEAT_HOLD, XoneK3.BEAT_HOLD);
 });

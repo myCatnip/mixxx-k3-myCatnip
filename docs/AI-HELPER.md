@@ -185,6 +185,11 @@ Exactly one feeds the count at a time. Manual cycle via
 `cycleDisplaySource` (bound to CUE and LOOP `grid2_0`); no-op
 when the loop clock isn't running.
 
+The loop clock runs iff `loopActive && playing`. Pause stops it
+(equivalent to exiting the loop, display reverts to track);
+resume re-seeds from the playhead (equivalent to entering the
+loop).
+
 THE PULSE IS NOT THE COUNT.
 
   displaySource picks which count the cascade reads.

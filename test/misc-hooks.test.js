@@ -5,13 +5,18 @@ var H = require('./helpers');
 // _onPatchChange / _afterRecompute / _onInput hooks, TIME_SIG
 // setter/clearer, _pulseCo edge cases, CO watcher lifecycle.
 
-// ── _onPatchChange ─────────────────────────────────────────
+// ── default hooks are no-ops ──────────────────────────────
 
-test('_onPatchChange: base is a no-op', function(t) {
+test('default hooks are no-ops (base K3Controller)', function(t) {
     var c = H.ctrl({patches: {cue: {}}});
+    // Base implementations are empty; LabController overrides
+    // them. Calling the base must not throw.
     c._onPatchChange('cue', null);
-    t.ok(true);
+    c._afterRecompute();
+    c._onInput(c.bindings.button0_0);
 });
+
+// ── _onPatchChange fires ──────────────────────────────────
 
 test('_onPatchChange: fires on addPatch', function(t) {
     var c = H.ctrl({patches: {cue: {}}});
@@ -40,13 +45,7 @@ test('_onPatchChange: fires on replacePatch', function(t) {
     t.eq(log[0], ['cue', 'loop']);
 });
 
-// ── _afterRecompute ────────────────────────────────────────
-
-test('_afterRecompute: base is a no-op', function(t) {
-    var c = H.ctrl();
-    c._afterRecompute();
-    t.ok(true);
-});
+// ── _afterRecompute fires ─────────────────────────────────
 
 test('_afterRecompute: fires once per recompute', function(t) {
     var c = H.ctrl({patches: {cue: {}}});
@@ -65,13 +64,7 @@ test('_afterRecompute: fires during shift / unshift', function(t) {
     t.eq(count, 2);
 });
 
-// ── _onInput ───────────────────────────────────────────────
-
-test('_onInput: base is a no-op', function(t) {
-    var c = H.ctrl();
-    c._onInput(c.bindings.button0_0);
-    t.ok(true);
-});
+// ── _onInput fires ─────────────────────────────────────────
 
 test('_onInput: fires before binding func', function(t) {
     var c = H.ctrl();
