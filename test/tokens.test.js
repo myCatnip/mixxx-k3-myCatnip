@@ -23,14 +23,6 @@ test('resolve: $DECK_B$ / $DECK_B_N$', function(t) {
     t.eq(XoneK3.resolve('$DECK_B_N$', c), '4');
 });
 
-test('resolve: $DECK_C$ / $DECK_D$', function(t) {
-    var c = H.ctrl();
-    c.setSelectedFor('deck', 'C', 1);
-    c.setSelectedFor('deck', 'D', 2);
-    t.eq(XoneK3.resolve('$DECK_C$', c), '[Channel1]');
-    t.eq(XoneK3.resolve('$DECK_D$', c), '[Channel2]');
-});
-
 test('resolve: $DECK_ACTIVE$ follows activeDeck', function(t) {
     var c = H.ctrl();
     c.setSelectedFor('deck', 'A', 1);
@@ -86,6 +78,13 @@ test('resolve: multiple tokens in one string', function(t) {
 test('resolve: no tokens → unchanged', function(t) {
     var c = H.ctrl();
     t.eq(XoneK3.resolve('[Master]', c), '[Master]');
+});
+
+test('resolve: unknown token passes through untouched', function(t) {
+    var c = H.ctrl();
+    t.eq(XoneK3.resolve('$DECK_C$',  c), '$DECK_C$');
+    t.eq(XoneK3.resolve('$FX_D$',    c), '$FX_D$');
+    t.eq(XoneK3.resolve('$NOT_A$',   c), '$NOT_A$');
 });
 
 test('resolve: non-string passthrough', function(t) {
