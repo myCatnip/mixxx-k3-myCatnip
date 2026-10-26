@@ -82,8 +82,76 @@ test('track_samples change invalidates _trackMetaCache', function(t) {
     engine._set('[Channel1]', 'track_samples', 2000);
     engine._trigger('[Channel1]', 'track_samples', 2000);
 
-    t.eq(c._trackMetaCache[1].duration, 999,
-         'cache must reflect the new duration after track_samples change');
+    t.eq(c._trackMeta(1).duration, 999);
+    t.eq(c._trackMeta(1).samples, 2000);
+});
+
+// ── hotcue cache ───────────────────────────────────────────
+
+test('_seedHotcueCache populates from COs', function(t) {
+    var c = setup();
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+    engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
+    engine._set('[Channel1]', 'hotcue_1_position', 500);
+
+    c._seedHotcueCache(1);
+
+    t.eq(c._decks[1].hotcueState[1].color, 0xC50A08);
+    t.eq(c._decks[1].hotcueState[1].pos, 500);
+    t.eq(Object.keys(c._decks[1].hotcueState).length, XoneK3.HOTCUE_MAX,
+         'all HOTCUE_MAX slots cached');
+
+    XoneK3.PHRASE_MARKER_COLORS = [];
+});
+
+test('_seedHotcueCache no-op when PHRASE_MARKER_COLORS empty', function(t) {
+    var c = setup();
+    // PHRASE_MARKER_COLORS is [] via setup().
+    c._seedHotcueCache(1);
+    t.eq(Object.keys(c._decks[1].hotcueState).length, 0,
+         'no reads when feature is off');
+});
+
+test('track_samples change re-seeds hotcueState', function(t) {
+    var c = setup();
+    withBeat(c);
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+
+    // Simulate a marker on hotcue 1, seed manually to establish
+    // the pre-load state.
+    engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
+    engine._set('[Channel1]', 'hotcue_1_position', 500);
+    c._seedHotcueCache(1);
+    t.eq(c._decks[1].hotcueState[1].color, 0xC50A08);
+
+    // New track loads over the current one: hotcues reset but
+    // track_loaded does not re-fire. track_samples changes.
+    engine._set('[Channel1]', 'hotcue_1_color',    0);
+    engine._set('[Channel1]', 'hotcue_1_position', -1);
+    engine._set('[Channel1]', 'track_samples',     2000);
+    engine._trigger('[Channel1]', 'track_samples', 2000);
+
+    t.eq(c._decks[1].hotcueState[1].color, 0,
+         'cache must reflect new track after track_samples change');
+    t.eq(c._decks[1].hotcueState[1].pos, -1);
+
+    XoneK3.PHRASE_MARKER_COLORS = [];
+});
+
+test('_wireHotcueObservers seeds hotcueState on open', function(t) {
+    var c = setup();
+    // Set markers BEFORE withBeat so _openBeatClocks sees a
+    // non-empty marker list and wires observers + seeds cache.
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+    engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
+    engine._set('[Channel1]', 'hotcue_1_position', 500);
+
+    withBeat(c);
+
+    t.eq(c._decks[1].hotcueState[1].color, 0xC50A08);
+    t.eq(c._decks[1].hotcueState[1].pos, 500);
+
+    XoneK3.PHRASE_MARKER_COLORS = [];
 });
 
 // ── beat_active handler ─────────────────────────────────────

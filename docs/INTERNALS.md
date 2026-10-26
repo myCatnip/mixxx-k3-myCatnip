@@ -365,6 +365,15 @@ first upcoming marker — pre-marker playback runs negative counts,
 which `beatLevel` modulos through the phrase. If no marker exists
 at all, origin is 0.
 
+**Reads only `st.hotcueState`, never the COs.** The cache is
+seeded by `_seedHotcueCache(ch)` at clock-open, again on
+`track_loaded`, and on any `track_samples` change (load-over-
+current). The hotcue colour / position observers update it one
+field at a time as each CO fires. This was the per-tick cost
+that thrashed the CO mutex against the audio thread — the old
+implementation re-scanned all 16 hotcues (up to 33 CO reads)
+every 30 ms per deck.
+
 Frozen in loop mode. `_resetBeat` (from `track_loaded`) is the
 only hard reset. No manual setter — origin follows the playhead.
 
@@ -794,7 +803,7 @@ Six per channel:
 | `_playConns` | `track_loaded` | Clears `_trackMetaCache[ch]`, resets beat state, clears `_lastLoopTouchMs[ch]`, re-syncs beat clocks. |
 | `_playConns` | `loop_enabled` | Starts / stops the loop clock on edge. |
 | `_playConns` | `slip_enabled` | Count resync. |
-| `_playConns` | `track_samples` | Track identity changed — clears `_trackMetaCache[ch]` and resyncs count. `track_loaded` isn't reliable for load-over-current or pre-settle races; `track_samples` changes on every load and fires regardless of play state. |
+| `_playConns` | `track_samples` | Track identity changed — clears `_trackMetaCache[ch]`, re-seeds `st.hotcueState`, resyncs count. `track_loaded` isn't reliable for load-over-current or pre-settle races. |
 
 Plus hotcue colour/position observers when
 `PHRASE_MARKER_COLORS` is non-empty (2 × `XoneK3.HOTCUE_MAX`
@@ -802,6 +811,14 @@ per channel, i.e. 32 with the default of 16). The observers are
 wired once at clock-open, so raising `XoneK3.HOTCUE_MAX` after
 boot extends the per-tick derive scan but not the observer set
 — origin still re-derives on the next playhead throttle.
+
+Each observer updates one `st.hotcueState` field and re-derives
+origin from the cache — no scan. The observers also seed
+`st.hotcueState` once at wiring time, before the observer
+connections are made. Contrast the pre-cache implementation,
+where every observer fire re-scanned all 16 hotcues: a track
+load (32 CO writes per channel) fired ~1024 CO reads per channel
+in a few ms.
 
 `_openBeatClocks` ends with a catch-up loop: re-reads loop state
 for every channel, starts the loop clock where a loop is already
@@ -1516,6 +1533,16 @@ XoneK3` in `lib-core.js` carries an inline disable.
 - **`_advanceVirtualClock` clamps `dt` to zero.** Date.now() is
   not monotonic; a backward NTP step would shift the loop-mode
   count backward.
+- **`_advanceVirtualClock` runs inside the 30 ms throttle.**
+  Real-seconds mode reads `play_indicator` + `rate_ratio` per
+  call; unthrottled at ~150 Hz that's ~450 CO reads/sec per
+  playing deck. Behind the throttle it's ~100/sec. Accumulation
+  is identical — `dt` grows from ~7 ms to ~30 ms per step.
+- **`_repaintFromPosition(ch, pos)` accepts `pos`.** When called
+  from `_onPlayposition`, the caller just read `playposition`
+  for `_advanceVirtualClock` — passing it in saves one redundant
+  CO read per throttled tick. Called with `pos === undefined`
+  (default), it falls back to `_trackBeatF(ch)`.
 - **The loop clock scales by `_channelRate(ch)`, not
   `[ChannelN],rate`.** Mixxx's `rate` CO is the slider position
   (~−0.08..+0.08). A `<= 0` guard on it silently turns the
@@ -1554,7 +1581,18 @@ XoneK3` in `lib-core.js` carries an inline disable.
 
 ## Caches
 
+- **`_decks[ch].hotcueState`** — per-channel `{n: {color, pos}}`
+  snapshot of all hotcues 1..HOTCUE_MAX. Seeded by
+  `_seedHotcueCache(ch)` at clock-open, `track_loaded`, and any
+  `track_samples` change. Maintained by the hotcue observers, one
+  field per fire. `_deriveOriginFromPosition` reads only this —
+  zero CO reads per throttled playposition tick.
 - **`_trackMetaCache`** — per-channel, reset on `track_loaded`
+  and on `track_samples` change. Incomplete reads (duration 0)
+  not cached. `track_loaded` doesn't re-fire on load-over-current
+  and can arrive before Mixxx settles `duration` / `file_bpm`;
+  the `track_samples` listener is the reliable invalidation
+  point. See §6.
   **and on `track_samples` change**. Incomplete reads (duration 0)
   not cached. The `track_samples` listener is the reliable
   invalidation point — `track_loaded` doesn't re-fire on

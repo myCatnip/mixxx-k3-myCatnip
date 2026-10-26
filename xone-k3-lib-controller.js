@@ -102,7 +102,15 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             // first tick. Used by _onPlayposition to detect
             // backward movement (jog-scrub) so the beat-edge
             // guard can be bypassed — see the comment there.
-            lastPlayPos: undefined
+            lastPlayPos: undefined,
+            // Marker-hotcue snapshot for the current track. Keyed
+            // by hotcue index, values {color, pos}. Populated by
+            // _seedHotcueCache and kept current by the hotcue
+            // observers. _deriveOriginFromPosition reads only
+            // this — the per-tick origin scan used to fire 32 CO
+            // reads every 30ms per deck, and the observers give
+            // us the same data for free.
+            hotcueState: {}
         };
     }
 

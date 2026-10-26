@@ -195,6 +195,7 @@ test('_deriveOriginFromPosition: marker at-or-before sets origin', function(t) {
     XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
     engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
     engine._set('[Channel1]', 'hotcue_1_position', 500);
+    c._seedHotcueCache(1);
     c._deriveOriginFromPosition(1, 0.5);
     // Marker at 0.5 → beat 300; playhead at 0.5 → floor 300.
     t.eq(c._phraseOrigin[1], 300);
@@ -207,6 +208,7 @@ test('_deriveOriginFromPosition: marker only ahead sets origin to first marker b
     XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
     engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
     engine._set('[Channel1]', 'hotcue_1_position', 500);
+    c._seedHotcueCache(1);
     // Playhead at 0.2 — marker at 0.5 is ahead. Origin still
     // lands on the marker beat so the pattern extends backwards.
     c._deriveOriginFromPosition(1, 0.2);
@@ -220,9 +222,33 @@ test('_deriveOriginFromPosition: no matching markers → origin 0', function(t) 
     XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
     engine._set('[Channel1]', 'hotcue_1_color',    0xFFFFFF);  // not a marker
     engine._set('[Channel1]', 'hotcue_1_position', 500);
+    c._seedHotcueCache(1);
     c._phraseOrigin[1] = 42;
     c._deriveOriginFromPosition(1, 0.5);
     t.eq(c._phraseOrigin[1], 0);   // no matching marker → file start
+    XoneK3.PHRASE_MARKER_COLORS = [];
+});
+
+test('_deriveOriginFromPosition: reads cache only, not live COs', function(t) {
+    var c = H.ctrl();
+    setupTrack(c, 1);
+    XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
+
+    // Populate the cache with marker at position 0.5.
+    engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
+    engine._set('[Channel1]', 'hotcue_1_position', 500);
+    c._seedHotcueCache(1);
+
+    // Change the CO without re-seeding. If _deriveOriginFromPosition
+    // were reading COs directly, this would shift origin to
+    // beat 60 (0.1 * 300 * 120 / 60). It must not — the cache is
+    // the sole source.
+    engine._set('[Channel1]', 'hotcue_1_position', 100);
+
+    c._deriveOriginFromPosition(1, 0.5);
+    t.eq(c._phraseOrigin[1], 300,
+         'derivation reads cache (0.5), not live CO (0.1)');
+
     XoneK3.PHRASE_MARKER_COLORS = [];
 });
 
