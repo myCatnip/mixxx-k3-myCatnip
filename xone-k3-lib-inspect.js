@@ -16,6 +16,13 @@
     XoneK3._requireLoad('xone-k3-lib-inspect.js',
         ['K3Controller', 'FUNCS', 'TOKENS', '_funcId']);
 
+    function makeRow(width) {
+        return function(label, value) {
+            while (label.length < width) label += ' ';
+            print('  ' + label + (value === undefined || value === null ? '—' : value));
+        };
+    }
+
     XoneK3._funcName = function(fn) {
         if (!fn) return null;
         for (var k in XoneK3.FUNCS) {
@@ -51,10 +58,7 @@
     };
 
     XoneK3.K3Controller.prototype._inspectRoot = function() {
-        function row(label, value) {
-            while (label.length < 20) label += ' ';
-            print('  ' + label + value);
-        }
+        var row = makeRow(20);
 
         print('');
         print('== Xone K3 "' + this.label + '" (ch 0x' +
@@ -67,12 +71,10 @@
         row('_chordActive:', this._chordActive);
         row('activeDeck:', this.activeDeck);
         row('activeFx:', this.activeFx);
-        row('selectedDeckA/B/C/D:',
-            this.selectedDeckA + '/' + this.selectedDeckB + '/' +
-            this.selectedDeckC + '/' + this.selectedDeckD);
-        row('selectedFxA/B/C/D:',
-            this.selectedFxA + '/' + this.selectedFxB + '/' +
-            this.selectedFxC + '/' + this.selectedFxD);
+        row('selectedDeckA/B:',
+            this.selectedDeckA + '/' + this.selectedDeckB);
+        row('selectedFxA/B:',
+            this.selectedFxA + '/' + this.selectedFxB);
         row('selectedDeckCurrent/Alt:',
             this.selectedDeckCurrent + '/' + this.selectedDeckAlt);
         row('selectedFxCurrent/Alt:',
@@ -105,10 +107,7 @@
 
     XoneK3.K3Controller.prototype._inspectBinding = function(name) {
         var b = this.bindings[name];
-        function row(label, value) {
-            while (label.length < 14) label += ' ';
-            print('  ' + label + (value === undefined || value === null ? '—' : value));
-        }
+        var row = makeRow(14);
 
         print('');
         print('== ' + name + ' ==');
@@ -279,10 +278,7 @@
         var b = this.bindings[name];
         if (!b) { print('[inspect] no such binding: ' + name); return; }
 
-        function row(label, value) {
-            while (label.length < 24) label += ' ';
-            print('  ' + label + (value === undefined || value === null ? '—' : value));
-        }
+        var row = makeRow(24);
 
         var isOn = 0, onThrew = null;
         try { isOn = b._isOn(); } catch (e) { onThrew = e.message; }
@@ -441,9 +437,4 @@
             'If not, check sysex throttle and _ledCache.';
     };
 
-    function padRight(s, n) {
-        s = String(s);
-        while (s.length < n) s += ' ';
-        return s;
-    }
 })();

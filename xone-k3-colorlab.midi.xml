@@ -18,11 +18,6 @@
             <file filename="xone-k3-lib-funcs.js"/>
             <file filename="xone-k3-lib-inspect.js"/>
             <file filename="xone-k3-cat-schemes.js"/>
-            <file filename="xone-k3-cat-fx.js"/>
-            <file filename="xone-k3-cat-top.js"/>
-            <file filename="xone-k3-cat-bottom.js"/>
-            <file filename="xone-k3-cat-overlays.js"/>
-            <file filename="xone-k3-cat.js"/>
             <file filename="xone-k3-lab.js"/>
             <file filename="xone-k3-colorlab.js" functionprefix="XoneK3"/>
         </scriptfiles>

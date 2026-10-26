@@ -31,6 +31,7 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // TUNABLES
     // ============================================================
     XoneK3.SYSEX_THROTTLE_MS = 10;
+    XoneK3.PULSE_CO_MS = 50;
 
     XoneK3.DEFAULT_RGB_BRIGHTNESS     = 110;
     XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF = 12;
@@ -48,7 +49,7 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     XoneK3.CURVE_GAIN = 4.0;
     XoneK3.RATIO_GAIN = 12.0;
 
-    // Factory calibration for the K3. Presets that want different
+    // Calibration for the K3. Presets that want different
     // values declare an override in init(); presets that don't
     // inherit these via bootCat's merge.
     XoneK3.HARDWARE_CALIB = {
@@ -434,8 +435,6 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         return [
             { token: '$DECK_A$',        state: 'selectedDeckA',     make: channel },
             { token: '$DECK_B$',        state: 'selectedDeckB',     make: channel },
-            { token: '$DECK_C$',        state: 'selectedDeckC',     make: channel },
-            { token: '$DECK_D$',        state: 'selectedDeckD',     make: channel },
             { token: '$DECK_ACTIVE$',   state: 'selectedDeckCurrent', make: channel },
             { token: '$DECK_ACTIVE_N$', state: 'selectedDeckCurrent', make: bare },
             { token: '$DECK_ALT$',      state: 'selectedDeckAlt',   make: channel },
@@ -445,8 +444,6 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
 
             { token: '$FX_A$',          state: 'selectedFxA',       make: unit },
             { token: '$FX_B$',          state: 'selectedFxB',       make: unit },
-            { token: '$FX_C$',          state: 'selectedFxC',       make: unit },
-            { token: '$FX_D$',          state: 'selectedFxD',       make: unit },
             { token: '$FX_ACTIVE$',     state: 'selectedFxCurrent', make: unit },
             { token: '$FX_ACTIVE_N$',   state: 'selectedFxCurrent', make: bare },
             { token: '$FX_ALT$',        state: 'selectedFxAlt',     make: unit },

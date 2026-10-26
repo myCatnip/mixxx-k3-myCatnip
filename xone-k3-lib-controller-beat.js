@@ -626,14 +626,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var st = this._decks[ch];
         if (v === 1) {
             st.lastBeatEdge = Date.now();
-            if (st.lastBeatEdge - st.lastBeatRepaint <
+            st.active = true;
+            st.hasBeat = true;
+            if (st.lastBeatEdge - st.lastBeatRepaint >=
                 XoneK3.BEAT_REPAINT_THROTTLE_MS) {
-                st.active = true;
-                st.hasBeat = true;
-            } else {
                 st.lastBeatRepaint = st.lastBeatEdge;
-                st.active = true;
-                st.hasBeat = true;
                 this._repaintBeat(ch);
             }
         } else {

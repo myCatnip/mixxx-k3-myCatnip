@@ -138,15 +138,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         }
     };
 
-    // Pulse a CO high then low. Duration matches the sysex frame
-    // cadence — Mixxx rounds sub-20ms timer requests up to 20ms
-    // anyway, so a hardcoded `1` here just generated a
-    // "Timer request for 1 ms is too short" warning per beatjump /
-    // reloop / beatloop-activate. Sharing SYSEX_THROTTLE_MS keeps
-    // every timer in the tree on one tunable.
+    // Pulse a CO high then low. Duration is PULSE_CO_MS (20 ms —
+    // the smallest interval Mixxx reliably schedules; sub-20ms
+    // requests get rounded up with a warning). Used by beatjump /
+    // reloop / beatloop-activate to fire momentary COs.
     XoneK3.K3Controller.prototype._pulseCo = function(group, co) {
         engine.setValue(group, co, 1);
-        engine.beginTimer(XoneK3.SYSEX_THROTTLE_MS, function() {
+        engine.beginTimer(XoneK3.PULSE_CO_MS, function() {
             engine.setValue(group, co, 0);
         }, true);
     };
@@ -248,6 +246,18 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         return this._calibratedHw(rgb, target);
     };
 
+    XoneK3.K3Controller.prototype._calibFingerprint = function() {
+        return [
+            this._calibCurveName,
+            this.calibrationMode,
+            this.wbActive ? 'on' : 'off',
+            this.wbGain.join(','),
+            this.channelPerceptual.join(','),
+            this.hkBoost,
+            this.lumGamma
+        ].join('|');
+    };
+
     XoneK3.K3Controller.prototype._flatTarget = function(segs) {
         if (!segs || segs.length === 0) return null;
         if (this.calibrationMode === 'off') return null;
@@ -259,7 +269,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         }
         var cache = this._flatCache;
         var entry = cache[segs._cacheId];
-        if (entry && entry.key === this._calibKey) return entry.value;
+        if (entry && entry.key === this._calibFingerprint()) return entry.value;
 
         var value = this._minSegmentEmit(segs);
         cache[segs._cacheId] = { key: this._calibKey, value: value };

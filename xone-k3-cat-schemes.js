@@ -283,18 +283,9 @@
             if (typeof rawGroup === 'string') {
                 if      (rawGroup.indexOf('$DECK_A$') !== -1) suffix = 'A';
                 else if (rawGroup.indexOf('$DECK_B$') !== -1) suffix = 'B';
-                else if (rawGroup.indexOf('$DECK_C$') !== -1) suffix = 'C';
-                else if (rawGroup.indexOf('$DECK_D$') !== -1) suffix = 'D';
             }
             if (!suffix) return 'countdownIdle';
 
-            if (suffix !== 'A' && suffix !== 'B') {
-                XoneK3._warnOnce('countdownMissingFamily:' + suffix,
-                    'countdownScheme: no countdown' + suffix + '* scheme family defined — ' +
-                    'add them to SCHEMES or use $DECK_A$ / $DECK_B$ in the binding group');
-                return 'countdownIdle';
-            }
-            
             var ctrl = this._ctrl;
             var ch = ctrl ? ctrl._channelOf(grp) : null;
             if (!ch) return 'countdownIdle';

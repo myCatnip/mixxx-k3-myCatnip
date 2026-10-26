@@ -125,12 +125,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         this.selectedDeckA = cfg.initialDeckA !== undefined ? cfg.initialDeckA : 1;
         this.selectedDeckB = cfg.initialDeckB !== undefined ? cfg.initialDeckB : 2;
-        this.selectedDeckC = cfg.initialDeckC !== undefined ? cfg.initialDeckC : 3;
-        this.selectedDeckD = cfg.initialDeckD !== undefined ? cfg.initialDeckD : 4;
         this.selectedFxA  = cfg.initialFxA  !== undefined ? cfg.initialFxA  : 1;
         this.selectedFxB  = cfg.initialFxB  !== undefined ? cfg.initialFxB  : 2;
-        this.selectedFxC  = cfg.initialFxC  !== undefined ? cfg.initialFxC  : 3;
-        this.selectedFxD  = cfg.initialFxD  !== undefined ? cfg.initialFxD  : 4;
 
         this.activeDeck = (cfg.initialActiveDeck === 'B') ? 'B' : 'A';
         this.activeFx   = (cfg.initialActiveFx   === 'B') ? 'B' : 'A';
@@ -223,14 +219,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this._hwCache = {};
         this._hwCacheSize = 0;
         this._flatCache = {};
-        this._calibKey = [
-            cfg.calibration || 'none',
-            this.calibrationMode,
-            this.wbGain.join(','),
-            this.channelPerceptual.join(','),
-            this.hkBoost,
-            this.lumGamma
-        ].join('|');
+        this._calibCurveName = (typeof cfg.calibration === 'string')
+            ? cfg.calibration : 'none';
 
         this._buildHardware();
 
@@ -502,10 +492,13 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // A single throwing binding must not abort the pass. cfg ===
     // null / undefined means "unbind". skipRefresh is passed
     // through to _applyBinding — batch callers set it true and
-    // rely on the trailing _refreshAllLeds.
-    XoneK3.K3Controller.prototype._applyOneSafe = function(name, cfg, skipRefresh) {
+    // rely on the trailing _refreshAllLeds. fingerprint is
+    // optional: callers that already computed a token fingerprint
+    // (like _reapplyByTokens) pass it to skip the recompute; the
+    // rest leave it undefined and _applyBinding resolves it.
+    XoneK3.K3Controller.prototype._applyOneSafe = function(name, cfg, skipRefresh, fingerprint) {
         try {
-            this._applyBinding(name, cfg, undefined, skipRefresh);
+            this._applyBinding(name, cfg, fingerprint, skipRefresh);
         } catch (e) {
             var isUnbind = (cfg === null || cfg === undefined);
             var key    = (isUnbind ? 'applyUnbindThrow:' : 'applyBindThrow:') + name;
@@ -1078,7 +1071,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             if (fingerprint === null) fingerprint = this._tokenFingerprint();
             var h = this._resolvedTargetHash(b._rawCfg, fingerprint);
             if (b._resolvedTargetHash === h) continue;
-            this._applyBinding(name, b._rawCfg, fingerprint, true);
+            this._applyOneSafe(name, b._rawCfg, true, fingerprint);
         }
         if (!(opts && opts.skipRefresh)) {
             this._refreshAllLeds('token-reapply');
