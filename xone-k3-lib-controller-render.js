@@ -138,10 +138,9 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         }
     };
 
-    // Pulse a CO high then low. Duration is PULSE_CO_MS (20 ms —
-    // the smallest interval Mixxx reliably schedules; sub-20ms
-    // requests get rounded up with a warning). Used by beatjump /
-    // reloop / beatloop-activate to fire momentary COs.
+    // Pulse a CO high then low. Duration is PULSE_CO_MS. Used by
+    // beatjump / reloop / beatloop-activate to fire momentary
+    // COs.
     XoneK3.K3Controller.prototype._pulseCo = function(group, co) {
         engine.setValue(group, co, 1);
         engine.beginTimer(XoneK3.PULSE_CO_MS, function() {
@@ -272,7 +271,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         if (entry && entry.key === this._calibFingerprint()) return entry.value;
 
         var value = this._minSegmentEmit(segs);
-        cache[segs._cacheId] = { key: this._calibKey, value: value };
+        cache[segs._cacheId] = { key: this._calibFingerprint(), value: value };
         return value;
     };
 

@@ -60,6 +60,13 @@ test('_cloneScheme: null passthrough', function(t) {
     t.eq(c._cloneScheme(null), null);
 });
 
+test('_cloneScheme: strips colorSet', function(t) {
+    var c = setupLab();
+    var src = {colors: [[127,0,0]], colorSet: [true]};
+    var cpy = c._cloneScheme(src);
+    t.eq(cpy.colorSet, undefined);
+});
+
 // ── _editableScheme / _previewScheme / _labLEDScheme ────────
 
 test('_editableScheme: returns edit buffer when colorLab active', function(t) {
@@ -137,7 +144,6 @@ test('_commitPreview: null while previewing (gate — no side effects)', functio
     var before = c._lab.edit;
     var result = c._commitPreview();
     t.eq(result, null);
-    // Gate must not touch the edit buffer or the preview state.
     t.eq(c._lab.edit, before);
     t.eq(c._lab.previewSource, 3);
     t.eq(c._lab.previewing, true);
@@ -166,7 +172,6 @@ test('_commitPreview: not in colorLab → null', function(t) {
 
 test('_setPreview: sets source and flag, runs auto-bake', function(t) {
     var c = setupLab();
-    // Populate slot 5 first so auto-bake has content to work with.
     c._lab.slots[5] = {colors: [[100, 100, 100]]};
     c._setPreview(5, 'slot5');
     t.eq(c._lab.previewSource, 5);
@@ -174,38 +179,228 @@ test('_setPreview: sets source and flag, runs auto-bake', function(t) {
     t.ok(c._lab.slots[XoneK3.LAB_SLOT.SOURCE]);
 });
 
-// ── _trimTrailingZeros ──────────────────────────────────────
+// ── _editSegmentTarget: no auto-trim ───────────────────────
+//
+// Trailing black stops are not trimmed on edit. A scheme loaded
+// from a slot with trailing blacks (fully set — no colorSet array
+// → all true) keeps them; editing an earlier cell doesn't delete
+// them.
 
-test('_trimTrailingZeros: removes trailing black stops', function(t) {
+test('_editSegmentTarget: does not trim trailing blacks', function(t) {
     var c = setupLab();
-    c._lab.edit = {colors: [[127,0,0], [0,0,0], [0,0,0]]};
+    c._lab.edit = {colors: [[50,0,0], [0,0,0], [0,0,0]]};
     c._lab.selectedSegment = 0;
-    c._trimTrailingZeros();
-    t.eq(c._lab.edit.colors.length, 1);
+    c._editColorField('r', 'step', 5);
+    t.eq(c._lab.edit.colors.length, 3, 'trailing blacks stay');
+    t.eq(c._lab.edit.colors[0][0], 55, 'edit landed');
 });
 
-test('_trimTrailingZeros: preserves selected stop', function(t) {
+// ── Fill gaps: colorSet model ──────────────────────────────
+//
+// Anchors are colorSet cells only. Non-colorSet cells are gaps
+// and get painted. colorSet blacks anchor; gap blacks don't.
+
+test('ledFillGaps: interpolates between colorSet anchors', function(t) {
     var c = setupLab();
-    c._lab.edit = {colors: [[127,0,0], [0,0,0]]};
-    c._lab.selectedSegment = 1;
-    c._trimTrailingZeros();
-    t.eq(c._lab.edit.colors.length, 2);
+    c._lab.edit = {
+        colors: [[127,0,0], [0,0,0], [0,0,127]],
+        colorSet: [true, false, true]
+    };
+    var bl = {_ctrl: c};
+    XoneK3.FUNCS.ledFillGaps.call(bl, [], 0, 0, 127, 0x90);
+    t.approx(c._lab.edit.colors[1][0], 63, 2);
+    t.approx(c._lab.edit.colors[1][2], 63, 2);
 });
 
-test('_trimTrailingZeros: always keeps ≥1 stop', function(t) {
+test('ledFillGaps: paints multiple gap cells', function(t) {
+    var c = setupLab();
+    c._lab.edit = {
+        colors: [[0,127,0], [0,0,0], [0,0,0], [127,0,0]],
+        colorSet: [true, false, false, true]
+    };
+    var bl = {_ctrl: c};
+    XoneK3.FUNCS.ledFillGaps.call(bl, [], 0, 0, 127, 0x90);
+    t.approx(c._lab.edit.colors[1][1], 85, 2);
+    t.approx(c._lab.edit.colors[2][0], 85, 2);
+});
+
+test('ledFillGaps: does not paint colorSet cells', function(t) {
+    var c = setupLab();
+    c._lab.edit = {
+        colors: [[127,0,0], [0,127,0], [0,0,127]],
+        colorSet: [true, true, true]
+    };
+    var bl = {_ctrl: c};
+    XoneK3.FUNCS.ledFillGaps.call(bl, [], 0, 0, 127, 0x90);
+    t.eq(c._lab.edit.colors[1], [0, 127, 0]);
+});
+
+test('ledFillGaps: needs 2+ colorSet anchors', function(t) {
+    var c = setupLab();
+    c._lab.edit = {
+        colors: [[0,0,0], [0,0,0]],
+        colorSet: [true, false]
+    };
+    var bl = {_ctrl: c};
+    _printLog.length = 0;
+    XoneK3.FUNCS.ledFillGaps.call(bl, [], 0, 0, 127, 0x90);
+    t.ok(_printLog.join('\n').indexOf('need 2+') !== -1);
+});
+
+// ── colorSet: press, delete, cascade, edit ─────────────────
+
+test('ledSelectTarget: unshifted press marks colorSet true', function(t) {
     var c = setupLab();
     c._lab.edit = {colors: [[0,0,0]]};
-    c._lab.selectedSegment = -1;
-    c._trimTrailingZeros();
-    t.eq(c._lab.edit.colors.length, 1);
+    H.bind(c, 'grid0_0', {
+        func: XoneK3.FUNCS.ledSelectTarget, args: ['grid0_0']
+    });
+    H.press(c, 'grid0_0');
+    t.eq(c._lab.edit.colorSet[0], true);
 });
 
-test('_trimTrailingZeros: stops at non-black', function(t) {
+test('ledSelectTarget: unshifted press extends + marks colorSet', function(t) {
     var c = setupLab();
-    c._lab.edit = {colors: [[127,0,0], [0,127,0], [0,0,0]]};
-    c._lab.selectedSegment = 0;
-    c._trimTrailingZeros();
+    c._lab.edit = {colors: [[0,0,0]]};
+    H.bind(c, 'grid1_0', {
+        func: XoneK3.FUNCS.ledSelectTarget, args: ['grid1_0']
+    });
+    H.press(c, 'grid1_0');
     t.eq(c._lab.edit.colors.length, 2);
+    t.eq(c._lab.edit.colorSet[0], true);
+    t.eq(c._lab.edit.colorSet[1], true);
+});
+
+test('ledSelectTarget: shift+press on real stop removes it', function(t) {
+    var c = setupLab();
+    c._lab.edit = {
+        colors: [[127,0,0], [0,127,0]],
+        colorSet: [true, true]
+    };
+    c.isShifted = true;
+    H.bind(c, 'grid1_0', {
+        func: XoneK3.FUNCS.ledSelectTarget, args: ['grid1_0']
+    });
+    H.press(c, 'grid1_0');
+    t.eq(c._lab.edit.colors.length, 1);
+    t.eq(c._lab.edit.colors[0], [127, 0, 0]);
+    t.eq(c._lab.selectedSegment, 0, 'selection jumps to cell 0');
+});
+
+test('ledSelectTarget: delete real stop cascades adjacent gaps', function(t) {
+    var c = setupLab({ledTargetGroups: {calib: ['grid0_0', 'grid1_0', 'grid2_0']}});
+    // [0(T), 1(F), 2(T), 3(F), 4(T)] — delete cell 2
+    c._lab.edit = {
+        colors: [[10,0,0], [0,0,0], [0,10,0], [0,0,0], [0,0,10]],
+        colorSet: [true, false, true, false, true]
+    };
+    c.isShifted = true;
+    H.bind(c, 'grid2_0', {
+        func: XoneK3.FUNCS.ledSelectTarget, args: ['grid2_0']
+    });
+    H.press(c, 'grid2_0');
+    t.eq(c._lab.edit.colors.length, 2, 'cells 1-3 removed');
+    t.eq(c._lab.edit.colors[0], [10, 0, 0]);
+    t.eq(c._lab.edit.colors[1], [0, 0, 10]);
+    t.eq(c._lab.edit.colorSet[0], true);
+    t.eq(c._lab.edit.colorSet[1], true);
+});
+
+test('ledSelectTarget: delete cell 0 is no-op', function(t) {
+    var c = setupLab();
+    c._lab.edit = {colors: [[127,0,0]], colorSet: [true]};
+    c.isShifted = true;
+    H.bind(c, 'grid0_0', {
+        func: XoneK3.FUNCS.ledSelectTarget, args: ['grid0_0']
+    });
+    H.press(c, 'grid0_0');
+    t.eq(c._lab.edit.colors.length, 1);
+    t.eq(c._lab.edit.colors[0], [127, 0, 0]);
+});
+
+test('ledSelectTarget: delete gap splices that cell', function(t) {
+    var c = setupLab();
+    c._lab.edit = {
+        colors: [[127,0,0], [0,0,0]],
+        colorSet: [true, false]
+    };
+    c.isShifted = true;
+    H.bind(c, 'grid1_0', {
+        func: XoneK3.FUNCS.ledSelectTarget, args: ['grid1_0']
+    });
+    H.press(c, 'grid1_0');
+    t.eq(c._lab.edit.colors.length, 1);
+    t.eq(c._lab.edit.colors[0], [127, 0, 0]);
+});
+
+test('ledSelectTarget: delete gap shifts subsequent cells down', function(t) {
+    var c = setupLab();
+    c.ledTargetGroups.calib = [
+        'grid0_0','grid1_0','grid2_0','grid3_0',
+        'button0_0','button1_0','button2_0','button3_0',
+        'grid0_1','grid1_1'
+    ];
+    // [0(T),1-8(F),9(T)]
+    var colors = [[10,0,0]];
+    var colorSet = [true];
+    for (var i = 1; i <= 8; i++) { colors.push([0,0,0]); colorSet.push(false); }
+    colors.push([0,0,10]); colorSet.push(true);
+    c._lab.edit = { colors: colors, colorSet: colorSet };
+
+    H.bind(c, 'grid2_0', {
+        func: XoneK3.FUNCS.ledSelectTarget,
+        args: ['button2_0']   // calib index 6
+    });
+    c.isShifted = true;
+    H.press(c, 'grid2_0');
+
+    t.eq(c._lab.edit.colors.length, 9, 'one cell removed');
+    t.eq(c._lab.edit.colors[8][2], 10, 'former cell 9 now at index 8');
+    t.eq(c._lab.edit.colorSet[8], true, 'still colorSet true');
+});
+
+test('_editSegmentTarget: step -1 on black keeps colorSet false', function(t) {
+    var c = setupLab();
+    c._lab.edit = {
+        colors: [[127,0,0], [0,0,0]],
+        colorSet: [true, false]
+    };
+    c._lab.selectedSegment = 1;
+    c._editColorField('r', 'step', -1);
+    t.eq(c._lab.edit.colorSet[1], false, 'stays gap when still black');
+});
+
+test('_editSegmentTarget: non-black edit marks colorSet true', function(t) {
+    var c = setupLab();
+    c._lab.edit = {
+        colors: [[127,0,0], [0,0,0]],
+        colorSet: [true, false]
+    };
+    c._lab.selectedSegment = 1;
+    c._editColorField('r', 'step', 1);
+    t.eq(c._lab.edit.colorSet[1], true, 'becomes real stop when non-black');
+});
+
+test('ledSelectTarget: delete then edit recreates', function(t) {
+    var c = setupLab();
+    c._lab.edit = {
+        colors: [[0,0,0], [127,127,127]],
+        colorSet: [true, true]
+    };
+    c._lab.selectedSegment = 1;
+    c.isShifted = true;
+    H.bind(c, 'grid1_0', {
+        func: XoneK3.FUNCS.ledSelectTarget, args: ['grid1_0']
+    });
+    H.press(c, 'grid1_0');
+    t.eq(c._lab.edit.colors.length, 1, 'cell 1 removed');
+
+    c.isShifted = false;
+    c._lab.selectedSegment = 1;
+    c._editColorField('r', 'abs', 100);
+    t.eq(c._lab.edit.colors.length, 2);
+    t.eq(c._lab.edit.colors[1][0], 100);
+    t.eq(c._lab.edit.colorSet[1], true);
 });
 
 // ── _applyAutoBake ─────────────────────────────────────────
@@ -285,6 +480,18 @@ test('_selectSlot: armed save over self-skips backup', function(t) {
     var before = _printLog.length;
     c._selectSlot(5);
     t.eq(_printLog.length, before);
+});
+
+test('_selectSlot: save strips colorSet from slot', function(t) {
+    var c = setupLab();
+    c._lab.edit = {
+        colors: [[127,0,0]],
+        colorSet: [true]
+    };
+    c._lab.saveArmed = true;
+    c._selectSlot(5);
+    t.eq(c._lab.slots[5].colorSet, undefined);
+    t.eq(c._lab.edit.colorSet, undefined, 'edit buffer also reloaded without it');
 });
 
 // ── _toggleSaveArm ─────────────────────────────────────────

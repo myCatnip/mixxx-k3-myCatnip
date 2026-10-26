@@ -758,6 +758,8 @@ XoneK3.VIRTUAL_CLOCKS = {
 
 XoneK3.BEATJUMP_GAP_MS = 130;
 
+XoneK3.PULSE_CO_MS = 50;    // momentary CO pulse width, ms
+
 XoneK3.BEAT_PLAYING_MODE = 'pulse';  // 'pulse' | 'solid' | 'off'
 XoneK3.BEAT_PAUSED_MODE  = 'solid';  // 'pulse' | 'solid' | 'off'
 

@@ -713,7 +713,7 @@ the loop overlay's state and vice versa.
 binding cell cancels the timer via `Binding._reset`.
 
 `_pulseCo(group, co)` fires a CO high, then clears it on a
-`PULSE_CO_MS` (20 ms) one-shot timer.
+`PULSE_CO_MS` one-shot timer.
 
 ---
 
@@ -1225,6 +1225,13 @@ _lab.beatTarget       target level or null
 _lab._version         monotonic, bumped on every input event
 _onBeat               fires on every beat edge
 ```
+
+`_lab.edit` may carry an optional `colorSet` parallel bool array
+(lab editing state — real stop vs gap). Never persisted:
+`_cloneScheme` strips it, so save / load / bake / dump all drop
+it. Reloaded schemes default to all-true. Only the current edit
+session carries gap state. `ledSelectTarget` (cascade delete) and
+`ledFillGaps` are the two consumers. See LAB.md.
 
 ## Gates and overrides
 
@@ -1740,7 +1747,6 @@ XoneK3` in `lib-core.js` carries an inline disable.
   mode — the next play press does nothing until a mouse-seek
   resets preview state.
 - **`valueCurve` doesn't touch `_normalized`.**
-- **`_trimTrailingZeros` protects the selected segment.**
 - **LED on/off state comes from `colorScheme.on`, `outKey`, or
   nothing.**
 - **`_isOn` returns `v ? 1 : 0`** for state without `equals` or

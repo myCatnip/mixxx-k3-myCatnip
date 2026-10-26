@@ -133,6 +133,76 @@ test('_renderSegmentGrid: unbound cell paints black', function(t) {
     t.rgb(H.led(c, 'grid1_0'), 0, 0, 0);
 });
 
+// ── _renderSegmentGrid: shift highlights black cells ──────
+//
+// With shift held, black stops light white @ 50 so the user can
+// find them for shift+press deletion. Display only — the scheme
+// keeps black at that stop.
+
+test('_renderSegmentGrid: shift highlights black cells white @ 50', function(t) {
+    var c = setupLab();
+    bindTargets(c, ['grid0_0', 'grid1_0']);
+    setEdit(c, {colors: [[127,0,0], [0,0,0]]});
+    c.isShifted = true;
+    H.clearLeds(c);
+    c._renderSegmentGrid();
+    t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
+    var led = H.led(c, 'grid1_0');
+    t.rgb(led, 127, 127, 127);
+    t.hw(led, 50);
+});
+
+test('_renderSegmentGrid: black cells hide when not shifted', function(t) {
+    var c = setupLab();
+    bindTargets(c, ['grid0_0', 'grid1_0']);
+    setEdit(c, {colors: [[127,0,0], [0,0,0]]});
+    c.isShifted = false;
+    H.clearLeds(c);
+    c._renderSegmentGrid();
+    t.rgb(H.led(c, 'grid1_0'), 0, 0, 0);
+});
+
+test('_renderSegmentGrid: shift does not touch non-black cells', function(t) {
+    var c = setupLab();
+    bindTargets(c, ['grid0_0', 'grid1_0', 'grid2_0']);
+    setEdit(c, {colors: [[127,0,0], [0,127,0], [0,0,127]]});
+    c.isShifted = true;
+    H.clearLeds(c);
+    c._renderSegmentGrid();
+    t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
+    t.rgb(H.led(c, 'grid1_0'), 0, 127, 0);
+    t.rgb(H.led(c, 'grid2_0'), 0, 0, 127);
+});
+
+test('_renderSegmentGrid: shift does not highlight gap blacks', function(t) {
+    var c = setupLab();
+    bindTargets(c, ['grid0_0', 'grid1_0']);
+    setEdit(c, {
+        colors: [[127,0,0], [0,0,0]],
+        colorSet: [true, false]
+    });
+    c.isShifted = true;
+    H.clearLeds(c);
+    c._renderSegmentGrid();
+    t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
+    t.rgb(H.led(c, 'grid1_0'), 0, 0, 0, 'gap stays black under shift');
+});
+
+test('_renderSegmentGrid: shift does not highlight during preview', function(t) {
+    var c = setupLab();
+    bindTargets(c, ['grid0_0']);
+    setEdit(c, {colors: [[0,0,0]]});
+    c._lab.slots[5] = {colors: [[0,0,0]]};
+    c._lab.previewSource = 5;
+    c._lab.previewing = true;
+    c.isShifted = true;
+    H.clearLeds(c);
+    c._renderSegmentGrid();
+    // Previewing black stays black under shift — highlight is
+    // edit-mode only.
+    t.rgb(H.led(c, 'grid0_0'), 0, 0, 0);
+});
+
 // ── _renderMarkerLED ──────────────────────────────────────
 
 test('_renderMarkerLED: paints marker colour', function(t) {

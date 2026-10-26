@@ -559,6 +559,33 @@ Cell colours:
 
 Empty: dark. Populated: dim. Currently previewed: bright.
 
+### The four bake slots
+
+Slots 12–15 aren't yours to save into. They rewrite automatically
+every time the preview changes — a compiled copy of whatever
+scheme is currently previewed, at four fidelity levels:
+
+| Slot | What it is |
+|---|---|
+| 12 | Raw copy of the preview, untouched |
+| 13 | One stop per segment — lossless |
+| 14 | 23 evenly-spaced stops; `curve` and `schemePosition` baked into the sample positions |
+| 15 | Same 23 stops, plus the calibration solve pre-computed into each stop's brightness |
+
+Which one to paste:
+
+- **Slot 15 (wire)** — paste and forget. Looks identical on
+  hardware, regardless of what the calibration tuning is when
+  the preset loads. Best for shipping.
+- **Slot 13 (structural)** — same number of stops as your edit
+  buffer. Keeps `ratio`, `curve`, `schemePosition` live as
+  fields, so you can keep editing after paste.
+- **Slot 12 (source)** — the raw object. Hand-tweak colours
+  directly in `xone-k3-cat-schemes.js`.
+
+Full matrix of what each level keeps vs bakes: `LAB.md` §Slots
+and bakes.
+
 
 ════════════════════════════════════════════════════════════
 OVERLAYS
