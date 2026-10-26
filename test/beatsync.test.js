@@ -34,6 +34,11 @@ function withBeat(c) {
 
 // ── clock open / close ──────────────────────────────────────
 
+test('clocks closed with no beat scheme', function(t) {
+    var c = setup();
+    t.eq(c._beatConns.length, 0);
+});
+
 test('clocks open when a beat scheme is bound', function(t) {
     var c = setup();
     withBeat(c);
@@ -46,6 +51,39 @@ test('clocks closed on unbind of the last beat LED', function(t) {
     c._applyBinding('button0_0', null);
     c._refreshAllLeds();
     t.eq(c._beatConns.length, 0);
+});
+
+test('connection counts: 4 beat + 24 play', function(t) {
+    var c = setup();
+    withBeat(c);
+    // 1 beat_active per channel = 4
+    t.eq(c._beatConns.length, 4);
+    // 6 base play connections per channel × 4 = 24:
+    // playposition, play_indicator, track_loaded, loop_enabled,
+    // slip_enabled, track_samples. Hotcue marker observers add
+    // 32 per channel when PHRASE_MARKER_COLORS is non-empty;
+    // setup() clears it.
+    t.eq(c._playConns.length, 24);
+});
+
+test('track_samples change invalidates _trackMetaCache', function(t) {
+    var c = setup();
+    withBeat(c);
+
+    // Prime the cache with the current track's metadata.
+    c._trackMeta(1);
+    t.eq(c._trackMetaCache[1].duration, 300);
+
+    // Mixxx starts loading a new track over the current one:
+    // duration changes but track_loaded does not re-fire (it's
+    // a level CO, not an edge). Without the track_samples
+    // listener the cache keeps the old duration forever.
+    engine._set('[Channel1]', 'duration', 999);
+    engine._set('[Channel1]', 'track_samples', 2000);
+    engine._trigger('[Channel1]', 'track_samples', 2000);
+
+    t.eq(c._trackMetaCache[1].duration, 999,
+         'cache must reflect the new duration after track_samples change');
 });
 
 // ── beat_active handler ─────────────────────────────────────
@@ -91,6 +129,15 @@ test('beat_active on channel 2 does not touch channel 1', function(t) {
     t.eq(c._decks[2].hasBeat, true);
 });
 
+test('beat_active fires _onBeat hook', function(t) {
+    var c = setup();
+    withBeat(c);
+    var fired = 0;
+    c._onBeat = function() { fired++; };
+    engine._trigger('[Channel1]', 'beat_active', 1);
+    t.eq(fired, 1);
+});
+
 // ── playposition handler ────────────────────────────────────
 
 test('playposition advances running virtual clocks in trackTempo mode', function(t) {
@@ -103,6 +150,15 @@ test('playposition advances running virtual clocks in trackTempo mode', function
     engine._trigger('[Channel1]', 'playposition', 0.6);
     t.approx(c._decks[1].loopClock.pos, 0.7, 1e-6);
     XoneK3.VIRTUAL_CLOCKS.loop.trackTempo = false;
+});
+
+test('playposition does not advance stopped clocks', function(t) {
+    var c = setup();
+    withBeat(c);
+    c._decks[1].loopClock.pos = 0.5;
+    engine._set('[Channel1]', 'playposition', 0.6);
+    engine._trigger('[Channel1]', 'playposition', 0.6);
+    t.eq(c._decks[1].loopClock.pos, 0.5);
 });
 
 test('playposition in virtual mode repaints phase from frac', function(t) {
@@ -123,7 +179,6 @@ test('track mode guard: recent beat_active suppresses position repaint', functio
 
     c._decks[1].lastBeatEdge = Date.now();
     c._decks[1].active = true;
-    c._decks[1].lastPlayPos = 0.505;
 
     engine._set('[Channel1]', 'playposition', 0.507);
     engine._trigger('[Channel1]', 'playposition', 0.507);
@@ -137,9 +192,10 @@ test('track mode guard: backward movement bypasses the beat-edge window', functi
     engine._set('[Channel1]', 'play_indicator', 1);
     engine._set('[Channel1]', 'reverse', 0);
 
-    // Simulate: user was playing forward, pulse currently off-phase,
-    // then jogs the playhead backward without stopping. `reverse`
-    // stays 0 — the guard would normally fire on recent beat edge.
+    // Simulate: user was playing forward, pulse currently
+    // off-phase, then jogs the playhead backward without
+    // stopping. `reverse` stays 0 — the guard would normally
+    // fire on the recent beat edge and leave st.active frozen.
     c._decks[1].lastBeatEdge = Date.now();
     c._decks[1].active = false;
     c._decks[1].lastPlayPos = 0.5;
@@ -156,29 +212,33 @@ test('track mode guard: backward movement bypasses the beat-edge window', functi
 test('pause+play in active loop: clock stops, resumes, re-seeds', function(t) {
     var c = setup();
     withBeat(c);
-    H.setCO('[Channel1]', 'track_samples', 1000);
-    H.setCO('[Channel1]', 'loop_start_position', 100);
-    H.setCO('[Channel1]', 'loop_end_position', 500);
-    H.setCO('[Channel1]', 'duration', 100);
-    H.setCO('[Channel1]', 'playposition', 0.2);
+    engine._set('[Channel1]', 'track_samples', 1000);
+    engine._set('[Channel1]', 'loop_start_position', 100);
+    engine._set('[Channel1]', 'loop_end_position', 500);
+    engine._set('[Channel1]', 'duration', 100);
+    engine._set('[Channel1]', 'playposition', 0.2);
 
     // Start playing with the loop on.
-    H.fireCO('[Channel1]', 'play_indicator', 1);
-    H.fireCO('[Channel1]', 'loop_enabled', 1);
-    t.eq(c._decks[1].loopClock.running, true,  'setup: clock running');
+    engine._set('[Channel1]', 'play_indicator', 1);
+    engine._trigger('[Channel1]', 'play_indicator', 1);
+    engine._set('[Channel1]', 'loop_enabled', 1);
+    engine._trigger('[Channel1]', 'loop_enabled', 1);
+    t.eq(c._decks[1].loopClock.running, true, 'setup: clock running');
     t.eq(c._decks[1].displaySource, 'loop', 'setup: reads loop');
 
     // Pause: clock stops, display falls back to track.
-    H.fireCO('[Channel1]', 'play_indicator', 0);
+    engine._set('[Channel1]', 'play_indicator', 0);
+    engine._trigger('[Channel1]', 'play_indicator', 0);
     t.eq(c._decks[1].loopClock.running, false, 'pause stops clock');
     t.eq(c._decks[1].displaySource, 'track', 'pause reads track');
 
-    // Jog the playhead while paused — the paused reading comes
-    // from playposition, not the (frozen) loop clock.
-    H.setCO('[Channel1]', 'playposition', 0.3);
+    // Jog the playhead while paused — paused reading comes from
+    // playposition, not the (frozen) loop clock.
+    engine._set('[Channel1]', 'playposition', 0.3);
 
     // Resume: clock re-seeds from the playhead.
-    H.fireCO('[Channel1]', 'play_indicator', 1);
+    engine._set('[Channel1]', 'play_indicator', 1);
+    engine._trigger('[Channel1]', 'play_indicator', 1);
     t.eq(c._decks[1].loopClock.running, true,  'play restarts clock');
     t.eq(c._decks[1].displaySource, 'loop', 'play reads loop');
     t.approx(c._decks[1].loopClock.pos, 0.3, 1e-9, 're-seeded from playhead');
@@ -238,22 +298,22 @@ test('track_loaded clears _lastLoopTouchMs for that channel', function(t) {
 test('track_loaded starts loop clock when track has loop and playing', function(t) {
     var c = setup();
     withBeat(c);
-    H.setCO('[Channel1]', 'play_indicator', 1);
-    H.setCO('[Channel1]', 'loop_enabled', 1);
-    H.setCO('[Channel1]', 'loop_start_position', 100);
-    H.setCO('[Channel1]', 'loop_end_position', 500);
-    H.fireCO('[Channel1]', 'track_loaded', 1);
+    engine._set('[Channel1]', 'play_indicator', 1);
+    engine._set('[Channel1]', 'loop_enabled', 1);
+    engine._set('[Channel1]', 'loop_start_position', 100);
+    engine._set('[Channel1]', 'loop_end_position', 500);
+    engine._trigger('[Channel1]', 'track_loaded', 1);
     t.eq(c._decks[1].loopClock.running, true);
 });
 
 test('track_loaded leaves clock stopped when track loads paused', function(t) {
     var c = setup();
     withBeat(c);
-    H.setCO('[Channel1]', 'play_indicator', 0);
-    H.setCO('[Channel1]', 'loop_enabled', 1);
-    H.setCO('[Channel1]', 'loop_start_position', 100);
-    H.setCO('[Channel1]', 'loop_end_position', 500);
-    H.fireCO('[Channel1]', 'track_loaded', 1);
+    engine._set('[Channel1]', 'play_indicator', 0);
+    engine._set('[Channel1]', 'loop_enabled', 1);
+    engine._set('[Channel1]', 'loop_start_position', 100);
+    engine._set('[Channel1]', 'loop_end_position', 500);
+    engine._trigger('[Channel1]', 'track_loaded', 1);
     t.eq(c._decks[1].loopClock.running, false,
          'paused load must not start the clock');
 });
@@ -271,22 +331,25 @@ test('track_loaded ignores v != 1', function(t) {
 test('loop_enabled rising edge starts loop clock when playing', function(t) {
     var c = setup();
     withBeat(c);
-    H.setCO('[Channel1]', 'track_samples', 1000);
-    H.setCO('[Channel1]', 'loop_start_position', 100);
-    H.setCO('[Channel1]', 'loop_end_position', 500);
-    H.fireCO('[Channel1]', 'play_indicator', 1);   // playing; loop still off
-    H.fireCO('[Channel1]', 'loop_enabled', 1);
+    engine._set('[Channel1]', 'track_samples', 1000);
+    engine._set('[Channel1]', 'loop_start_position', 100);
+    engine._set('[Channel1]', 'loop_end_position', 500);
+    engine._set('[Channel1]', 'play_indicator', 1);
+    engine._trigger('[Channel1]', 'play_indicator', 1);
+    engine._set('[Channel1]', 'loop_enabled', 1);
+    engine._trigger('[Channel1]', 'loop_enabled', 1);
     t.eq(c._decks[1].loopClock.running, true);
 });
 
 test('loop_enabled rising edge leaves clock stopped when paused', function(t) {
     var c = setup();
     withBeat(c);
-    H.setCO('[Channel1]', 'track_samples', 1000);
-    H.setCO('[Channel1]', 'loop_start_position', 100);
-    H.setCO('[Channel1]', 'loop_end_position', 500);
-    H.setCO('[Channel1]', 'play_indicator', 0);    // paused
-    H.fireCO('[Channel1]', 'loop_enabled', 1);
+    engine._set('[Channel1]', 'track_samples', 1000);
+    engine._set('[Channel1]', 'loop_start_position', 100);
+    engine._set('[Channel1]', 'loop_end_position', 500);
+    engine._set('[Channel1]', 'play_indicator', 0);
+    engine._set('[Channel1]', 'loop_enabled', 1);
+    engine._trigger('[Channel1]', 'loop_enabled', 1);
     t.eq(c._decks[1].loopClock.running, false,
          'enabling a loop while paused must not start the clock');
 });
@@ -294,14 +357,17 @@ test('loop_enabled rising edge leaves clock stopped when paused', function(t) {
 test('loop_enabled falling edge stops running clock', function(t) {
     var c = setup();
     withBeat(c);
-    H.setCO('[Channel1]', 'track_samples', 1000);
-    H.setCO('[Channel1]', 'loop_start_position', 100);
-    H.setCO('[Channel1]', 'loop_end_position', 500);
-    H.fireCO('[Channel1]', 'play_indicator', 1);
-    H.fireCO('[Channel1]', 'loop_enabled', 1);
+    engine._set('[Channel1]', 'track_samples', 1000);
+    engine._set('[Channel1]', 'loop_start_position', 100);
+    engine._set('[Channel1]', 'loop_end_position', 500);
+    engine._set('[Channel1]', 'play_indicator', 1);
+    engine._trigger('[Channel1]', 'play_indicator', 1);
+    engine._set('[Channel1]', 'loop_enabled', 1);
+    engine._trigger('[Channel1]', 'loop_enabled', 1);
     t.eq(c._decks[1].loopClock.running, true, 'setup: clock running');
 
-    H.fireCO('[Channel1]', 'loop_enabled', 0);
+    engine._set('[Channel1]', 'loop_enabled', 0);
+    engine._trigger('[Channel1]', 'loop_enabled', 0);
     t.eq(c._decks[1].loopClock.running, false, 'loop off stops clock');
     t.eq(c._decks[1].displaySource, 'track');
 });

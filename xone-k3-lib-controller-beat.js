@@ -442,6 +442,18 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             self._syncBeatCount(ch);
         });
 
+        // Track identity changed. `track_loaded` fires 0→1 on the
+        // first load but may not fire when a new track replaces the
+        // current one, and even when it does fire it can arrive
+        // before Mixxx has settled `duration` / `file_bpm` — the
+        // resulting cache fill grabs the previous track's
+        // metadata. `track_samples` changes reliably on every load
+        // and fires regardless of play state.
+        wire(this._playConns, 'track_samples', function() {
+            self._trackMetaCache[ch] = undefined;
+            self._syncBeatCount(ch);
+        });
+
         if (Array.isArray(XoneK3.PHRASE_MARKER_COLORS) &&
             XoneK3.PHRASE_MARKER_COLORS.length > 0) {
             this._wireHotcueObservers(ch, grp);

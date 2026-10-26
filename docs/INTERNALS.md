@@ -794,6 +794,7 @@ Six per channel:
 | `_playConns` | `track_loaded` | Clears `_trackMetaCache[ch]`, resets beat state, clears `_lastLoopTouchMs[ch]`, re-syncs beat clocks. |
 | `_playConns` | `loop_enabled` | Starts / stops the loop clock on edge. |
 | `_playConns` | `slip_enabled` | Count resync. |
+| `_playConns` | `track_samples` | Track identity changed — clears `_trackMetaCache[ch]` and resyncs count. `track_loaded` isn't reliable for load-over-current or pre-settle races; `track_samples` changes on every load and fires regardless of play state. |
 
 Plus hotcue colour/position observers when
 `PHRASE_MARKER_COLORS` is non-empty (2 × `XoneK3.HOTCUE_MAX`
@@ -1553,8 +1554,15 @@ XoneK3` in `lib-core.js` carries an inline disable.
 
 ## Caches
 
-- **`_trackMetaCache`** — per-channel, reset on `track_loaded`.
-  Incomplete reads (duration 0) not cached. See §6.
+- **`_trackMetaCache`** — per-channel, reset on `track_loaded`
+  **and on `track_samples` change**. Incomplete reads (duration 0)
+  not cached. The `track_samples` listener is the reliable
+  invalidation point — `track_loaded` doesn't re-fire on
+  load-over-current and can arrive before Mixxx settles
+  `duration` / `file_bpm`, which caches the previous track's
+  metadata. Symptom of an un-invalidated cache: beats advance at
+  the wrong rate for every track loaded after the first, persists
+  across track reloads, clears on Mixxx restart. See §6.
 - **`_flatCache`** — keyed by `segs._cacheId` then `_calibKey`.
   Two controllers with different `_calibKey` don't share entries.
 - **`_hwCache`** — bounded at 1024.

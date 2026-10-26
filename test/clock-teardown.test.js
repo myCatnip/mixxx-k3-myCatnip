@@ -17,7 +17,7 @@ test('_closeBeatClocks: preserves _phraseOrigin, resets deck state', function(t)
 
     c._openBeatClocks();
     t.eq(c._beatConns.length, 4,  'one beat_active per channel');
-    t.eq(c._playConns.length, 20, 'five base connections per channel');
+    t.eq(c._playConns.length, 24, 'six base connections per channel');
 
     // Set derived state.
     c._phraseOrigin[1] = 42;

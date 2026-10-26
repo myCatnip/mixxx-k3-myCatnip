@@ -138,9 +138,15 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         }
     };
 
+    // Pulse a CO high then low. Duration matches the sysex frame
+    // cadence — Mixxx rounds sub-20ms timer requests up to 20ms
+    // anyway, so a hardcoded `1` here just generated a
+    // "Timer request for 1 ms is too short" warning per beatjump /
+    // reloop / beatloop-activate. Sharing SYSEX_THROTTLE_MS keeps
+    // every timer in the tree on one tunable.
     XoneK3.K3Controller.prototype._pulseCo = function(group, co) {
         engine.setValue(group, co, 1);
-        engine.beginTimer(1, function() {
+        engine.beginTimer(XoneK3.SYSEX_THROTTLE_MS, function() {
             engine.setValue(group, co, 0);
         }, true);
     };
