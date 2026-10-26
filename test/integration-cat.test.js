@@ -7,11 +7,12 @@ var H = require('./helpers');
 
 // ── focus-mode press row ───────────────────────────────────
 //
-// In focus mode press0..press3 are activeSlotButton bindings:
+// After the top-row unification, the press row is identical
+// across every mode:
 //   press0 → setActiveDeckTo('A')
-//   press1 → setActiveDeckTo('B')
-//   press2 → setActiveFxTo('A')
-//   press3 → setActiveFxTo('B')
+//   press1 → setActiveFxTo('A')
+//   press2 → setActiveFxTo('B')
+//   press3 → setActiveDeckTo('B')
 //
 // They change activeDeck / activeFx, not selectedDeckA/B or
 // selectedFxA/B. Pinning a channel into a slot lives in the
@@ -25,46 +26,47 @@ test('press0 sets activeDeck to A', function(t) {
     t.eq(c.activeDeck, 'A');
 });
 
-test('press1 sets activeDeck to B', function(t) {
-    var c = H.bootCat();
-    t.eq(c.activeDeck, 'A');
-    H.press(c, 'press1');
-    t.eq(c.activeDeck, 'B');
-});
-
-test('press2 sets activeFx to A', function(t) {
+test('press1 sets activeFx to A', function(t) {
     var c = H.bootCat();
     c.setActiveFx('B');
     t.eq(c.activeFx, 'B');
-    H.press(c, 'press2');
+    H.press(c, 'press1');
     t.eq(c.activeFx, 'A');
 });
 
-test('press3 sets activeFx to B', function(t) {
+test('press2 sets activeFx to B', function(t) {
     var c = H.bootCat();
     t.eq(c.activeFx, 'A');
-    H.press(c, 'press3');
+    H.press(c, 'press2');
     t.eq(c.activeFx, 'B');
+});
+
+test('press3 sets activeDeck to B', function(t) {
+    var c = H.bootCat();
+    t.eq(c.activeDeck, 'A');
+    H.press(c, 'press3');
+    t.eq(c.activeDeck, 'B');
 });
 
 test('deck select rewires $DECK_ACTIVE$ bindings', function(t) {
     var c = H.bootCat();
-    var chB = c.selectedDeckB;
-    H.press(c, 'press1');
-    t.eq(c.bindings.encoder0.group, '[Channel' + chB + ']');
+    // button0_0 (PFL) carries $DECK_ACTIVE$ in focus mode.
+    t.eq(c.bindings.button0_0.group, '[Channel' + c.selectedDeckA + ']');
+    H.press(c, 'press3');
+    t.eq(c.bindings.button0_0.group, '[Channel' + c.selectedDeckB + ']');
 });
 
 test('deck select button LED follows selection', function(t) {
     var c = H.bootCat();
     H.clearLeds(c);
-    H.press(c, 'press1');
-    var led = H.led(c, 'press1');
-    t.ok(led.hw > 0, 'press1 should be lit');
+    H.press(c, 'press3');
+    var led = H.led(c, 'press3');
+    t.ok(led.hw > 0, 'press3 should be lit');
 });
 
 // ── shift overrides ────────────────────────────────────────
 //
-// TOP_SHARED_SHIFT maps shifted press cells to:
+// TOP_SHIFT maps shifted press cells to pinned deck A / B:
 //   press0 → [selectedDeckA] sync_enabled
 //   press1 → [selectedDeckA] keylock
 //   press2 → [selectedDeckB] keylock
@@ -118,7 +120,7 @@ test('encoder1 turns cycle QFX chain preset', function(t) {
 
 test('encoder1 follows active deck', function(t) {
     var c = H.bootCat();
-    H.press(c, 'press1');
+    H.press(c, 'press3');
     var chB = c.selectedDeckB;
     engine._set('[QuickEffectRack1_[Channel' + chB + ']]', 'loaded_chain_preset', 0);
     H.send(c, 'encoder1', 1);
@@ -127,7 +129,7 @@ test('encoder1 follows active deck', function(t) {
 
 // ── pre-gain encoder ───────────────────────────────────────
 
-test('encoder0 writes pregain on active deck', function(t) {
+test('encoder0 writes pregain on pinned deck A', function(t) {
     var c = H.bootCat();
     engine._set('[Channel1]', 'pregain', 0.5);
     H.send(c, 'encoder0', 1);
@@ -136,10 +138,12 @@ test('encoder0 writes pregain on active deck', function(t) {
 
 // ── key sync / reset ───────────────────────────────────────
 //
-// Unshifted encoder3 is unbound. Key sync / reset moved to the
-// shifted encoders, any-direction:
-//   shift + encoder0 → encKeySync  (pulses sync_key on every turn)
-//   shift + encoder1 → encKeyReset (pulses reset_key on every turn)
+// Unshifted encoder3 is bound to pregain B. Key sync / reset
+// live on the shifted encoders, any-direction:
+//   shift + encoder0 → encKeySync  on deck A
+//   shift + encoder1 → encKeyReset on deck A
+//   shift + encoder2 → encKeyReset on deck B
+//   shift + encoder3 → encKeySync  on deck B
 
 test('shifted encoder0 syncs key on CW', function(t) {
     var c = H.bootCat();
@@ -173,14 +177,16 @@ test('shifted encoder1 resets key on CCW too', function(t) {
     t.eq(engine.getValue('[Channel1]', 'reset_key'), 1);
 });
 
-test('unshifted encoder3 is unbound', function(t) {
+test('unshifted encoder3 is pregain B, not key control', function(t) {
     var c = H.bootCat();
-    engine._set('[Channel1]', 'sync_key', 0);
-    engine._set('[Channel1]', 'reset_key', 0);
+    var chB = c.selectedDeckB;
+    engine._set('[Channel' + chB + ']', 'pregain', 0.5);
+    engine._set('[Channel' + chB + ']', 'sync_key', 0);
+    engine._set('[Channel' + chB + ']', 'reset_key', 0);
     H.send(c, 'encoder3', 1);
-    H.send(c, 'encoder3', 127);
-    t.eq(engine.getValue('[Channel1]', 'sync_key'), 0);
-    t.eq(engine.getValue('[Channel1]', 'reset_key'), 0);
+    t.approx(engine.getValue('[Channel' + chB + ']', 'pregain'), 0.525, 1e-9);
+    t.eq(engine.getValue('[Channel' + chB + ']', 'sync_key'), 0);
+    t.eq(engine.getValue('[Channel' + chB + ']', 'reset_key'), 0);
 });
 
 // ── QFX enable button ──────────────────────────────────────
@@ -247,18 +253,18 @@ test('button0_0 toggles pfl on active deck', function(t) {
 
 // ── shift release drops overrides ──────────────────────────
 //
-// While shifted, press1 toggles keylock on deck A (no activeDeck
-// change). After shift release, press1 goes back to the base
+// While shifted, press3 toggles sync on deck B (no activeDeck
+// change). After shift release, press3 goes back to the base
 // binding, setActiveDeckTo('B').
 
-test('shift release restores base press1 binding', function(t) {
+test('shift release restores base press3 binding', function(t) {
     var c = H.bootCat();
     c.setActiveDeck('A');
     H.press(c, 'shift');
-    H.press(c, 'press1');   // keylock on Channel1; activeDeck unchanged
+    H.press(c, 'press3');   // sync on Channel3; activeDeck unchanged
     t.eq(c.activeDeck, 'A');
     H.release(c, 'shift');
-    H.press(c, 'press1');   // base: setActiveDeckTo('B')
+    H.press(c, 'press3');   // base: setActiveDeckTo('B')
     t.eq(c.activeDeck, 'B');
 });
 

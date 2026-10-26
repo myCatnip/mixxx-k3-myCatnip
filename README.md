@@ -81,36 +81,82 @@ the bottom, beside layer and shift.
 TOP — encoder0-3 / press0-3
 ════════════════════════════════════════════════════════════
 
-FOCUS  (Cat / Kitten)
-enc0:  pregain act.deck       +shift: keyReset  act.deck
-enc1:  QFX cycle act.deck     +shift: keySync   act.deck
-enc2:  —                      +shift: —
-enc3:  —                      +shift: —
+The encoder + press row is identical across every mode. Only
+the middle FX cells differ. Encoders target pinned decks A / B
+(not the active deck). Press row selects active deck and active
+FX slot.
 
-press0: active deck ← A       +shift: sync A         LED: theme, bright=active
-press1: active deck ← B       +shift: keylock A      LED: theme, bright=active
-press2: active fx ← A         +shift: keylock B      LED: theme, bright=active
-press3: active fx ← B         +shift: sync B         LED: theme, bright=active
+QFX cycle differs between families:
+  focus (Cat / Kitten):  enc1 cycles the active deck's QFX chain,
+                         enc2 is off.
+  oneK3 / mini:          enc1 cycles deck A's chain,
+                         enc2 cycles deck B's chain.
+
+focus (Cat / Kitten)
+enc0: pregain A              +shift: keySync  A
+enc1: QFX cycle active deck  +shift: keyReset A
+enc2: —                      +shift: keyReset B
+enc3: pregain B              +shift: keySync  B
+
+oneK3 / oneK3 miniFX
+enc0: pregain A              +shift: keySync  A
+enc1: QFX cycle A            +shift: keyReset A
+enc2: QFX cycle B            +shift: keyReset B
+enc3: pregain B              +shift: keySync  B
+
+press row (identical in every mode)
+press0: active deck ← A      +shift: sync A      LED: theme deckA, bright=active
+press1: active fx ← A        +shift: keylock A   LED: theme fxA,   bright=active
+press2: active fx ← B        +shift: keylock B   LED: theme fxB,   bright=active
+press3: active deck ← B      +shift: sync B      LED: theme deckB, bright=active
+
+Middle cells per mode
+focus:        fxLayout<n>       one focused FX unit (unit 1-4)
+twoDeck:      fxLayoutA<n>      FX-A column, left  (pinned)
+              fxLayoutB<n>      FX-B column, right (pinned)
+twoDeckMini:  fxMini<n>         one focused FX unit (same shape as focus)
+
+Low-EQ route cells (button0_2 / button3_2)
+focus:        button0_2         FX-alt → active deck  (LED follows selectedFxAlt)
+twoDeck/mini: button0_2         FX-A → deck A        (LED follows selectedFxA)
+              button3_2         FX-B → deck B        (LED follows selectedFxB)
+
+In focus mode, button3_2 is FX3 enable (from the layout patch);
+only twoDeck / mini have button3_2 as a route.
+
+QFX enable cells (button1_2 / button2_2)
+focus:        button1_2         QFX-A enable + chain LED
+              button2_2         fxRoute (focused FX → active deck)
+twoDeck/mini: button1_2         QFX-A enable + chain LED
+              button2_2         QFX-B enable + chain LED
+```
+
+```
+════════════════════════════════════════════════════════════
+FADERS
+════════════════════════════════════════════════════════════
+
+FOCUS  (Cat / Kitten)
+fader0: volume act.deck
+fader1: FX-act mix
+fader2: —
+fader3: —
 
 twoDeck  (oneK3)
-enc0:  pregain A              +shift: keySync  A
-enc1:  QFX cycle A            +shift: keyReset A
-enc2:  QFX cycle B            +shift: keyReset B
-enc3:  pregain B              +shift: keySync  B
-
-press0: active deck ← A       +shift: sync A         LED: theme deckA, bright=active
-press1: FX-A → deck A         +shift: keylock A      LED: FX-A colour
-press2: FX-B → deck B         +shift: keylock B      LED: FX-B colour
-press3: active deck ← B       +shift: sync B         LED: theme deckB, bright=active
+fader0: deck A volume
+fader1: FX-A mix
+fader2: FX-B mix
+fader3: deck B volume
 
 twoDeckMini  (oneK3 miniFX)
-enc0-3: inherit twoDeck
-press0: active deck ← A       +shift: sync act.deck       LED: theme deckA, bright=active
-press1: focused FX → deck A   +shift: keylock act.deck    LED: FX focus colour
-press2: focused FX → deck B   +shift: active fx ← A       LED: FX focus colour
-press3: active deck ← B       +shift: active fx ← B       LED: theme deckB, bright=active
+inherits twoDeck — faders do NOT follow focus. fader1/fader2 always mix the
+pinned A/B units, never $FX_ACTIVE_N$.
 
+Shift / chord
+No shift companion, no chord override. Faders are identical in every state.
+```
 
+```
 ════════════════════════════════════════════════════════════
 GRID — rows 0-1
 ════════════════════════════════════════════════════════════
@@ -126,9 +172,11 @@ grid0_1:  CUE: jump −16            +shift: inherit       LED: purple [69,0,127
 grid1_1:  CUE: jump +16            +shift: inherit       LED: purple
           LOOP/ODD: jump +size     +shift: inherit       LED: magenta
 grid2_1:  toggle slip              +shift: flip deck     LED: slipScheme · theme of active-deck ch
+          pressR held: load onto active deck
 grid3_1:  toggle play              +shift: LED only      LED: green=track, yellow=loop
+```
 
-
+```
 ════════════════════════════════════════════════════════════
 GRID — rows 2-3
 ════════════════════════════════════════════════════════════
@@ -159,32 +207,9 @@ Layer overlays (chord + slip, per layer, toggle again to exit):
     row 2-3: loop sizes 7, 5, 3, 1 / 3/32, 3/16, 3/8, 1/2
     +shift:  beatjump sizes (same cell map)
     grid0_1 / grid1_1 (beatjump direction): recolour yellow
+```
 
-
-════════════════════════════════════════════════════════════
-FADERS
-════════════════════════════════════════════════════════════
-
-FOCUS  (Cat / Kitten)
-fader0: volume act.deck
-fader1: FX-act mix
-fader2: —
-fader3: —
-
-twoDeck  (oneK3)
-fader0: deck A volume
-fader1: FX-A mix
-fader2: FX-B mix
-fader3: deck B volume
-
-twoDeckMini  (oneK3 miniFX)
-inherits twoDeck — faders do NOT follow focus. fader1/fader2 always mix the
-pinned A/B units, never $FX_ACTIVE_N$.
-
-Shift / chord
-No shift companion, no chord override. Faders are identical in every state.
-
-
+```
 ════════════════════════════════════════════════════════════
 LAYER BUTTON  (cycles bottom layer)
 ════════════════════════════════════════════════════════════
@@ -192,8 +217,9 @@ LAYER BUTTON  (cycles bottom layer)
 press:  CUE ↔ LOOP  (replacePatch swaps the active layer)
 LED:    track-end countdown on DECK A (4 phases: green/yellow/amber/red)
 +shift: enters the chord (layer press is intercepted)
+```
 
-
+```
 ════════════════════════════════════════════════════════════
 BOTTOM — encoderL / pressL / encoderR / pressR
 ════════════════════════════════════════════════════════════
@@ -205,8 +231,8 @@ pressL: hold: encL = head mix
        +shift release (no turn): toggle headSplit
 encR:  playlist prev/next       +shift: headphone volume
 pressR: hold: arm track load
-       while held: TOP press0/3 and selectAB cells load onto that
-       channel instead of switching focus
+       while held: TOP press0/3, selectAB cells, and grid2_1 (slip)
+       load onto that channel instead of their normal action
 
 LOOP  (diffs from CUE)
 encL:  loop resize (IN point moves)    +shift: beatjump
@@ -215,8 +241,9 @@ encR:  loop resize (OUT point moves)   +shift: halve/double beatjump_size
 pressR: beatloop activate              +shift: inherit
 
 ODD  (inherits LOOP, no diffs for these four)
+```
 
-
+```
 ════════════════════════════════════════════════════════════
 SHIFT BUTTON  (top right)
 ════════════════════════════════════════════════════════════
@@ -225,7 +252,12 @@ press:   isShifted = true → shift layer joins the stack
 release: if _chordActive → _exitChord; then isShifted = false
 LED:     track-end countdown on DECK B (same phases as layer button)
 
+The shift layer for the top row is a single shared patch (topShift)
+used by all three modes — encoders drive keySync/keyReset on
+pinned deck A / B, presses toggle sync/keylock on pinned deck A / B.
+```
 
+```
 ════════════════════════════════════════════════════════════
 CHORD  (shift + layer, both held)
 ════════════════════════════════════════════════════════════
@@ -295,8 +327,9 @@ patch automatically. You don't rebind by hand.
 | twoDeck | `TWO_DECK_FX_LAYOUTS` | 4 per column | `twoDeckFxColumn(side, n)` | `fxLayoutA1..4`, `fxLayoutB1..4` |
 | mini | `TWO_DECK_MINI_FX_LAYOUTS` | 8 | `twoDeckMiniFxCells(n)` | `fxMini1..4` |
 
-QFX is **not** in these tables. `knob1_2` / `button1_2` are plain
-bindings in the top-half base patch.
+QFX is **not** in these tables. `knob1_2` / `button1_2` (and, in
+twoDeck, `knob2_2` / `button2_2`) are plain bindings in the
+top-half base patch.
 
 Notation: `FX<n>.p<m>` = effect `n` parameter `m` on the focused
 unit. `meta` = the effect's meta knob. `btn<k>` =
@@ -317,9 +350,9 @@ differs from unit 1.
 | `knob1_0` | FX2.p1 | FX2.p1 | **FX2.p2** | **FX2.p2** |
 | `knob2_0` | FX1.p2 | **FX1.p1** | FX1.p2 | **FX1.p1** |
 | `knob3_0` | FX1.meta | **FX1.p2** | FX1.meta | **FX1.p3** |
-| `button1_0` | LED→`knob1_0` | LED→`knob1_0` | LED→`knob1_0` (lo) | LED→`knob1_0` (mid) |
-| `button2_0` | LED→`knob2_0` (mid) | **LED→`knob2_0` (hi)** | LED→`knob2_0` (mid) | LED→`knob2_0` |
-| `button3_0` | FX1.enable | **FX1.enable (hi)** | FX1.enable | FX1.enable (lo) |
+| `button1_0` | LED→`knob1_0` | LED→`knob1_0` | **LED→`knob1_0` (lo)** | **LED→`knob1_0` (mid)** |
+| `button2_0` | LED→`knob2_0` (mid) | **LED→`knob2_0` (hi)** | LED→`knob2_0` (mid) | **LED→`knob2_0`** |
+| `button3_0` | FX1.enable | **FX1.enable (hi)** | FX1.enable | **FX1.enable (lo)** |
 
 **Row 1**
 
@@ -328,8 +361,8 @@ differs from unit 1.
 | `knob1_1` | FX2.p2 | FX2.p2 | **FX2.p3** | **FX2.p3** |
 | `knob2_1` | FX2.p3 | FX2.p3 | **FX2.p4** | **FX2.p4** |
 | `knob3_1` | FX2.p4 | FX2.p4 | **FX2.p5** | **FX2.p5** |
-| `button1_1` | FX2.btn1 | FX2.btn1 | FX2.btn1 (mid) | FX2.btn1 (mid) |
-| `button2_1` | FX2.btn2 | FX2.btn2 | LED→`knob2_1` (mid) | FX2.btn2 (mid) |
+| `button1_1` | FX2.btn1 | FX2.btn1 | **FX2.btn1 (mid)** | **FX2.btn1 (mid)** |
+| `button2_1` | FX2.btn2 | FX2.btn2 | **LED→`knob2_1` (mid)** | **FX2.btn2 (mid)** |
 | `button3_1` | FX2.enable (lo) | FX2.enable (lo) | FX2.enable (lo) | FX2.enable (lo) |
 
 **Row 2 (cols 2–3)**
@@ -371,8 +404,8 @@ All four units share the same table:
 
 Row 2 comes from `TWO_DECK`, not this table: `knob1_2` /
 `button1_2` = QFX A super/enable, `knob2_2` / `button2_2` = QFX B
-super/enable. `button0_2` / `button3_2` (cross-routes) also come
-from `TWO_DECK`.
+super/enable. `button0_2` / `button3_2` are the low-EQ route
+cells: `button0_2` = FX-A → deck A, `button3_2` = FX-B → deck B.
 
 ### twoDeck mini — `TWO_DECK_MINI_FX_LAYOUTS`
 
@@ -399,9 +432,9 @@ All four units share the same table:
 | `button1_1` | FX1.enable (lo) |
 | `button2_1` | FX2.enable (lo) |
 
-Row 2 comes from `TWO_DECK` / `TWO_DECK_MINI` — QFX A and B, plus
-the alt cross-routes. `button0_2` / `button3_2` use `$FX_ALT_N$`
-(the unit that isn't focused), not `$FX_ACTIVE_N$`.
+`twoDeckMini` inherits everything else from `twoDeck` — encoders,
+press row, shift row, faders, low-EQ route cells, QFX. The only
+difference between oneK3 and oneK3 mini is this middle layout.
 
 ### Editing a layout
 
@@ -614,6 +647,8 @@ Preset definitions:
 | | |
 |---|---|
 | One LED stuck white | Its knob hasn't sent a MIDI value yet. Wiggle it. |
+| Cat press1 no longer selects deck B | After the top-row unification, press1 selects **active FX A**. Deck B lives on press3. press0/3 are deck selectors, press1/2 are FX slot selectors — same in every mode. |
+| Cat encoders no longer follow focus | enc0 and enc3 pin to deck A / B pregain. enc1 cycles the active deck's QFX chain; enc2 is off in focus mode. oneK3 uses enc1/enc2 for pinned A/B QFX chains. |
 | Bottom grid doesn't follow your deck | Shift + slip (bottom grid `grid2_1`) flips which of A or B is the active deck. |
 | Chord `pressR` doesn't respond | Shift then layer must be pressed together first. |
 | Chord `pressL` does nothing in focus mode | `pressL` swaps twoDeck ↔ twoDeckMini. No-op from focus. |

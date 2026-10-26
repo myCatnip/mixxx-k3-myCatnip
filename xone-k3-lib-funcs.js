@@ -449,6 +449,22 @@
             this._ctrl.loadState.pressed = this._ctrl._isPress(v, s);
         },
 
+        // Slip toggle, unless the track-load arm is held — then
+        // the press loads the selected track onto the active
+        // deck's pinned channel. Mirrors k3Select's armed-load
+        // pattern: action fires on press, release is a no-op.
+        slipOrLoad: function(args, ch, c, v, s) {
+            if (!this._ctrl._isPress(v, s)) return;
+            var ctrl = this._ctrl;
+            if (ctrl.loadState.pressed) {
+                engine.setValue('[Channel' + ctrl.selectedDeckCurrent + ']',
+                                'LoadSelectedTrack', 1);
+                return;
+            }
+            var cur = engine.getValue(this.group, 'slip_enabled');
+            engine.setValue(this.group, 'slip_enabled', cur ? 0 : 1);
+        },
+        
         // ----------------------------------------------------------
         // Encoders
         // ----------------------------------------------------------

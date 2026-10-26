@@ -1,14 +1,27 @@
-// xone-k3-cat-top.js — Cat's three top-half base patches and
-// their shift companions.
+// xone-k3-cat-top.js — Cat's three top-half base patches and the
+// single shared shift companion.
 //
 //   TOP_SHARED        focus mode base
 //   TWO_DECK          twoDeck mode base
-//   TWO_DECK_MINI     mini mode base (inherits twoDeck)
+//   TWO_DECK_MINI     mini mode base (inherits twoDeck entirely)
+//   TOP_SHIFT         shared shift companion for all three
 //
 // Layout patches (fxLayout<n> etc.) come from cat-fx.js. This
 // file only defines the shared top-half scaffolding: encoders,
-// press row, EQ columns, QFX, faders, and the mode-shift overrides
-// that aren't layout-specific.
+// press row, EQ columns, QFX, faders.
+//
+// The unshifted encoder + press row is identical across every
+// mode (via topRowBase). Only the middle FX cells differ:
+//
+//   focus       fxLayout<n>       one focused FX unit
+//   twoDeck     fxLayoutA<n>      FX-A column (left), pinned
+//               fxLayoutB<n>      FX-B column (right), pinned
+//   twoDeckMini fxMini<n>         one focused FX unit (like focus)
+//
+// Cat/Kitten override two encoder cells back to their historical
+// behaviour: QFX cycle follows the ACTIVE deck, and the second
+// QFX cell (deck B pinned) stays off. oneK3/oneK3 mini use the
+// row as-is, with QFX cycle on both pinned A and B.
 //
 // Loads after cat-schemes.js (needs fxSchemeFor, FX_COLOR_MAP,
 // countdownScheme).
@@ -56,24 +69,25 @@
         };
     }
 
-    // Positional slot indicator for twoDeck / mini press0 / press3.
-    // LED colour is the theme of whatever channel is pinned to the
-    // slot, read live from THEME.deck so a selectAB reassignment
-    // propagates on the next repaint. Bright when this slot is the
-    // active deck, dim otherwise — the inactive state uses the
-    // default off-ramp brightness (DEFAULT_RGB_BRIGHTNESS_OFF, 12),
-    // and the active state uses whatever brightness the THEME entry
-    // carries (or DEFAULT_RGB_BRIGHTNESS if none).
-    function slotIndicator(slot, themeProp) {
+    // Shared top row — identical content across focus / twoDeck /
+    // twoDeckMini. Encoders target pinned deck A / B (the fix for
+    // the old `$DECK_ACTIVE$` indirection), presses are the same
+    // slot selectors in every mode.
+    //
+    // Returns a fresh object each call so each base patch owns its
+    // own cells (Object.assign mutates the first argument, so two
+    // callers can't share the same inner objects).
+    function topRowBase() {
         return {
-            colorScheme: {
-                scheme: function() {
-                    var ctrl = this._ctrl;
-                    if (!ctrl) return 'off';
-                    return XoneK3.THEME.deck[ctrl[themeProp]];
-                },
-                on: { state: 'activeDeck', equals: slot }
-            }
+            encoder0: { func: F.encPregainStep, args: [0.025], group: '$DECK_A$', inKey: 'pregain' },
+            encoder1: { func: F.encQuickFxCycle, group: '[QuickEffectRack1_$DECK_A$]' },
+            encoder2: { func: F.encQuickFxCycle, group: '[QuickEffectRack1_$DECK_B$]' },
+            encoder3: { func: F.encPregainStep, args: [0.025], group: '$DECK_B$', inKey: 'pregain' },
+
+            press0: activeSlotButton('deck', 'A'),
+            press1: activeSlotButton('fx',   'A'),
+            press2: activeSlotButton('fx',   'B'),
+            press3: activeSlotButton('deck', 'B')
         };
     }
 
@@ -86,16 +100,14 @@
     // layout patch, except knob1_2 / button1_2 which are the QFX
     // cells: a plain binding here, live, LED tracks the loaded
     // chain via schemeFromState.
-    var TOP_SHARED = {
-        encoder0: { func: F.encPregainStep, args: [0.025], group: '$DECK_ACTIVE$', inKey: 'pregain' },
+    //
+    // Cat/Kitten overrides from the shared row:
+    //   encoder1: QFX cycle follows the ACTIVE deck, not deck A.
+    //   encoder2: no deck-B QFX cell — off in focus mode.
+    // Every other encoder/press cell matches twoDeck.
+    var TOP_SHARED = Object.assign(topRowBase(), {
         encoder1: { func: F.encQuickFxCycle, group: QFX },
         encoder2: null,
-        encoder3: null,
-
-        press0: activeSlotButton('deck', 'A'),
-        press1: activeSlotButton('deck', 'B'),
-        press2: activeSlotButton('fx',   'A'),
-        press3: activeSlotButton('fx',   'B'),
 
         knob0_0: B.eqKnob('$DECK_ACTIVE$', 'high'),
         button0_0: { group: '$DECK_ACTIVE$', inKey: 'pfl', outKey: 'pfl',
@@ -132,57 +144,21 @@
                  group: '$DECK_B$',
                  outKey: 'track_loaded',
                  colorScheme: { scheme: CAT.countdownScheme() } },
-    };
-    TOP_SHARED._shift = 'topSharedShift';
-
-    var TOP_SHARED_SHIFT = {
-        press0: { group: '$DECK_A$', inKey: 'sync_enabled', outKey: 'sync_enabled',
-                  colorScheme: { scheme: 'syncOn' } },
-        press1: { group: '$DECK_A$', inKey: 'keylock', outKey: 'keylock',
-                  colorScheme: { scheme: 'keylockOn' } },
-        press2: { group: '$DECK_B$', inKey: 'keylock', outKey: 'keylock',
-                  colorScheme: { scheme: 'keylockOn' } },
-        press3: { group: '$DECK_B$', inKey: 'sync_enabled', outKey: 'sync_enabled',
-                  colorScheme: { scheme: 'syncOn' } },
-        encoder0: { func: F.encKeySync, group: '$DECK_ACTIVE$' },
-        encoder1: { func: F.encKeyReset, group: '$DECK_ACTIVE$' }
-        
-    };
+    });
+    TOP_SHARED._shift = 'topShift';
 
     // ============================================================
     // TWO_DECK — twoDeck mode base
     // ============================================================
-    var TWO_DECK = {
+    // Encoder + press row comes from topRowBase() unchanged.
+    // Both QFX cells present (A on knob1_2, B on knob2_2).
+    // Cross-route cells route straight: button0_2 → FX-A into
+    // deck A, button3_2 → FX-B into deck B.
+    var TWO_DECK = Object.assign(topRowBase(), {
         shift: { func: F.shiftToggle,
                  group: '$DECK_B$',
                  outKey: 'track_loaded',
                  colorScheme: { scheme: CAT.countdownScheme() } },
-
-        encoder0: { func: F.encPregainStep, args: [0.025], group: '$DECK_A$', inKey: 'pregain' },
-        encoder1: { func: F.encQuickFxCycle, group: '[QuickEffectRack1_$DECK_A$]' },
-        encoder2: { func: F.encQuickFxCycle, group: '[QuickEffectRack1_$DECK_B$]' },
-        encoder3: { func: F.encPregainStep, args: [0.025], group: '$DECK_B$', inKey: 'pregain' },
-
-        // press0 / press3 are positional A/B slot indicators.
-        // The button pins a specific channel into its slot
-        // (k3Select) — or, with pressR held on the cue layer,
-        // loads the selected track onto that channel. The LED
-        // ignores the button action and always shows the theme
-        // colour of whatever deck is *currently* in the slot.
-        press0: Object.assign(
-            { func: F.setActiveDeckTo, args: ['A'] },
-            slotIndicator('A', 'selectedDeckA')
-        ),
-        press1: B.fxGroupEnable('$FX_A_N$', '[Channel$DECK_A_N$]', {
-            schemeFromState: { state: 'selectedFxA', map: CAT.FX_COLOR_MAP }
-        }),
-        press2: B.fxGroupEnable('$FX_B_N$', '[Channel$DECK_B_N$]', {
-            schemeFromState: { state: 'selectedFxB', map: CAT.FX_COLOR_MAP }
-        }),
-        press3: Object.assign(
-            { func: F.setActiveDeckTo, args: ['B'] },
-            slotIndicator('B', 'selectedDeckB')
-        ),
 
         knob0_0: B.eqKnob('$DECK_A$', 'high'),
         knob0_1: B.eqKnob('$DECK_A$', 'mid'),
@@ -190,9 +166,9 @@
         button0_0: { group: '$DECK_A$', inKey: 'pfl', outKey: 'pfl',
                      colorScheme: { knob: 'knob0_0', scheme: 'myCatnip' } },
         button0_1: B.fxHeadphone('$FX_A_N$', { knob: 'knob0_1', scheme: 'myCatnip', markerColor: 'orange' }),
-        button0_2: B.fxGroupEnable('$FX_B_N$', '$DECK_A$',
+        button0_2: B.fxGroupEnable('$FX_A_N$', '$DECK_A$',
                                    Object.assign({ knob: 'knob0_2' },
-                                                 CAT.fxSchemeFor('selectedFxB'))),
+                                                 CAT.fxSchemeFor('selectedFxA'))),
 
         knob1_2: { group: '[QuickEffectRack1_$DECK_A$]', inKey: 'super1' },
         button1_2: {
@@ -232,22 +208,44 @@
         button3_0: { group: '$DECK_B$', inKey: 'pfl', outKey: 'pfl',
                      colorScheme: { knob: 'knob3_0', scheme: 'myCatnip' } },
         button3_1: B.fxHeadphone('$FX_B_N$', { knob: 'knob3_1', scheme: 'myCatnip', markerColor: 'orange' }),
-        button3_2: B.fxGroupEnable('$FX_A_N$', '$DECK_B$',
+        button3_2: B.fxGroupEnable('$FX_B_N$', '$DECK_B$',
                                    Object.assign({ knob: 'knob3_2' },
-                                                 CAT.fxSchemeFor('selectedFxA'))),
+                                                 CAT.fxSchemeFor('selectedFxB'))),
 
         fader0: { group: '$DECK_A$', inKey: 'volume' },
         fader1: B.fxMix('$FX_A_N$'),
         fader2: B.fxMix('$FX_B_N$'),
         fader3: { group: '$DECK_B$', inKey: 'volume' }
-    };
-    TWO_DECK._shift = 'twoDeckShift';
+    });
+    TWO_DECK._shift = 'topShift';
 
-    var TWO_DECK_SHIFT = {
-        encoder0: { func: F.encKeySync, group: '$DECK_A$' },
-        encoder1: { func: F.encKeyReset,     group: '$DECK_A$' },
-        encoder2: { func: F.encKeyReset,     group: '$DECK_B$' },
-        encoder3: { func: F.encKeySync, group: '$DECK_B$' },
+    // ============================================================
+    // TWO_DECK_MINI — twoDeck with one focused FX unit spanning
+    // both middle columns. Inherits everything from twoDeck except
+    // the middle layout cells (fxMini<n> vs fxLayoutA<n>/fxLayoutB<n>).
+    //
+    // Empty on purpose — the patch name must exist for TOP_MODES
+    // and initialPatches, and _collectShiftPatches walks the parent
+    // chain to pick up twoDeck._shift = 'topShift'.
+    // ============================================================
+    var TWO_DECK_MINI = {
+        patch: ['twoDeck']
+    };
+
+    // ============================================================
+    // TOP_SHIFT — shared shift companion for every top-half base.
+    // Source of truth: TOP_SHARED, TWO_DECK, and (via parent chain)
+    // TWO_DECK_MINI all declare _shift = 'topShift'.
+    //
+    // Encoders: key sync / reset on pinned deck A / B.
+    // Presses:  sync / keylock on pinned deck A / B.
+    // ============================================================
+    var TOP_SHIFT = {
+        encoder0: { func: F.encKeySync,  group: '$DECK_A$' },
+        encoder1: { func: F.encKeyReset, group: '$DECK_A$' },
+        encoder2: { func: F.encKeyReset, group: '$DECK_B$' },
+        encoder3: { func: F.encKeySync,  group: '$DECK_B$' },
+
         press0: { group: '$DECK_A$', inKey: 'sync_enabled', outKey: 'sync_enabled',
                   colorScheme: { scheme: 'syncOn' } },
         press1: { group: '$DECK_A$', inKey: 'keylock', outKey: 'keylock',
@@ -259,60 +257,10 @@
     };
 
     // ============================================================
-    // TWO_DECK_MINI — twoDeck with one focused FX unit spanning
-    // both middle columns. Inherits everything from twoDeck except
-    // the two group-enable presses, which now target the focused
-    // unit ($FX_ACTIVE_N$) instead of pinned A / B.
-    // ============================================================
-    var TWO_DECK_MINI = {
-        patch: ['twoDeck'],
-        // Press row: focused unit into each pinned deck. Static LED,
-        // theme colour follows focus.
-        press1: B.fxGroupEnable('$FX_ACTIVE_N$', '[Channel$DECK_A_N$]', {
-            schemeFromState: { state: 'selectedFxCurrent', map: CAT.FX_COLOR_MAP }
-        }),
-        press2: B.fxGroupEnable('$FX_ACTIVE_N$', '[Channel$DECK_B_N$]', {
-            schemeFromState: { state: 'selectedFxCurrent', map: CAT.FX_COLOR_MAP }
-        }),
-        // Low-EQ cells: alt unit into each pinned deck. Deviation
-        // LED — tracks the low EQ knob, colour swaps with
-        // selectedFxAlt. Same shape as twoDeck's cross-route cells.
-        button0_2: B.fxGroupEnable('$FX_ALT_N$', '$DECK_A$',
-                                Object.assign({ knob: 'knob0_2' },
-                                                CAT.fxSchemeFor('selectedFxAlt'))),
-        button3_2: B.fxGroupEnable('$FX_ALT_N$', '$DECK_B$',
-                                Object.assign({ knob: 'knob3_2' },
-                                                CAT.fxSchemeFor('selectedFxAlt')))
-    };
-    TWO_DECK_MINI._shift = 'twoDeckMiniShift';
-
-    // Shift overrides for mini: press2 / press3 set the focused
-    // FX unit (A / B), matching focus mode's shift behaviour.
-    // Every other shift cell inherits from twoDeckShift.
-    var TWO_DECK_MINI_SHIFT = {
-        press0: { group: '$DECK_ACTIVE$', inKey: 'sync_enabled', outKey: 'sync_enabled',
-                  colorScheme: { scheme: 'syncOn' } },
-        press1: { group: '$DECK_ACTIVE$', inKey: 'keylock', outKey: 'keylock',
-                  colorScheme: { scheme: 'keylockOn' } },
-        press2: { func: F.setActiveFxTo, args: ['A'],
-                  colorScheme: {
-                      schemeFromState: { state: 'selectedFxA', map: CAT.FX_COLOR_MAP },
-                      on: { state: 'activeFx', equals: 'A' }
-                  } },
-        press3: { func: F.setActiveFxTo, args: ['B'],
-                  colorScheme: {
-                      schemeFromState: { state: 'selectedFxB', map: CAT.FX_COLOR_MAP },
-                      on: { state: 'activeFx', equals: 'B' }
-                  } }
-    };
-
-    // ============================================================
     // EXPORTS
     // ============================================================
     CAT.TOP_SHARED = TOP_SHARED;
-    CAT.TOP_SHARED_SHIFT = TOP_SHARED_SHIFT;
+    CAT.TOP_SHIFT = TOP_SHIFT;
     CAT.TWO_DECK = TWO_DECK;
-    CAT.TWO_DECK_SHIFT = TWO_DECK_SHIFT;
     CAT.TWO_DECK_MINI = TWO_DECK_MINI;
-    CAT.TWO_DECK_MINI_SHIFT = TWO_DECK_MINI_SHIFT;
 })();

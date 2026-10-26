@@ -35,7 +35,7 @@
     XoneK3.CAT_LAYERS = {
         // Top — focus mode
         topShared:        CAT.TOP_SHARED,
-        topSharedShift:   CAT.TOP_SHARED_SHIFT,
+        topShift:         CAT.TOP_SHIFT,
         fxLayout1:        CAT.fxLayout(1),
         fxLayout2:        CAT.fxLayout(2),
         fxLayout3:        CAT.fxLayout(3),
@@ -43,7 +43,6 @@
 
         // Top — twoDeck mode
         twoDeck:          CAT.TWO_DECK,
-        twoDeckShift:     CAT.TWO_DECK_SHIFT,
         fxLayoutA1:       CAT.twoDeckFxLayout('A', 1),
         fxLayoutA2:       CAT.twoDeckFxLayout('A', 2),
         fxLayoutA3:       CAT.twoDeckFxLayout('A', 3),
@@ -55,7 +54,6 @@
 
         // Top — twoDeck mini FX mode
         twoDeckMini:      CAT.TWO_DECK_MINI,
-        twoDeckMiniShift: CAT.TWO_DECK_MINI_SHIFT,
         fxMini1:          CAT.twoDeckMiniFxLayout(1),
         fxMini2:          CAT.twoDeckMiniFxLayout(2),
         fxMini3:          CAT.twoDeckMiniFxLayout(3),

@@ -49,9 +49,9 @@ test('fxCells: unit 4 remap', function(t) {
     var c = H.bootCat();
     c.setSelectedFor('fx', 'A', 4);
     c._syncFxLayout();
-    // knob1_0 override → e2 p1.
+    // knob1_0 override → e2 p2.
     t.eq(c.bindings.knob1_0.group, '[EffectRack1_EffectUnit4_Effect2]');
-    t.eq(c.bindings.knob1_0.inKey, 'parameter1');
+    t.eq(c.bindings.knob1_0.inKey, 'parameter2');
     // knob2_0 override → e1 p1.
     t.eq(c.bindings.knob2_0.group, '[EffectRack1_EffectUnit4_Effect1]');
     t.eq(c.bindings.knob2_0.inKey, 'parameter1');
@@ -119,34 +119,41 @@ test('twoDeckMiniFxCells: swaps follow selectedFxCurrent', function(t) {
     t.contains(c.bindings.knob1_0.group, 'EffectUnit3');
 });
 
-// ── cross-route cells in mini ────────────────────────────────
+// ── top-row route and select cells in mini ──────────────────
+//
+// After the top-row unification, mini inherits TWO_DECK entirely.
+// press1 / press2 select the active FX slot; button0_2 / button3_2
+// are the straight pinned routes (FX-A → deck A, FX-B → deck B).
 
-test('mini: button0_2 routes $FX_ALT$ into deck A', function(t) {
-    // Force initialFxB=2 so alt (2) differs from active (1).
-    var c = H.bootCat({
-        initialPatches: ['twoDeckMini', 'fxMini1', 'cue'],
-        initialFxB: 2
-    });
-    t.eq(c.bindings.button0_2.group, '[EffectRack1_EffectUnit2]');
+test('mini: button0_2 routes FX-A into deck A', function(t) {
+    var c = H.bootCat({initialPatches: ['twoDeckMini', 'fxMini1', 'cue']});
+    // Defaults: selectedFxA=1, selectedDeckA=1.
+    t.eq(c.bindings.button0_2.group, '[EffectRack1_EffectUnit1]');
     t.eq(c.bindings.button0_2.inKey, 'group_[Channel1]_enable');
 });
 
-test('mini: button3_2 routes $FX_ALT$ into deck B', function(t) {
-    // Force initialFxB=2 (alt) and initialDeckB=2 so we exercise
-    // the cross-route cells with distinct values.
+test('mini: button3_2 routes FX-B into deck B', function(t) {
+    // Force initialFxB=4, initialDeckB=2 so we exercise the
+    // pinned B route with distinct values.
     var c = H.bootCat({
         initialPatches: ['twoDeckMini', 'fxMini1', 'cue'],
-        initialFxB: 2,
+        initialFxB: 4,
         initialDeckB: 2
     });
-    t.eq(c.bindings.button3_2.group, '[EffectRack1_EffectUnit2]');
+    t.eq(c.bindings.button3_2.group, '[EffectRack1_EffectUnit4]');
     t.eq(c.bindings.button3_2.inKey, 'group_[Channel2]_enable');
 });
 
-test('mini: press1 routes $FX_ACTIVE$ into deck A', function(t) {
+test('mini: press1 selects active FX A', function(t) {
     var c = H.bootCat({initialPatches: ['twoDeckMini', 'fxMini1', 'cue']});
-    c.setSelectedFor('fx', 'A', 3);
-    c.setActiveFx('A');
-    t.eq(c.bindings.press1.group, '[EffectRack1_EffectUnit3]');
-    t.eq(c.bindings.press1.inKey, 'group_[Channel1]_enable');
+    c.setActiveFx('B');
+    H.press(c, 'press1');
+    t.eq(c.activeFx, 'A');
+});
+
+test('mini: press2 selects active FX B', function(t) {
+    var c = H.bootCat({initialPatches: ['twoDeckMini', 'fxMini1', 'cue']});
+    t.eq(c.activeFx, 'A');
+    H.press(c, 'press2');
+    t.eq(c.activeFx, 'B');
 });

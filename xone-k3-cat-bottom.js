@@ -39,7 +39,9 @@
     }
 
     function slipCell() {
-        return { group: '$DECK_ACTIVE$', inKey: 'slip_enabled', outKey: 'slip_enabled',
+        return { func: F.slipOrLoad,
+                 group: '$DECK_ACTIVE$',
+                 outKey: 'slip_enabled',
                  colorScheme: CAT.slipScheme() };
     }
 
@@ -109,7 +111,7 @@
     // ============================================================
     var CUE = {
         layer: layerButton('cue', 'loop'),
-        encoderL: { func: F.encBpmPressedHeadMix, group: '[InternalClock]', inKey: 'bpm' },
+        encoderL: { func: F.encBpmPressedHeadMix, group: '$DECK_ACTIVE$', inKey: 'bpm' },
         pressL:   { func: F.bpmPress, args: ['encoderL'] },
         encoderR: { func: F.encPlaylistNav },
         pressR:   { func: F.loadSelectedTrack },
