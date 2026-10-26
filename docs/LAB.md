@@ -432,7 +432,7 @@ SLOTS.
 
 ### Build from scratch
 
-1. Load. Edit mode. Buffer starts as one blue stop.
+1. Load. Edit mode. Buffer starts as one black stop.
 2. Press segment 0. Edit.
 3. Press segment 1. Scheme extends. Edit.
 4. Repeat.

@@ -777,9 +777,6 @@ Resolved at bind time in `group`, `inKey`, `outKey`,
   $FX_ALT$        [EffectRack1_EffectUnit<selectedFxAlt>]
   $FX_ALT_N$      selectedFxAlt as a bare number
 
-(The runtime also registers $DECK_C$/D and $FX_C$/D tokens for
-the spare slot state. No shipped config references them.)
-
 `activeDeck` / `activeFx` start at 'A'.
 
 ═══════════════════════════════════════════════════════════════

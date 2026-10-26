@@ -594,8 +594,6 @@ Resolved at bind time in `group`, `inKey`, `outKey`,
 |---|---|
 | `$DECK_A$` | `selectedDeckA` → `[Channel<n>]` |
 | `$DECK_B$` | `selectedDeckB` |
-| `$DECK_C$` | `selectedDeckC` |
-| `$DECK_D$` | `selectedDeckD` |
 | `$DECK_A_N$` | `selectedDeckA` → bare number |
 | `$DECK_B_N$` | `selectedDeckB` → bare number |
 | `$DECK_ACTIVE$` | `selectedDeckCurrent` → `[Channel<n>]` |
@@ -604,8 +602,6 @@ Resolved at bind time in `group`, `inKey`, `outKey`,
 | `$DECK_ALT_N$` | `selectedDeckAlt` → bare number |
 | `$FX_A$` | `selectedFxA` → `[EffectRack1_EffectUnit<n>]` |
 | `$FX_B$` | `selectedFxB` |
-| `$FX_C$` | `selectedFxC` |
-| `$FX_D$` | `selectedFxD` |
 | `$FX_A_N$` | `selectedFxA` → bare number |
 | `$FX_B_N$` | `selectedFxB` → bare number |
 | `$FX_ACTIVE$` | `selectedFxCurrent` → `[EffectRack1_EffectUnit<n>]` |
@@ -678,7 +674,7 @@ beat`. Matrix:
 |---|---|---|
 | `label` | `'Cat'` | Console name. |
 | `midiChannel` | `0x0E` | 0x00..0x0F. |
-| `initialDeckA/B/C/D`, `initialFxA/B/C/D` | 1/2/3/4 | Starting selection per slot. |
+| `initialDeckA/B`, `initialFxA/B` | 1 / 2 (range 1–4) | Starting selection per slot. |
 | `initialActiveDeck` | `'A'` | Which of A/B boots as the active deck slot. |
 | `initialActiveFx` | `'A'` | Which of A/B boots as the active FX slot. |
 | `initialPatches` | `['topShared','fxLayout1','cue']` | Ordered active patches at boot. |

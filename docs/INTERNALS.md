@@ -14,7 +14,8 @@ patches — see `CUSTOMISE.md`. This file is the engine.
 xone-k3-lib-core.js               bootstrap, tunables, PATCH_NAMES,
                                   utilities, tokens, transfer curve,
                                   sysex math, beat math, K2 palette,
-                                  VIRTUAL_CLOCKS, BEATJUMP_GAP_MS
+                                  VIRTUAL_CLOCKS, BEATJUMP_GAP_MS,
+                                  PULSE_CO_MS
 xone-k3-lib-schemes.js            palette, scheme engine,
                                   LED_TRANSFERS, coMatchSample
 xone-k3-lib-binding.js            Binding primitive, colour render
@@ -45,15 +46,19 @@ xone-k3-cat.js                    CAT_LAYERS assembler + bootCat()
 xone-k3-kitten.js / -onek3.js / -onek3-minifx.js   boot overrides
 ```
 
-colorLab replaces the cat-* files with its own tree:
+colorLab replaces cat-fx / cat-top / cat-bottom / cat-overlays /
+cat with its own tree. `cat-schemes.js` still loads — the lab's
+`SCHEME_REGISTRY` references scheme names registered there.
 
 ```
+xone-k3-cat-schemes.js     THEME, QFX_CHAIN_LIST,
+                           PHRASE_MARKER_COLORS, SCHEMES
 xone-k3-lab.js             LabController, bakeScheme
 xone-k3-colorlab.js        colorLab layers + boot
 ```
 
-`lab.js` sits after `lib-funcs.js` — it references `XoneK3.FUNCS.*`
-at load time for `LAB_PAINTER_FUNCS`.
+`lab.js` sits after `lib-funcs.js` — it references
+`XoneK3.FUNCS.*` at load time for `LAB_PAINTER_FUNCS`.
 
 **Why five controller files.** All extend `K3Controller.prototype`
 — no new classes, no imports beyond `_requireLoad`. Split by
@@ -116,8 +121,13 @@ Beyond the binding map and `activePatches`, the controller carries:
   current by the `rate_ratio` CO listener. `_channelRate` reads
   this first; falls back to a live CO read on a cold cache.
 - `_flatCache{}` — per-controller `_flatTarget` cache, keyed by
-  `segs._cacheId` then `_calibKey` (§12)
-- `_calibKey` — hashes every `_emitAt` input
+  `segs._cacheId` then `_calibFingerprint()` (§12)
+- `_calibCurveName` — the calibration curve name from boot config
+- `_calibFingerprint()` — computed at call time (not at
+  construction) so runtime mutations to `wbActive`, `hkBoost`,
+  `lumGamma` invalidate the flat-target cache. A constructor-time
+  string can't do this — the lab's tuning overlay mutates those
+  fields directly.
 - `_resolvedTargetHashCache` — WeakMap<cfg, {fingerprint, value}>,
   memo for `_resolvedTargetHash` (§8)
 - `_resolvedPatchCache{}` — memoized patch merges
@@ -565,7 +575,7 @@ is on. Jogging while paused moves the resume point — the next
 
 A manual `cycleDisplaySource` toggle to `'track'` while playing
 is overwritten by the resume re-seed. If you want to hold 'track'
-across a pause, cycle again after resume. 
+across a pause, cycle again after resume.
 
 ---
 
@@ -630,7 +640,7 @@ K3Controller._reapplyByTokens = function(tokens, opts) {
         if (fingerprint === null) fingerprint = this._tokenFingerprint();
         var h = this._resolvedTargetHash(b._rawCfg, fingerprint);
         if (b._resolvedTargetHash === h) continue;
-        this._applyBinding(name, b._rawCfg, fingerprint, true);
+        this._applyOneSafe(name, b._rawCfg, true, fingerprint);
     }
     if (!(opts && opts.skipRefresh)) this._refreshAllLeds('token-reapply');
 };
@@ -642,6 +652,11 @@ focus and hashes the result. `b._resolvedTargetHash` is written by
 `_applyBinding` on every successful bind, cleared on unbind. A
 focus flip between two slots resolving to the same channel skips
 the rebind.
+
+**Every rebind routes through `_applyOneSafe`.** One throwing
+binding is caught and warned; the pass continues. `_applyOneSafe`
+takes an optional fourth `fingerprint` argument — `_reapplyByTokens`
+passes its shared value so `_resolvedTargetHashCache` still hits.
 
 **Memoized per (cfg, token fingerprint).** `_resolvedTargetHashCache`
 is a WeakMap keyed on the cfg object, holding `{fingerprint,
@@ -658,7 +673,7 @@ the same rows to resolve each target against current focus.
 
 Adding a new token-bearing field is one row in
 `XoneK3._BINDING_FIELDS` — both `_tokenFields` and
-`_resolvedTargetHash` pick it up automatically. 
+`_resolvedTargetHash` pick it up automatically.
 
 **`skipRefresh: true`** — all three focus setters use it, then
 refresh via `_syncFxLayout`'s recompute or their own trailing
@@ -697,8 +712,8 @@ the loop overlay's state and vice versa.
 `shutdownHold` is a 2-second hold; releasing shift, layer, or the
 binding cell cancels the timer via `Binding._reset`.
 
-`_pulseCo(group, co)` fires a CO high, then clears it on a 1 ms
-one-shot timer.
+`_pulseCo(group, co)` fires a CO high, then clears it on a
+`PULSE_CO_MS` (20 ms) one-shot timer.
 
 ---
 
@@ -979,17 +994,26 @@ Math.pow(Y, lumGamma)     perceptual compression
 
 `_flatTarget(segs)` scans the ramp's stops for minimum perceived
 luminance. Cached per-controller in `_flatCache`, keyed by
-`segs._cacheId` then `_calibKey` on read:
+`segs._cacheId` then `_calibFingerprint()` on read:
 
 ```js
 if (segs._cacheId === undefined) segs._cacheId = ++_segsCacheCounter;
 var entry = this._flatCache[segs._cacheId];
-if (entry && entry.key === this._calibKey) return entry.value;
+if (entry && entry.key === this._calibFingerprint()) return entry.value;
 // compute value
-this._flatCache[segs._cacheId] = { key: this._calibKey, value: value };
+this._flatCache[segs._cacheId] = { key: this._calibFingerprint(), value: value };
 ```
 
-Two controllers with different `_calibKey` don't share entries.
+`_calibFingerprint()` is a method, not a stored string. Every
+`_emitAt` input is included — curve name, calibrationMode,
+wbActive, wbGain, channelPerceptual, hkBoost, lumGamma — so any
+runtime mutation of a tuning field invalidates the cache. The
+lab's tuning overlay (shift+press3) mutates `wbActive` via
+`labToggleWb`, `hkBoost` and `lumGamma` via the tuning encoders;
+a constructor-time hash would serve stale flat targets for every
+scheme seen before the mutation.
+
+Two controllers with different fingerprints don't share entries.
 Segments arrays are owned by `_compiledCache`, reset per boot, so
 entries per controller per boot are bounded by distinct schemes.
 
@@ -1615,8 +1639,10 @@ XoneK3` in `lib-core.js` carries an inline disable.
   clock-open. `_channelRate` reads this first; falls back to a
   live CO read on a cold cache. Removes one CO read per
   throttled playposition tick from `_advanceVirtualClock`.
-- **`_flatCache`** — keyed by `segs._cacheId` then `_calibKey`.
-  Two controllers with different `_calibKey` don't share entries.
+- **`_flatCache`** — keyed by `segs._cacheId` then
+  `_calibFingerprint()`. Two controllers with different
+  fingerprints don't share entries. See §12 for why the
+  fingerprint is computed at call time.
 - **`_hwCache`** — bounded at 1024.
 - **`_ledCache`, `_sysexQueue`** — per-controller.
 - **`_blankLeds`** — stops the sysex drain timer, clears the

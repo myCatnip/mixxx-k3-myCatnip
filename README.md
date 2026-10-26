@@ -629,6 +629,7 @@ Boot overrides (2 lines each):
   xone-k3-onek3-minifx.js
 
 colorLab runtime:
+  xone-k3-cat-schemes.js   (shared — SCHEME_REGISTRY lives here)
   xone-k3-lab.js
   xone-k3-colorlab.js
 
