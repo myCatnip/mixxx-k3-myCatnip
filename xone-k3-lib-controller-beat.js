@@ -81,11 +81,20 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // ============================================================
     // Mixxx's `rate` CO is the rate *slider position*
     // (~-0.08..+0.08), not a multiplier. `rate_ratio` is the
-    // actual ratio. Use rate_ratio, fall back to 1 + rate.
+    // actual ratio. Prefer the cached rate_ratio value populated
+    // by the listener in _openChannelBeatClocks and the initial
+    // read in _catchUpChannel — falls back to a live CO read on
+    // a cold cache. The fallback to `1 + rate` covers Mixxx
+    // builds that predate rate_ratio.
     XoneK3.K3Controller.prototype._channelRate = function(ch) {
+        var cached = this._rateCache[ch];
+        if (typeof cached === 'number' && isFinite(cached) && cached > 0) {
+            return cached;
+        }
         var grp = '[Channel' + ch + ']';
         var ratio = engine.getValue(grp, 'rate_ratio');
         if (typeof ratio === 'number' && isFinite(ratio) && ratio > 0) {
+            this._rateCache[ch] = ratio;
             return ratio;
         }
         var slider = engine.getValue(grp, 'rate');
@@ -110,7 +119,18 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     XoneK3.K3Controller.prototype._startVirtualClock = function(ch) {
         var st = this._decks[ch];
         var clock = st.loopClock;
-        var pos = engine.getValue('[Channel' + ch + ']', 'playposition');
+        var grp = '[Channel' + ch + ']';
+        // Sync st.playing from the CO before starting. When called
+        // via _syncVirtualClock the flag is already correct (the
+        // caller only routes here because st.playing is true), but
+        // direct callers (tests, external scripts) don't always
+        // wire the play_indicator listener first. Reading here makes
+        // _startVirtualClock self-contained and guarantees
+        // _advanceVirtualClock's st.playing gate sees the right
+        // value regardless of listener state. One CO read per clock
+        // start — negligible.
+        st.playing = engine.getValue(grp, 'play_indicator') > 0;
+        var pos = engine.getValue(grp, 'playposition');
         clock.pos = pos;
         clock.lastTrackPos = pos;
         clock.lastTs = Date.now();
@@ -151,8 +171,8 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         if (!clock.running) return;
 
         var now = Date.now();
-        var grp = '[Channel' + ch + ']';
         if (this._virtualTempoTrack()) {
+            var grp = '[Channel' + ch + ']';
             var delta = newPos - clock.lastTrackPos;
             var reversing = engine.getValue(grp, 'reverse') > 0;
             delta = applyLoopWrapAdjust(st, clock, delta, newPos, reversing);
@@ -160,8 +180,15 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         } else {
             // Real-seconds mode: forward-only. dt is clamped to
             // zero — Date.now() is not monotonic.
-            var playing = engine.getValue(grp, 'play_indicator') > 0;
-            if (playing && clock.lastTs > 0) {
+            //
+            // st.playing mirrors play_indicator via the
+            // _onPlayIndicator CO listener. _channelRate reads
+            // the _rateCache populated by the rate_ratio CO
+            // listener (with a cold-cache live-read fallback).
+            // Both used to be live CO reads at every throttled
+            // tick (~200 reads/sec per playing deck); the caches
+            // cut that to zero.
+            if (st.playing && clock.lastTs > 0) {
                 var dt = (now - clock.lastTs) / 1000;
                 if (dt < 0) dt = 0;
                 var dur = this._trackMeta(ch).duration;
@@ -472,6 +499,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         wire(this._playConns, 'slip_enabled', function() {
             self._syncBeatCount(ch);
         });
+        // rate_ratio changes only when the deck's effective rate
+        // changes (pitch slider move, tempo follow). Cached here
+        // so _channelRate doesn't have to read the CO on every
+        // throttled playposition tick.
+        wire(this._playConns, 'rate_ratio', function(v) {
+            self._rateCache[ch] = v;
+        });
 
         // Track identity changed. `track_loaded` fires 0→1 on the
         // first load but may not fire when a new track replaces
@@ -486,9 +520,17 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // track's markers until the new track's hotcues load and
         // their observers fire. One seed per load closes that
         // window.
+        //
+        // Re-derives origin as well — a load that bypasses
+        // track_loaded (load-over-current) would otherwise leave
+        // _phraseOrigin at the previous track's beat, and the
+        // cascade would show the wrong colour (paused deck, no
+        // playposition tick to correct it).
         wire(this._playConns, 'track_samples', function() {
             self._trackMetaCache[ch] = undefined;
             self._seedHotcueCache(ch);
+            var pos = engine.getValue(grp, 'playposition');
+            self._deriveOriginFromPosition(ch, pos);
             self._syncBeatCount(ch);
         });
 
@@ -512,6 +554,14 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // fires × 32 reads = 1024 CO reads per channel in a burst,
     // which is what contended the CO mutex against the audio
     // thread.
+    //
+    // Observer bodies read self._decks[ch] fresh on every fire.
+    // _resetBeat (from track_loaded) replaces this._decks[ch]
+    // with a new freshDeckState; a captured reference would keep
+    // writing into the pre-reset cache while
+    // _deriveOriginFromPosition reads the current one, so user
+    // hotcue changes after a load would never reach origin
+    // derivation.
     XoneK3.K3Controller.prototype._wireHotcueObservers = function(ch, grp) {
         // Seed first so the observer's cache write always has a
         // slot to write into, even if a CO fires before the
@@ -519,16 +569,17 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         this._seedHotcueCache(ch);
 
         var self = this;
-        var st = this._decks[ch];
         var maxCue = XoneK3.HOTCUE_MAX;
 
         function onColor(n) {
+            var st = self._decks[ch];
             st.hotcueState[n].color =
                 engine.getValue(grp, 'hotcue_' + n + '_color');
             var pos = engine.getValue(grp, 'playposition');
             self._deriveOriginFromPosition(ch, pos);
         }
         function onPosition(n) {
+            var st = self._decks[ch];
             st.hotcueState[n].pos =
                 engine.getValue(grp, 'hotcue_' + n + '_position');
             var pos = engine.getValue(grp, 'playposition');
@@ -558,6 +609,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // stopped until the deck is actually playing.
         this._decks[ch].playing =
             engine.getValue('[Channel' + ch + ']', 'play_indicator') > 0;
+        // Populate the rate cache so _channelRate's first call
+        // doesn't have to live-read. The listener wired in
+        // _openChannelBeatClocks keeps it current from here on.
+        this._rateCache[ch] =
+            engine.getValue('[Channel' + ch + ']', 'rate_ratio');
         this._readLoopState(ch);
         this._syncVirtualClock(ch);
         this._syncBeatCount(ch);
@@ -608,9 +664,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // Throttled. The clock accumulates by dt (real seconds)
         // or by playhead delta (track tempo) — same total either
         // way, just larger steps at lower frequency. Real-seconds
-        // mode reads play_indicator + rate_ratio per call; at
-        // 150Hz unthrottled that's ~450 CO reads/sec, at 33Hz
-        // it's ~100.
+        // mode used to read play_indicator + rate_ratio per call;
+        // both are now cached (st.playing via _onPlayIndicator,
+        // rate_ratio via the listener in _openChannelBeatClocks),
+        // so the only remaining CO read here is play_indicator —
+        // for the `playing` local below.
         this._advanceVirtualClock(ch, newPos);
 
         this._deriveOriginFromPosition(ch, newPos);
@@ -665,6 +723,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // start — a track can load while the deck is playing, and
         // the clock only runs when playing.
         this._decks[ch].playing = engine.getValue(grp, 'play_indicator') > 0;
+        // Refresh the rate cache too — a load with sync engaged
+        // can change the effective rate_ratio. The listener also
+        // catches this if rate_ratio changes, but the track-loaded
+        // path is the natural point to be sure.
+        this._rateCache[ch] = engine.getValue(grp, 'rate_ratio');
         this._readLoopState(ch);
         // _resetBeat also wiped hotcueState. Re-seed before
         // _deriveOriginFromPosition below — if the clocks were

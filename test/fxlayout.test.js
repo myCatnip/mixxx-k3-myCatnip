@@ -122,14 +122,23 @@ test('twoDeckMiniFxCells: swaps follow selectedFxCurrent', function(t) {
 // ── cross-route cells in mini ────────────────────────────────
 
 test('mini: button0_2 routes $FX_ALT$ into deck A', function(t) {
-    var c = H.bootCat({initialPatches: ['twoDeckMini', 'fxMini1', 'cue']});
-    // Defaults: selectedFxA=1 (active), selectedFxB=2 (alt).
+    // Force initialFxB=2 so alt (2) differs from active (1).
+    var c = H.bootCat({
+        initialPatches: ['twoDeckMini', 'fxMini1', 'cue'],
+        initialFxB: 2
+    });
     t.eq(c.bindings.button0_2.group, '[EffectRack1_EffectUnit2]');
     t.eq(c.bindings.button0_2.inKey, 'group_[Channel1]_enable');
 });
 
 test('mini: button3_2 routes $FX_ALT$ into deck B', function(t) {
-    var c = H.bootCat({initialPatches: ['twoDeckMini', 'fxMini1', 'cue']});
+    // Force initialFxB=2 (alt) and initialDeckB=2 so we exercise
+    // the cross-route cells with distinct values.
+    var c = H.bootCat({
+        initialPatches: ['twoDeckMini', 'fxMini1', 'cue'],
+        initialFxB: 2,
+        initialDeckB: 2
+    });
     t.eq(c.bindings.button3_2.group, '[EffectRack1_EffectUnit2]');
     t.eq(c.bindings.button3_2.inKey, 'group_[Channel2]_enable');
 });

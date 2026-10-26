@@ -190,6 +190,12 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             3: freshDeckState(),
             4: freshDeckState()
         };
+        // Per-channel rate_ratio. Populated by _catchUpChannel and
+        // by the rate_ratio CO listener wired in
+        // _openChannelBeatClocks. _channelRate reads this first;
+        // it falls back to a live CO read on a cold cache.
+        // Eliminates a per-tick CO read from _advanceVirtualClock.
+        this._rateCache = { 1: null, 2: null, 3: null, 4: null };
         this._refreshActiveAlt();
 
         this._beatLeds = [];
@@ -520,6 +526,31 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         return snap;
     };
 
+    // A push button that is being unbound or rebound while held
+    // has latched its CO at 1. Physical release will fire against
+    // the NEW binding (if any), so the OLD CO would otherwise
+    // stay at 1 forever — and for a hotcue that means Mixxx
+    // stays in preview mode and eats the next play press.
+    //
+    // Fire the release against prev.group / prev.inKey here. Skip
+    // when the binding is being rebound to the same push-mode CO:
+    // the natural physical-release path writes 0 to the same
+    // target, and duplicating it would be a redundant CO write.
+    //
+    // _held is session-scoped (set in Binding.input, cleared on
+    // physical release). It is NOT in _bindingDefaults, so
+    // _reset — which _applyBinding calls before this — leaves it
+    // intact.
+    XoneK3.K3Controller.prototype._releaseHeldWrite = function(b, prev) {
+        if (!b._held) return;
+        if (!prev.wasBound || !prev.group || !prev.inKey) return;
+        var samePushTarget = (b.group === prev.group &&
+                              b.inKey === prev.inKey &&
+                              b.buttonMode === 'push');
+        if (samePushTarget) return;
+        engine.setValue(prev.group, prev.inKey, 0);
+    };
+
     XoneK3.K3Controller.prototype._unbind = function(b, prev) {
         if (prev.wasPot && prev.group && prev.inKey) {
             engine.softTakeoverIgnoreNextValue(prev.group, prev.inKey);
@@ -665,12 +696,18 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         b._reset();
 
         if (cfg === null || cfg === undefined) {
+            this._releaseHeldWrite(b, prev);
             this._unbind(b, prev);
             b._resolvedTargetHash = undefined;
             return;
         }
 
         this._bindCore(b, cfg);
+        // Rebind path: if this binding was a held push button and
+        // the new target differs, release the old CO now. Must
+        // happen after _bindCore so we can compare new target to
+        // the snapshot.
+        this._releaseHeldWrite(b, prev);
         XoneK3._auditBindingCfg(cfg, name);
         this._collectTokens(b, cfg);
         this._rearmSoftTakeover(b, prev);

@@ -49,9 +49,10 @@ test('bootCat: every binding wired to midi input handler', function(t) {
 // ── oneK3-equivalent boot ───────────────────────────────────
 
 test('bootCat: twoDeck initialPatches', function(t) {
-    // Default initialFxB is 2, so fxLayoutB1 aligns to fxLayoutB2.
+    // initialFxB=2 makes fxLayoutB1 align to fxLayoutB2.
     var c = H.bootCat({
-        initialPatches: ['twoDeck', 'fxLayoutA1', 'fxLayoutB2', 'cue']
+        initialPatches: ['twoDeck', 'fxLayoutA1', 'fxLayoutB1', 'cue'],
+        initialFxB: 2
     });
     t.contains(c.activePatches, 'twoDeck');
     t.contains(c.activePatches, 'fxLayoutA1');
@@ -69,9 +70,14 @@ test('bootCat: twoDeckMini initialPatches', function(t) {
 // ── Kitten-equivalent boot ─────────────────────────────────
 
 test('bootCat: initialActiveDeck B / initialActiveFx B', function(t) {
+    // Force 2/2 so selectedDeckCurrent / selectedFxCurrent land
+    // on a specific channel independent of the test fixture's
+    // slot B defaults.
     var c = H.bootCat({
         initialActiveDeck: 'B',
-        initialActiveFx: 'B'
+        initialActiveFx: 'B',
+        initialDeckB: 2,
+        initialFxB: 2
     });
     t.eq(c.activeDeck, 'B');
     t.eq(c.activeFx, 'B');

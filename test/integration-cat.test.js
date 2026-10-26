@@ -49,8 +49,9 @@ test('press3 sets activeFx to B', function(t) {
 
 test('deck select rewires $DECK_ACTIVE$ bindings', function(t) {
     var c = H.bootCat();
+    var chB = c.selectedDeckB;
     H.press(c, 'press1');
-    t.eq(c.bindings.encoder0.group, '[Channel2]');
+    t.eq(c.bindings.encoder0.group, '[Channel' + chB + ']');
 });
 
 test('deck select button LED follows selection', function(t) {
@@ -87,18 +88,20 @@ test('shift+press1 enables keylock on deck A', function(t) {
 
 test('shift+press2 enables keylock on deck B', function(t) {
     var c = H.bootCat();
-    engine._set('[Channel2]', 'keylock', 0);
+    var chB = c.selectedDeckB;
+    engine._set('[Channel' + chB + ']', 'keylock', 0);
     H.press(c, 'shift');
     H.press(c, 'press2');
-    t.eq(engine.getValue('[Channel2]', 'keylock'), 1);
+    t.eq(engine.getValue('[Channel' + chB + ']', 'keylock'), 1);
 });
 
 test('shift+press3 enables sync_enabled on deck B', function(t) {
     var c = H.bootCat();
-    engine._set('[Channel2]', 'sync_enabled', 0);
+    var chB = c.selectedDeckB;
+    engine._set('[Channel' + chB + ']', 'sync_enabled', 0);
     H.press(c, 'shift');
     H.press(c, 'press3');
-    t.eq(engine.getValue('[Channel2]', 'sync_enabled'), 1);
+    t.eq(engine.getValue('[Channel' + chB + ']', 'sync_enabled'), 1);
 });
 
 // ── QFX cycle ──────────────────────────────────────────────
@@ -116,9 +119,10 @@ test('encoder1 turns cycle QFX chain preset', function(t) {
 test('encoder1 follows active deck', function(t) {
     var c = H.bootCat();
     H.press(c, 'press1');
-    engine._set('[QuickEffectRack1_[Channel2]]', 'loaded_chain_preset', 0);
+    var chB = c.selectedDeckB;
+    engine._set('[QuickEffectRack1_[Channel' + chB + ']]', 'loaded_chain_preset', 0);
     H.send(c, 'encoder1', 1);
-    t.eq(engine.getValue('[QuickEffectRack1_[Channel2]]', 'loaded_chain_preset'), 1);
+    t.eq(engine.getValue('[QuickEffectRack1_[Channel' + chB + ']]', 'loaded_chain_preset'), 1);
 });
 
 // ── pre-gain encoder ───────────────────────────────────────
@@ -214,7 +218,8 @@ test('button2_2 routes focused FX into active deck', function(t) {
 });
 
 test('button0_2 routes alt FX into active deck', function(t) {
-    var c = H.bootCat();
+    // Force initialFxB=2 so alt (2) differs from active (1).
+    var c = H.bootCat({initialFxB: 2});
     engine._set('[EffectRack1_EffectUnit2]', 'group_[Channel1]_enable', 0);
     H.press(c, 'button0_2');
     t.eq(engine.getValue('[EffectRack1_EffectUnit2]', 'group_[Channel1]_enable'), 1);

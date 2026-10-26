@@ -6,9 +6,9 @@
 // lib-controller, which constructs Bindings in _buildHardware.
 //
 // Session-scoped fields — _normalized, _accelEvents,
-// _loopAccelEvents, pressHeld, turnHappened, _ledObservers —
-// live outside XoneK3._bindingDefaults on purpose. All are set
-// in the constructor; none are reset by _reset.
+// _loopAccelEvents, pressHeld, turnHappened, _ledObservers,
+// _held — live outside XoneK3._bindingDefaults on purpose. All
+// are set in the constructor; none are reset by _reset.
 //
 // _SNAPSHOT_FIELDS / _SNAPSHOT_IGNORED are derived from
 // XoneK3._BINDING_FIELDS in lib-core.js. The transform names
@@ -99,6 +99,13 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         this.pressHeld = false;
         this.turnHappened = false;
         this._ledObservers = [];
+        // Push-button held state. Set on physical press, cleared
+        // on release. Read by K3Controller._releaseHeldWrite when
+        // a rebind fires between press and release — the held CO
+        // must be written back to 0 explicitly, because physical
+        // release will fire against the NEW binding and never
+        // touch the old one.
+        this._held = false;
     };
 
     XoneK3.Binding.prototype._scaleValue = function(v) {
@@ -113,6 +120,13 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
 
         if (this.type === 'knob' || this.type === 'fader') {
             this._normalized = this._scaleValue(v);
+        }
+        // Push buttons latch a CO at 1 for the hold duration.
+        // Track that here so a rebind between press and release
+        // can release the held CO explicitly — see
+        // _releaseHeldWrite in lib-controller.js.
+        if (this.type === 'button' && this.buttonMode === 'push') {
+            this._held = v > 0;
         }
 
         var now = Date.now();

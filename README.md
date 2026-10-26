@@ -10,8 +10,8 @@ over outputs — Cat, oneK3, oneK3 miniFX, and colorLab all ship on
 
 | Preset | Channel | Boot mode | Layer tree | Use case |
 |---|---|---|---|---|
-| **Cat** | 0x0E | focus | CAT_LAYERS | Main preset. Re-pointable single-deck top half. |
-| **Kitten** | 0x0D | focus, slot B | CAT_LAYERS | Second unit, opposite slot by default. |
+| **Cat** | 0x0E | focus | CAT_LAYERS | Main preset. Decks 1/3. Re-pointable single-deck top half. |
+| **Kitten** | 0x0D | focus | CAT_LAYERS | Second unit. Decks 2/4. No overlap with Cat. |
 | **oneK3** | 0x0E | twoDeck | CAT_LAYERS | Single K3, both decks visible. |
 | **oneK3 miniFX** | 0x0E | twoDeckMini | CAT_LAYERS | Both decks, one focused FX unit in the middle. |
 | **colorLab** | 0x0E | n/a | lab | No playback. LED colour ramp editor. |

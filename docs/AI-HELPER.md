@@ -179,7 +179,8 @@ phrase colouring reads from*; they don't move the playhead.
 
   LOOP CLOCK         engages on loop-on, seeded from
                      playposition. Accumulates musical
-                     progress through wraps. Stops on loop exit.
+                     progress through wraps. Stops on loop
+                     exit or deck pause.
 
 Exactly one feeds the count at a time. Manual cycle via
 `cycleDisplaySource` (bound to CUE and LOOP `grid2_0`); no-op

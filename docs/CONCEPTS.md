@@ -205,13 +205,15 @@ phrase colouring reads from*; they don't move the playhead.
 
    LOOP CLOCK         engages on loop-on, seeded from
                       playposition. Accumulates musical
-                      progress through wraps.
+                      progress through wraps. Runs only
+                      while the deck plays — pause = exit,
+                      resume = entry.
 ```
 
 `displaySource` (`'track'` or `'loop'`) picks which feeds the
 count. Loop while the loop clock is running, track otherwise.
 Manual cycle via LOOP `grid2_0`; sticks until the next loop
-start/stop.
+start/stop or play/pause transition.
 
 Both timelines rate-scale, which is what keeps two synced decks
 in phase when one of them loops.

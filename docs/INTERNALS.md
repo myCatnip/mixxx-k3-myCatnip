@@ -111,6 +111,10 @@ Beyond the binding map and `activePatches`, the controller carries:
 - `_phraseOrigin[1..4]` — beat where "count 1" sits
 - `_trackMetaCache{}` — per-channel `{duration, fileBpm, samples}`,
   cleared on `track_loaded`. Incomplete reads not cached (§6).
+- `_rateCache[1..4]` — per-channel `rate_ratio` snapshot.
+  Populated by `_catchUpChannel` and `_onTrackLoaded`, kept
+  current by the `rate_ratio` CO listener. `_channelRate` reads
+  this first; falls back to a live CO read on a cold cache.
 - `_flatCache{}` — per-controller `_flatTarget` cache, keyed by
   `segs._cacheId` then `_calibKey` (§12)
 - `_calibKey` — hashes every `_emitAt` input
@@ -356,8 +360,8 @@ colouring reads from*; they don't move the playhead.
 `_phraseOrigin[ch]` — the beat where "count 1" sits. Derived from
 marker hotcues (`PHRASE_MARKER_COLORS`) by
 `_deriveOriginFromPosition`. Writer runs on every throttled
-playposition tick, `track_loaded`, and any hotcue colour /
-position change.
+playposition tick, `track_loaded`, any `track_samples` change,
+and any hotcue colour / position change.
 
 Derivation: beat of the last marker at-or-before the playhead. If
 no marker precedes but one exists ahead, origin anchors to the
@@ -793,7 +797,7 @@ gated independently (`lastBeatRepaint`, `lastPositionSync`).
 
 ## Clock connections
 
-Six per channel:
+Eight per channel:
 
 | Array | Connection | What it does |
 |---|---|---|
@@ -803,7 +807,8 @@ Six per channel:
 | `_playConns` | `track_loaded` | Clears `_trackMetaCache[ch]`, resets beat state, clears `_lastLoopTouchMs[ch]`, re-syncs beat clocks. |
 | `_playConns` | `loop_enabled` | Starts / stops the loop clock on edge. |
 | `_playConns` | `slip_enabled` | Count resync. |
-| `_playConns` | `track_samples` | Track identity changed — clears `_trackMetaCache[ch]`, re-seeds `st.hotcueState`, resyncs count. `track_loaded` isn't reliable for load-over-current or pre-settle races. |
+| `_playConns` | `track_samples` | Track identity changed — clears `_trackMetaCache[ch]`, re-seeds `st.hotcueState`, re-derives phrase origin, resyncs count. `track_loaded` isn't reliable for load-over-current or pre-settle races. |
+| `_playConns` | `rate_ratio` | Updates `_rateCache[ch]` for `_channelRate`. |
 
 Plus hotcue colour/position observers when
 `PHRASE_MARKER_COLORS` is non-empty (2 × `XoneK3.HOTCUE_MAX`
@@ -822,11 +827,12 @@ in a few ms.
 
 `_openBeatClocks` ends with a catch-up loop: re-reads loop state
 for every channel, starts the loop clock where a loop is already
-active, re-reads `play_indicator` into `st.playing`, and syncs
-the beat count. CO connections fire on change, not on setup —
-without this, a preset reload during an active loop leaves the
-loop clock idle, and a reload during playback leaves
-`st.playing = false` so paused mode renders on a playing deck.
+active, re-reads `play_indicator` into `st.playing`, populates
+`_rateCache[ch]`, and syncs the beat count. CO connections fire
+on change, not on setup — without this, a preset reload during
+an active loop leaves the loop clock idle, and a reload during
+playback leaves `st.playing = false` so paused mode renders on a
+playing deck.
 
 `_syncBeatClocks` is the only caller of open/close. Runs once per
 recompute, from `_refreshAllLeds`. Gate is `_needsBeatClocks` —
@@ -1135,6 +1141,7 @@ _loopAccelEvents   self-accelerating func rate window
 pressHeld          BPM tap state
 turnHappened       BPM tap state
 _ledObservers      LED observers
+_held              push-button held flag (see _releaseHeldWrite)
 ```
 
 ---
@@ -1371,6 +1378,7 @@ binding and prints where it stopped. Read-only.
 | `[k3] _applyBinding(<name>) threw: …` | One binding's bind path threw; rest of the pass continued. |
 | `[k3] _syncFxLayout: fx-pattern patch … has no matching target` | An fx-family patch name is in `activePatches` but missing from `patches:`. |
 | `[k3] colorScheme scheme function on X returns a fresh object each call` | Wrap with `composeScheme` or hoist the object. |
+| Play doesn't respond after a hotcue pad press; recovers after a mouse-seek | Held hotcue press survived a rebind. The release wrote 0 to the wrong CO, so `hotcue_N_activate` stays 1 and Mixxx stays in preview mode. Fixed by `_releaseHeldWrite` in `_applyBinding` (fires on both unbind and rebind paths). If still seen, check `Binding._held` is set for push-mode buttons in `input()`. |
 
 Full behaviour-driven symptoms (config author's view): CUSTOMISE §3.
 
@@ -1533,11 +1541,12 @@ XoneK3` in `lib-core.js` carries an inline disable.
 - **`_advanceVirtualClock` clamps `dt` to zero.** Date.now() is
   not monotonic; a backward NTP step would shift the loop-mode
   count backward.
-- **`_advanceVirtualClock` runs inside the 30 ms throttle.**
-  Real-seconds mode reads `play_indicator` + `rate_ratio` per
-  call; unthrottled at ~150 Hz that's ~450 CO reads/sec per
-  playing deck. Behind the throttle it's ~100/sec. Accumulation
-  is identical — `dt` grows from ~7 ms to ~30 ms per step.
+- **`_advanceVirtualClock` runs inside the 30 ms throttle, and
+  reads zero COs.** Real-seconds mode uses `st.playing` (kept
+  current by `_onPlayIndicator`) and `_channelRate` (reads
+  `_rateCache`, kept current by the `rate_ratio` listener).
+  Accumulation is identical — `dt` grows from ~7 ms to ~30 ms
+  per step.
 - **`_repaintFromPosition(ch, pos)` accepts `pos`.** When called
   from `_onPlayposition`, the caller just read `playposition`
   for `_advanceVirtualClock` — passing it in saves one redundant
@@ -1585,15 +1594,14 @@ XoneK3` in `lib-core.js` carries an inline disable.
   snapshot of all hotcues 1..HOTCUE_MAX. Seeded by
   `_seedHotcueCache(ch)` at clock-open, `track_loaded`, and any
   `track_samples` change. Maintained by the hotcue observers, one
-  field per fire. `_deriveOriginFromPosition` reads only this —
-  zero CO reads per throttled playposition tick.
+  field per fire. Observers read `_decks[ch]` fresh on every
+  fire — `_resetBeat` replaces the deck-state object, so a
+  captured reference would write into the pre-reset cache while
+  `_deriveOriginFromPosition` reads the current one.
+  `_deriveOriginFromPosition` reads only this — zero CO reads
+  per throttled playposition tick.
 - **`_trackMetaCache`** — per-channel, reset on `track_loaded`
   and on `track_samples` change. Incomplete reads (duration 0)
-  not cached. `track_loaded` doesn't re-fire on load-over-current
-  and can arrive before Mixxx settles `duration` / `file_bpm`;
-  the `track_samples` listener is the reliable invalidation
-  point. See §6.
-  **and on `track_samples` change**. Incomplete reads (duration 0)
   not cached. The `track_samples` listener is the reliable
   invalidation point — `track_loaded` doesn't re-fire on
   load-over-current and can arrive before Mixxx settles
@@ -1601,6 +1609,12 @@ XoneK3` in `lib-core.js` carries an inline disable.
   metadata. Symptom of an un-invalidated cache: beats advance at
   the wrong rate for every track loaded after the first, persists
   across track reloads, clears on Mixxx restart. See §6.
+- **`_rateCache[1..4]`** — per-channel `rate_ratio` snapshot.
+  Populated by `_catchUpChannel` and `_onTrackLoaded`, kept
+  current by the `rate_ratio` CO listener wired at
+  clock-open. `_channelRate` reads this first; falls back to a
+  live CO read on a cold cache. Removes one CO read per
+  throttled playposition tick from `_advanceVirtualClock`.
 - **`_flatCache`** — keyed by `segs._cacheId` then `_calibKey`.
   Two controllers with different `_calibKey` don't share entries.
 - **`_hwCache`** — bounded at 1024.
@@ -1688,6 +1702,17 @@ XoneK3` in `lib-core.js` carries an inline disable.
   `true` runs. Soft takeover is enabled from the first bind. The
   bridge is skipped because `_normalized` is `undefined` at that
   moment.
+- **Held push buttons are released on rebind.** `Binding._held`
+  is set in `input` for push-mode buttons (session-scoped — not
+  in `_bindingDefaults`). `_applyBinding` calls
+  `_releaseHeldWrite` on both the unbind and rebind paths: if
+  the binding is still held but the target changed (different
+  `group`/`inKey`, or different `buttonMode`), the old CO is
+  written to 0. Without this, a held hotcue pad whose binding
+  is swapped by a patch change, chord, or focus move would
+  leave `hotcue_N_activate` at 1 and Mixxx stays in preview
+  mode — the next play press does nothing until a mouse-seek
+  resets preview state.
 - **`valueCurve` doesn't touch `_normalized`.**
 - **`_trimTrailingZeros` protects the selected segment.**
 - **LED on/off state comes from `colorScheme.on`, `outKey`, or

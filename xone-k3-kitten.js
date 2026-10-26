@@ -20,10 +20,10 @@
         XoneK3.bootCat({
             label: 'Kitten',
             midiChannel: 0x0D,
-            initialDeckA: 1, initialDeckB: 2,
-            initialFxA: 1,   initialFxB: 2,
-            initialActiveDeck: 'B',
-            initialActiveFx:   'B'
+            initialDeckA: 2, initialDeckB: 4,
+            initialFxA: 1,   initialFxB: 1,
+            initialActiveDeck: 'A',
+            initialActiveFx:   'A'
         });
     };
     XoneK3.shutdown = function() { XoneK3.halt(); };

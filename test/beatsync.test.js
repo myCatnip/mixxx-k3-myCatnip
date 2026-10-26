@@ -53,17 +53,17 @@ test('clocks closed on unbind of the last beat LED', function(t) {
     t.eq(c._beatConns.length, 0);
 });
 
-test('connection counts: 4 beat + 24 play', function(t) {
+test('connection counts: 4 beat + 28 play', function(t) {
     var c = setup();
     withBeat(c);
     // 1 beat_active per channel = 4
     t.eq(c._beatConns.length, 4);
-    // 6 base play connections per channel × 4 = 24:
+    // 7 base play connections per channel × 4 = 28:
     // playposition, play_indicator, track_loaded, loop_enabled,
-    // slip_enabled, track_samples. Hotcue marker observers add
-    // 32 per channel when PHRASE_MARKER_COLORS is non-empty;
-    // setup() clears it.
-    t.eq(c._playConns.length, 24);
+    // slip_enabled, track_samples, rate_ratio. Hotcue marker
+    // observers add 32 per channel when PHRASE_MARKER_COLORS is
+    // non-empty; setup() clears it.
+    t.eq(c._playConns.length, 28);
 });
 
 test('track_samples change invalidates _trackMetaCache', function(t) {
