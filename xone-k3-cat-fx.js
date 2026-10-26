@@ -88,15 +88,16 @@
             //moog now 2 btn knob thing only!
             knob2_0:   { effect: 1, param: 2 },
             knob3_0:   { effect: 1, param: 'meta' },
-            button2_0: { displayOnly: true, on: false },
+            button2_0: { displayOnly: true, on: false, marker: 'mid', schemePosition: 63.5 },
             button3_0: { effect: 1, enabled: true },
 
-            //echo - extra button + knob from moog row
-            knob1_0:   { effect: 2, param: 3 }, // OPTION: 2nd time knob (1) or ping pong (3)
+            //echo
+            // extra button + knob from moog row
+            knob1_0:   { effect: 2, param: 1 },
             button1_0: { displayOnly: true, on: false },
 
-            knob1_1:   { effect: 2, param: 1 },
-            knob2_1:   { effect: 2, param: 2 },
+            knob1_1:   { effect: 2, param: 2 },
+            knob2_1:   { effect: 2, param: 3 },
             knob3_1:   { effect: 2, param: 4 },
             button1_1: { effect: 2, buttonParam: 1 },
             button2_1: { effect: 2, buttonParam: 2 },
@@ -118,43 +119,45 @@
         2: fxLayoutTable({
             knob2_0:   { effect: 1, param: 1 },
             knob3_0:   { effect: 1, param: 2 },
-            button2_0: { displayOnly: true, marker: 'high', schemePosition: 127, on: false },
+            button2_0: { displayOnly: true, on: false, marker: 'high', schemePosition: 127 },
             button3_0: { effect: 1, enabled: true, marker: 'high', schemePosition: 127 },
-            // 2nd TIME KNOB INSEAD OF PING PONG
-            knob1_0:   { effect: 2, param: 1 }, // OPTION: 2nd time knob (1) or ping pong (3)
+
+            knob1_0:   { effect: 2, param: 1 },
         }),
-        // moog - FLANGER - moog
+        // moog - flanger - moog
         3: fxLayoutTable({
+            //flanger
             //extra button + knob from moog row
             knob1_0:   { effect: 2, param: 2 },
-            button1_0: { displayOnly: true, marker: 'low', schemePosition: 0, on: false },
+            button1_0: { displayOnly: true, on: false, marker: 'low', schemePosition: 0 },
 
             knob1_1:   { effect: 2, param: 3 },
             knob2_1:   { effect: 2, param: 4 },
             knob3_1:   { effect: 2, param: 5 },
             button1_1: { effect: 2, buttonParam: 1, marker: 'mid', schemePosition: 63.5 },
-            button2_1: { displayOnly: true, marker: 'mid', schemePosition: 63.5, on: false },
+            button2_1: { displayOnly: true, on: false, marker: 'mid', schemePosition: 63.5 },
             button3_1: { effect: 2, enabled: true, marker: 'low', schemePosition: 0 },
         }),
         //  autopan - TREMELO - moog
         4: fxLayoutTable({
-            //autopan now 2 btn knob thing only!
+            //autopan
             knob2_0:   { effect: 1, param: 1 },
             knob3_0:   { effect: 1, param: 3 },
 
             button2_0: { displayOnly: true, on: false },
-            button3_0: { effect: 1, enabled: true },
-            //tremelo
-            //extra button + knob from moog row
-            knob1_0:   { effect: 2, param: 1 },
-            button1_0: { displayOnly: true, marker: 110, schemePosition: 110, on: false },
+            button3_0: { effect: 1, enabled: true, marker: 'low', schemePosition: 0 },
 
-            knob1_1:   { effect: 2, param: 2 },
-            knob2_1:   { effect: 2, param: 3 },
+            //tremelo
+            //extra button + knob from autopan row
+            knob1_0:   { effect: 2, param: 2 },
+            button1_0: { displayOnly: true, on: false, marker: 'mid', schemePosition: 63.5 },
+
+            knob1_1:   { effect: 2, param: 3 },
+            knob2_1:   { effect: 2, param: 4 },
             knob3_1:   { effect: 2, param: 5 },
-            button1_1: { effect: 2, buttonParam: 1, marker: 110, schemePosition: 110 },
-            button2_1: { effect: 2, buttonParam: 2, marker: 110, schemePosition: 110 },
-            button3_1: { effect: 2, enabled: true, marker: 'mid', schemePosition: 63.5 },
+            button1_1: { effect: 2, buttonParam: 1, marker: 'mid', schemePosition: 63.5 },
+            button2_1: { effect: 2, buttonParam: 2, marker: 'mid', schemePosition: 63.5 },
+            button3_1: { effect: 2, enabled: true, marker: 'low', schemePosition: 0 },
         })
     };
 

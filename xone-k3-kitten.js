@@ -21,7 +21,7 @@
             label: 'Kitten',
             midiChannel: 0x0D,
             initialDeckA: 2, initialDeckB: 4,
-            initialFxA: 1,   initialFxB: 1,
+            initialFxA: 1,   initialFxB: 4,
             initialActiveDeck: 'A',
             initialActiveFx:   'A'
         });

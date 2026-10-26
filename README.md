@@ -314,23 +314,23 @@ differs from unit 1.
 
 | Cell | Unit 1 | Unit 2 | Unit 3 | Unit 4 |
 |---|---|---|---|---|
-| `knob1_0` | FX2.p3 | **FX2.p1** | **FX2.p2** | **FX2.p1** |
+| `knob1_0` | FX2.p1 | FX2.p1 | **FX2.p2** | **FX2.p2** |
 | `knob2_0` | FX1.p2 | **FX1.p1** | FX1.p2 | **FX1.p1** |
 | `knob3_0` | FX1.meta | **FX1.p2** | FX1.meta | **FX1.p3** |
-| `button1_0` | LED→`knob1_0` | LED→`knob1_0` | LED→`knob1_0` (lo) | LED→`knob1_0` (110) |
-| `button2_0` | LED→`knob2_0` | LED→`knob2_0` (hi) | LED→`knob2_0` | LED→`knob2_0` |
-| `button3_0` | FX1.enable | FX1.enable (hi) | FX1.enable | FX1.enable |
+| `button1_0` | LED→`knob1_0` | LED→`knob1_0` | LED→`knob1_0` (lo) | LED→`knob1_0` (mid) |
+| `button2_0` | LED→`knob2_0` (mid) | **LED→`knob2_0` (hi)** | LED→`knob2_0` (mid) | LED→`knob2_0` |
+| `button3_0` | FX1.enable | **FX1.enable (hi)** | FX1.enable | FX1.enable (lo) |
 
 **Row 1**
 
 | Cell | Unit 1 | Unit 2 | Unit 3 | Unit 4 |
 |---|---|---|---|---|
-| `knob1_1` | FX2.p1 | FX2.p1 | **FX2.p3** | **FX2.p2** |
-| `knob2_1` | FX2.p2 | FX2.p2 | **FX2.p4** | **FX2.p3** |
+| `knob1_1` | FX2.p2 | FX2.p2 | **FX2.p3** | **FX2.p3** |
+| `knob2_1` | FX2.p3 | FX2.p3 | **FX2.p4** | **FX2.p4** |
 | `knob3_1` | FX2.p4 | FX2.p4 | **FX2.p5** | **FX2.p5** |
-| `button1_1` | FX2.btn1 | FX2.btn1 | FX2.btn1 (mid) | FX2.btn1 (110) |
-| `button2_1` | FX2.btn2 | FX2.btn2 | LED→`knob2_1` (mid) | FX2.btn2 (110) |
-| `button3_1` | FX2.enable (lo) | FX2.enable (lo) | FX2.enable (lo) | FX2.enable (mid) |
+| `button1_1` | FX2.btn1 | FX2.btn1 | FX2.btn1 (mid) | FX2.btn1 (mid) |
+| `button2_1` | FX2.btn2 | FX2.btn2 | LED→`knob2_1` (mid) | FX2.btn2 (mid) |
+| `button3_1` | FX2.enable (lo) | FX2.enable (lo) | FX2.enable (lo) | FX2.enable (lo) |
 
 **Row 2 (cols 2–3)**
 

@@ -87,7 +87,7 @@
         label: 'Cat',
         midiChannel: 0x0E,
         initialDeckA: 1, initialDeckB: 3,
-        initialFxA: 1,   initialFxB: 1,
+        initialFxA: 1,   initialFxB: 4,
         initialActiveDeck: 'A',
         initialActiveFx:   'A',
         initialPatches: ['topShared', 'fxLayout1', 'cue'],
