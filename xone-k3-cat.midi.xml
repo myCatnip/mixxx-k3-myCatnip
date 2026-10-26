@@ -23,6 +23,7 @@
             <file filename="xone-k3-cat-bottom.js"/>
             <file filename="xone-k3-cat-overlays.js"/>
             <file filename="xone-k3-cat.js" functionprefix="XoneK3"/>
+            <file filename="xone-k3-snake.js"/>
         </scriptfiles>
         <controls>
             <control><key>XoneK3.init</key></control>
