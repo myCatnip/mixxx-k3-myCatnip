@@ -497,7 +497,8 @@ undefined until the first tick.
 
 ## Clock connections
 
-Eight per channel, wired in `_openChannelBeatClocks`:
+Nine per channel — one on `_beatConns` (`beat_active`) and eight
+on `_playConns` — wired in `_openChannelBeatClocks`:
 
 | Array | CO | Effect |
 |---|---|---|
@@ -672,8 +673,10 @@ via `_warnOnce('applyBindThrow:<name>')` / `applyUnbindThrow` and
 doesn't stop the pass. `_unbindRemoved` sweeps `_appliedHashes`
 for missing entries.
 
-`_safeBinding` is used by `_refreshAllLeds` and `_refreshBeatLeds`,
-where the loop-variable-capture problem applies.
+`_safeBinding` is used by `_refreshAllLeds` and `_refreshBinding`.
+`_refreshBeatLeds` has its own inline try/catch (`refreshBeatThrow:`
+warn key) because it inspects each binding's scheme before
+refreshing — not the same call shape.
 
 `_auditBindingCfg` runs per rebind, gated on `_debugPrintsOn`.
 

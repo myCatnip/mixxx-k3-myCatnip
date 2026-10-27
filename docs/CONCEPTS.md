@@ -221,8 +221,10 @@ in phase when one of them loops.
 from track position's fractional beat, in both modes.
 
 **Origin** is the beat where "count 1" sits. Position-derived
-from marker hotcues (colour in `PHRASE_MARKER_COLORS`). No manual
-setter — move the playhead, or place a marker.
+from marker hotcues (colour in `PHRASE_MARKER_COLORS`): the last
+marker at or before the playhead, or — before the first marker —
+the next marker ahead (pre-phrase playback shows a negative
+count). No manual setter — move the playhead, or place a marker.
 
 **Beatjump gate.** A beatjump is blocked when its target channel
 has an active loop and less than `BEATJUMP_GAP_MS` (130 ms) has

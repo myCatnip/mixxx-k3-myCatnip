@@ -48,9 +48,12 @@
     // PHRASE_MARKER_COLORS — hotcue colours that define phrase-
     // start positions on the track. Any hotcue whose stored
     // colour is in this list acts as a phrase boundary; the
-    // active phrase origin at any playhead position is the beat
-    // of the last such marker at or before that position (or
-    // intro start if none). Empty list = feature off.
+    // active phrase origin at any playhead position is the
+    // beat of the last such marker at or before that position.
+    // Before the first marker, origin derives from the *next*
+    // marker ahead — playing before beat 1 shows a negative
+    // count that reaches zero at the marker. This is why
+    // _beatF has no `pos < 0` guard. Empty list = feature off.
     //
     // Position-derived, not press-only: playing across a marker,
     // scrubbing past one, pressing its pad, forward beatjump, and
@@ -62,8 +65,9 @@
     // to the start of its beat (floor, not round), so a marker at
     // beat 3.8 anchors origin to beat 3.
     //
-    // All 36 hotcues are scanned. That's Mixxx's hotcue maximum,
-    // so no hotcue is left out. Scan cost is nil.
+    // Up to XoneK3.HOTCUE_MAX hotcues are scanned. Default is
+    // 16 (Mixxx supports up to 36). Raise HOTCUE_MAX before boot
+    // if you place markers past hotcue 16 — see CUSTOMISE §1.8.
     //
     // Values are integer RGB hexes, exactly what Mixxx stores on
     // [ChannelN],hotcue_X_color.

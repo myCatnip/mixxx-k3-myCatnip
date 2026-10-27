@@ -272,6 +272,12 @@ set — the observer connections are wired once at clock-open, so a
 post-boot raise won't watch markers above the boot-time limit.
 Origin still re-derives on the next playhead throttle.
 
+Before the first marker, origin derives from the *next* marker
+ahead, so playing before beat 1 shows a negative count that
+reaches zero at the marker. This is why the cascade cycles
+backward through the phrase under a pre-start scrub rather
+than freezing.
+
 ## 1.9 Change FX cell mapping
 
 Three layout tables, one per mode, in `xone-k3-cat-fx.js`.
@@ -725,7 +731,7 @@ XoneK3.BEAT_PAUSED_MODE  = 'solid';
 XoneK3.CO_MATCH_EPSILON = 1 / 127;
 XoneK3.TAKEOVER_EPSILON = 2 / 127;
 
-XoneK3.setTimeSig(4, 4);
+XoneK3.setTimeSig(4, 4);add `knob: '<name>'`. The LED sampl
 XoneK3.clearTimeSig();
 ```
 
