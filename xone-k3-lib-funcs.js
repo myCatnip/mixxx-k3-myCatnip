@@ -359,7 +359,17 @@
             XoneK3.debugPrint('overlayOn', { name: name });
         },
         layerExitOverlay: function(args, ch, c, v, s) {
-            if (!this._ctrl._isPress(v, s)) return;
+            if (!this._ctrl._isPress(v, s)) {
+                // Release must also exit chord, mirroring
+                // layerButton. Without this, opening an overlay from
+                // chord (press0 / press1) swaps the layer binding to
+                // this func, and releasing layer with the overlay
+                // still open leaves chord active — shift alone then
+                // acts as chord until shift is released. Reachable:
+                // shift+layer → tap press0 → release layer.
+                if (this._ctrl._chordActive) this._ctrl._exitChord();
+                return;
+            }
             this._ctrl.removePatch(args[0]);
         },
 

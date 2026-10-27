@@ -425,6 +425,10 @@ if (!pressed) return;
 ctrl.replacePatch(args[0], args[1]);
 ```
 
+`layerExitOverlay` (the `layer` binding on `selectAB` / `fxRouting`) replicates
+the release branch. Any binding that can occupy `layer` while chord is active
+must do the same, or layer release leaves chord running until shift is released.
+
 The shipped chord declares `grid2_1` as
 `toggleLayerOverlay(['hotcue916', 'loopOdd'])` — the func picks
 target by `_patchActive('cue')` / `_patchActive('loop')`. Both
