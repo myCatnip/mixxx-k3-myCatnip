@@ -17,10 +17,13 @@ test('_closeBeatClocks: preserves _phraseOrigin, resets deck state', function(t)
 
     c._openBeatClocks();
     t.eq(c._beatConns.length, 4,  'one beat_active per channel');
-    // 9 base connections per channel: playposition,
+    // 11 base connections per channel: playposition,
     // play_indicator, track_loaded, loop_enabled, slip_enabled,
-    // track_samples, rate_ratio, reverse, outro_end_position.
-    t.eq(c._playConns.length, 36, 'nine base connections per channel');
+    // track_samples, rate_ratio, reverse, outro_end_position,
+    // duration, file_bpm. Hotcue marker observers add 32 per
+    // channel when PHRASE_MARKER_COLORS is non-empty; the test
+    // clears it.
+    t.eq(c._playConns.length, 44, 'eleven base connections per channel');
 
     // Set derived state.
     c._phraseOrigin[1] = 42;

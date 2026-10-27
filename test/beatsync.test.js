@@ -19,6 +19,12 @@ function setup(patches) {
     engine._set('[Channel1]', 'intro_start_position', 0);
     engine._set('[Channel1]', 'outro_end_position', 1000);
     engine._set('[Channel1]', 'playposition', 0.5);
+    // Simulate a loaded track. The runtime gates all metadata
+    // reads on track_loaded; without this, _trackMeta returns
+    // synthetic empty meta. _catchUpChannel (inside
+    // _openBeatClocks) reads this CO to seed _loadedState when
+    // beat clocks open via withBeat().
+    engine._set('[Channel1]', 'track_loaded', 1);
     return c;
 }
 
@@ -30,6 +36,12 @@ function withBeat(c) {
         }
     });
     c._refreshAllLeds();
+    // _catchUpChannel (inside _openBeatClocks) stamps
+    // _loadSettlingAt to now, suppressing cache writes for
+    // META_SETTLE_MS. Tests aren't simulating a mid-load state —
+    // clear it so cache-state assertions are observable
+    // immediately.
+    for (var ch = 1; ch <= 4; ch++) c._loadSettlingAt[ch] = 0;
 }
 
 // ── clock open / close ──────────────────────────────────────
@@ -53,18 +65,18 @@ test('clocks closed on unbind of the last beat LED', function(t) {
     t.eq(c._beatConns.length, 0);
 });
 
-test('connection counts: 4 beat + 36 play', function(t) {
+test('connection counts: 4 beat + 44 play', function(t) {
     var c = setup();
     withBeat(c);
     // 1 beat_active per channel = 4
     t.eq(c._beatConns.length, 4);
-    // 9 base play connections per channel × 4 = 36:
+    // 11 base play connections per channel × 4 = 44:
     // playposition, play_indicator, track_loaded, loop_enabled,
     // slip_enabled, track_samples, rate_ratio, reverse,
-    // outro_end_position. Hotcue marker observers add 32 per
-    // channel when PHRASE_MARKER_COLORS is non-empty; setup()
-    // clears it.
-    t.eq(c._playConns.length, 36);
+    // outro_end_position, duration, file_bpm. Hotcue marker
+    // observers add 32 per channel when PHRASE_MARKER_COLORS is
+    // non-empty; setup() clears it.
+    t.eq(c._playConns.length, 44);
 });
 
 test('track_samples change invalidates _trackMetaCache', function(t) {
@@ -74,11 +86,11 @@ test('track_samples change invalidates _trackMetaCache', function(t) {
     // Prime the cache with the current track's metadata.
     c._trackMeta(1);
     t.eq(c._trackMetaCache[1].duration, 300);
-
+    
     // Mixxx starts loading a new track over the current one:
-    // duration changes but track_loaded does not re-fire (it's
-    // a level CO, not an edge). Without the track_samples
-    // listener the cache keeps the old duration forever.
+    // track_samples changes first, duration second. Without the
+    // track_samples listener the cache would keep the old
+    // duration until the duration observer fires.
     engine._set('[Channel1]', 'duration', 999);
     engine._set('[Channel1]', 'track_samples', 2000);
     engine._trigger('[Channel1]', 'track_samples', 2000);

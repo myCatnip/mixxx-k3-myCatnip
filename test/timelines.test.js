@@ -13,6 +13,12 @@ function setupTrack(c, ch, opts) {
     engine._set('[Channel' + ch + ']', 'intro_start_position', 0);
     engine._set('[Channel' + ch + ']', 'outro_end_position', opts.samples || 1000);
     engine._set('[Channel' + ch + ']', 'playposition',       opts.pos       || 0.5);
+    // Simulate a loaded, settled track. The runtime gates
+    // _trackMeta on _loadedState and refuses to cache inside
+    // _loadSettlingAt + META_SETTLE_MS. Tests bypass the real
+    // load flow; seed both directly.
+    c._loadedState[ch] = true;
+    c._loadSettlingAt[ch] = 0;
 }
 
 // ── _channelOf ──────────────────────────────────────────────
@@ -40,6 +46,7 @@ test('_channelOf: non-channel → null', function(t) {
 
 test('_getContentBounds: start always 0, end from outro', function(t) {
     var c = H.ctrl();
+    c._loadedState[1] = true;   // loaded, samples below
     engine._set('[Channel1]', 'track_samples', 1000);
     // intro_start_position is deliberately set here — the code
     // must ignore it. Beat 0 is always file start.
@@ -52,12 +59,14 @@ test('_getContentBounds: start always 0, end from outro', function(t) {
 
 test('_getContentBounds: no samples → null', function(t) {
     var c = H.ctrl();
+    c._loadedState[1] = true;   // loaded, but samples = 0
     engine._set('[Channel1]', 'track_samples', 0);
     t.eq(c._getContentBounds(1), null);
 });
 
 test('_getContentBounds: zero markers → 0..1', function(t) {
     var c = H.ctrl();
+    c._loadedState[1] = true;
     engine._set('[Channel1]', 'track_samples', 1000);
     engine._set('[Channel1]', 'outro_end_position', 0);
     var b = c._getContentBounds(1);
@@ -67,6 +76,7 @@ test('_getContentBounds: zero markers → 0..1', function(t) {
 
 test('_getContentBounds: intro ignored, outro clamps', function(t) {
     var c = H.ctrl();
+    c._loadedState[1] = true;
     engine._set('[Channel1]', 'track_samples', 1000);
     // Intro is set above outro — previously this hit the
     // "endN <= startN" fallback. Now start is hard-coded to 0,
@@ -114,6 +124,7 @@ test('_readFileBpm: no bpm → null', function(t) {
 
 test('_trackMeta: caches per channel', function(t) {
     var c = H.ctrl();
+    c._loadedState[1] = true;
     engine._set('[Channel1]', 'duration', 100);
     engine._set('[Channel1]', 'file_bpm', 120);
     var m1 = c._trackMeta(1);
@@ -125,6 +136,7 @@ test('_trackMeta: caches per channel', function(t) {
 
 test('_trackMeta: cache clear picks up new values', function(t) {
     var c = H.ctrl();
+    c._loadedState[1] = true;
     engine._set('[Channel1]', 'duration', 100);
     engine._set('[Channel1]', 'file_bpm', 120);
     c._trackMeta(1);
@@ -149,12 +161,14 @@ test('_beatF: zero position → 0', function(t) {
 
 test('_beatF: no duration → null', function(t) {
     var c = H.ctrl();
+    c._loadedState[1] = true;   // loaded, but duration = 0
     engine._set('[Channel1]', 'track_samples', 1000);
     t.eq(c._beatF(1, 0.5), null);
 });
 
 test('_beatF: no file_bpm → null', function(t) {
     var c = H.ctrl();
+    c._loadedState[1] = true;   // loaded, but file_bpm = 0
     engine._set('[Channel1]', 'duration', 300);
     engine._set('[Channel1]', 'track_samples', 1000);
     t.eq(c._beatF(1, 0.5), null);
@@ -268,6 +282,7 @@ test('_deriveOriginFromPosition: frozen in loop mode', function(t) {
 
 test('_deriveOriginFromPosition: no metadata no-op', function(t) {
     var c = H.ctrl();
+    c._loadedState[1] = true;   // loaded, but samples = 0
     XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
     engine._set('[Channel1]', 'track_samples', 0);   // no metadata
     c._phraseOrigin[1] = 5;
