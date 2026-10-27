@@ -69,6 +69,13 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
 
     XoneK3.BEAT_REPAINT_THROTTLE_MS = 30;
 
+    // Milliseconds after the last metadata-relevant CO event
+    // (track_loaded, track_samples, duration, file_bpm) during
+    // which _trackMeta reads live but skips the cache write.
+    // Mixxx doesn't guarantee ordering between these COs; the
+    // window spans the last fire regardless of which one it was.
+    XoneK3.META_SETTLE_MS = 300;
+
     XoneK3.LAYER_BUTTON_NOTE = 0x0C;
     XoneK3.SHIFT_BUTTON_NOTE = 0x0F;
 

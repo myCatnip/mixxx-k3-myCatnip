@@ -195,12 +195,28 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         return bpm / this._channelRate(ch);
     };
 
-    // Incomplete reads (duration 0) are not cached — the CO tree
-    // may not be settled at first read. Cached only when duration
-    // > 0.
+    // Three-state load model. Every reader of this method (beat
+    // math, countdown, content bounds, virtual clock) already
+    // tolerates empty meta — duration/samples gates kick in.
+    //
+    //   loaded=false       → synthetic empty meta, zero CO reads.
+    //                        Unloaded deck can never leak stale
+    //                        duration.
+    //   inside settle      → read live, skip the cache write.
+    //                        Mixed old/new tuple from a swap
+    //                        never poisons the cache.
+    //   outside settle     → read live, cache when duration > 0.
+    //
+    // Both gates are controller-scoped so they survive
+    // _resetBeat / _closeBeatClocks replacing _decks[ch].
     XoneK3.K3Controller.prototype._trackMeta = function(ch) {
         var cached = this._trackMetaCache[ch];
         if (cached !== undefined) return cached;
+
+        if (this._loadedState[ch] !== true) {
+            return { duration: 0, fileBpm: null, samples: 0, outroEnd: 0 };
+        }
+
         var grp = '[Channel' + ch + ']';
         var dur = engine.getValue(grp, 'duration');
         var samples = engine.getValue(grp, 'track_samples');
@@ -211,7 +227,16 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             samples:  (samples > 0) ? samples : 0,
             outroEnd: (outroS > 0) ? outroS : 0
         };
-        if (meta.duration > 0) this._trackMetaCache[ch] = meta;
+        // Settle window spans from the last metadata CO fire, not
+        // just track_loaded — every observer that stamps also
+        // clears the cache, so the first read after the last
+        // event has a full 300ms of un-cached reads before the
+        // cache engages. This covers slow metadata arrival paths
+        // without a per-event state machine.
+        if (meta.duration > 0 &&
+            Date.now() - this._loadSettlingAt[ch] >= XoneK3.META_SETTLE_MS) {
+            this._trackMetaCache[ch] = meta;
+        }
         return meta;
     };
 
@@ -497,6 +522,10 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // cascade would show the wrong colour (paused deck, no
         // playposition tick to correct it).
         wire(this._playConns, 'track_samples', function() {
+            // Stamp settle before the read path below — the
+            // swap case changes samples first, duration second,
+            // and the mixed tuple must not reach the cache.
+            self._loadSettlingAt[ch] = Date.now();
             self._trackMetaCache[ch] = undefined;
             self._seedHotcueCache(ch);
             var pos = engine.getValue(grp, 'playposition');
@@ -512,6 +541,24 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // for a number that changes by one bar phase at most.
         wire(this._playConns, 'outro_end_position', function() {
             self._trackMetaCache[ch] = undefined;
+        });
+
+        // duration and file_bpm fire after track_samples on swap
+        // (queued main-thread emission in BaseTrackPlayer). They
+        // are the only signals that arrive *after* the new
+        // metadata has landed, so they do the correcting refresh
+        // and restart the settle window from the new event.
+        // Defensive against Mixxx changing the delay: as long as
+        // the CO fires eventually, the cache is corrected.
+        wire(this._playConns, 'duration', function() {
+            self._loadSettlingAt[ch] = Date.now();
+            self._trackMetaCache[ch] = undefined;
+            self._refreshBeatLeds(ch);
+        });
+        wire(this._playConns, 'file_bpm', function() {
+            self._loadSettlingAt[ch] = Date.now();
+            self._trackMetaCache[ch] = undefined;
+            self._refreshBeatLeds(ch);
         });
         
         if (Array.isArray(XoneK3.PHRASE_MARKER_COLORS) &&
@@ -599,6 +646,16 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // fresh COs. No-op when clocks were never closed (cache
         // was already empty or freshly populated by the same track).
         this._trackMetaCache[ch] = undefined;
+        // Seed the load gate from the live CO. A swap during the
+        // closed window changes track_samples/duration without
+        // any observer firing; at reopen we must know whether a
+        // track is loaded. Stamp settle too — a load landing
+        // just before reopen leaves file_bpm still in flight on
+        // the queued main-thread emission, and the first read
+        // here could otherwise cache a mixed tuple.
+        this._loadedState[ch] =
+            engine.getValue('[Channel' + ch + ']', 'track_loaded') > 0;
+        this._loadSettlingAt[ch] = Date.now();
         // playing first — the clock only runs while playing, and
         // a reload during an active loop should leave the clock
         // stopped until the deck is actually playing.
@@ -700,20 +757,22 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     };
 
     XoneK3.K3Controller.prototype._onTrackLoaded = function(ch, v) {
+        // Stamp settle, gate, and clear — all before _resetBeat.
+        // _resetBeat internally calls _refreshBeatLeds, which
+        // reads _trackMeta. If the gate/clear lands after that
+        // refresh, the internal read uses the pre-reset state and
+        // can poison the cache with the outgoing (unload) or
+        // incoming-but-not-settled (load) tuple.
+        this._loadSettlingAt[ch] = Date.now();
+        this._loadedState[ch] = (v === 1);
+        this._trackMetaCache[ch] = undefined;
+
         if (v !== 1) {
-            // Track unloaded. Without this the previous track's
-            // hasBeat / count survive, and beat LEDs bound to this
-            // channel keep painting the last cascade until reload.
-            // countdownScheme happens to hide it (returns
-            // countdownIdle when duration is 0), but every other
-            // beat LED on that deck would render stale.
-            this._trackMetaCache[ch] = undefined;
             this._lastLoopTouchMs[ch] = 0;
             this._resetBeat(ch);
             return;
         }
         var grp = '[Channel' + ch + ']';
-        this._trackMetaCache[ch] = undefined;
         this._resetBeat(ch);
         this._lastLoopTouchMs[ch] = 0;
         // _resetBeat wiped st.playing. Re-read before the clock

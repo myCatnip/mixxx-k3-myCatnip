@@ -173,6 +173,19 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         this._phraseOrigin = { 1: 0, 2: 0, 3: 0, 4: 0 };
 
+        // Load gate: driven by track_loaded only. False means
+        // "deck has no track" — _trackMeta returns synthetic
+        // empty meta without any CO read. Seeded by
+        // _catchUpChannel from the live CO at boot.
+        this._loadedState = { 1: false, 2: false, 3: false, 4: false };
+
+        // Settle timestamp: stamped by every metadata-relevant
+        // CO fire (track_loaded, track_samples, duration,
+        // file_bpm). Inside META_SETTLE_MS of the last stamp,
+        // _trackMeta reads live but skips the cache write —
+        // mixed old/new metadata tuples never reach the cache.
+        this._loadSettlingAt = { 1: 0, 2: 0, 3: 0, 4: 0 };
+
         this.activeDeckVirtual   = false;
         this.activeLoopVirtual   = false;
         this.activeDisplaySource = 'track';

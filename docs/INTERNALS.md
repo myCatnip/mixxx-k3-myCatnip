@@ -251,8 +251,18 @@ Metadata cached per channel (`duration`, `fileBpm`, `samples`,
 `outroEnd`). Content bounds now read from the cache; the
 `outro_end_position` listener invalidates on drag.
 
-**Incomplete reads aren't cached.** `_trackMeta` writes only when
-`duration > 0` — the CO tree may not have settled at first read.
+**Three-state load model.** `_loadedState[ch]` gates all metadata
+reads — set by `track_loaded`, seeded by `_catchUpChannel` at
+boot. When false, `_trackMeta` returns synthetic empty meta
+without reading any CO, so an unloaded deck can't leak the
+previous track's duration. `_loadSettlingAt[ch]` is stamped by
+every metadata-relevant CO fire (`track_loaded`,
+`track_samples`, `duration`, `file_bpm`). Inside
+`META_SETTLE_MS` of the last stamp, `_trackMeta` reads live but
+skips the cache write, so the mixed old/new tuple from a swap
+never poisons the cache. `duration` / `file_bpm` observers fire
+after the new metadata has landed on every path — they clear
+and refresh, correcting any pre-settle read.
 
 See `_beatF` and `_trackBeatF` in `lib-controller-beat.js` for
 the formula.
@@ -1024,12 +1034,19 @@ carries an inline disable.
   replaces the object). `_deriveOriginFromPosition` reads only
   this — zero COs per tick.
 - **`_trackMetaCache`** — reset on `track_loaded`, `track_samples`,
-  and `outro_end_position`. Incomplete reads (duration 0) not
-  cached. `track_samples` is the reliable load-invalidation
-  point; `outro_end_position` invalidates mid-track on drag
-  without a repaint — the next beat edge renders with the new
-  bounds. Un-invalidated cache symptom: beats advance
-  at wrong rate for every track after the first, clears on restart.
+  `duration`, `file_bpm`, and `outro_end_position`. Gated by
+  `_loadedState[ch]` (return empty, skip COs, when not loaded)
+  and by `_loadSettlingAt[ch]` (reads live, skips the cache
+  write, within `META_SETTLE_MS` of any metadata fire). Mixxx
+  fires `track_samples` before `duration` on swap and
+  `track_loaded = 0` before `duration = 0` on unload; the gates
+  enforce intent regardless of that ordering and remain correct
+  if Mixxx changes it. `track_samples` does **not** fire on
+  eject — the load gate covers unload, not `track_samples`.
+  `outro_end_position` invalidates mid-track on drag without a
+  repaint — the next beat edge renders with the new bounds.
+  Un-invalidated cache symptom: beats advance at wrong rate for
+  every track after the first, clears on restart.
 - **`_rateCache[1..4]`** — `rate_ratio` snapshot. Listener-fed,
   seeded by `_catchUpChannel`. Removes a CO read from
   `_advanceVirtualClock`.
