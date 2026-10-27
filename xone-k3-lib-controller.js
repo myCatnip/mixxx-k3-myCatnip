@@ -2,8 +2,9 @@
 // patch resolution, focus, top-half mode table, chord, binding
 // application.
 //
-// Loaded after lib-controller-colour.js, lib-controller-beat.js,
-// lib-controller-render.js, lib-controller-boot.js (boot last).
+// Loaded BEFORE lib-controller-colour.js, lib-controller-beat.js,
+// lib-controller-render.js, lib-controller-boot.js. The other four
+// extend K3Controller.prototype and require K3Controller to exist.
 // Inspection probes live in lib-inspect.js.
 
 'use strict';
@@ -81,7 +82,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // STATE FACTORIES
     // ============================================================
     function freshVirtualClock() {
-        return { running: false, pos: 0, lastTs: 0, lastTrackPos: 0 };
+        return { running: false, pos: 0, lastTs: 0 };
     }
 
     function freshDeckState() {

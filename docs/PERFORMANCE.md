@@ -224,9 +224,6 @@ instead of reading those COs, saving two CO reads per fire.
 `_syncBeatCount(ch, pos)` accepts `pos` from the caller,
 saving a redundant `playposition` re-read.
 
-`_advanceVirtualClock` (trackTempo mode) reads
-`_reverseCache[ch]` instead of the CO.
-
 `countdownScheme` is CO-free in steady state: `_trackMeta` hits
 the cache, and `st.lastPlayPos` is written on every
 `playposition` fire before the throttle gate. The cold path

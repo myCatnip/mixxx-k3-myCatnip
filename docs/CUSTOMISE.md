@@ -723,7 +723,6 @@ XoneK3.THEME = { ... };                     // see §1.2
 XoneK3.QFX_CHAIN_LIST = [...];              // see cat-schemes.js
 
 // lib-core.js
-XoneK3.VIRTUAL_CLOCKS = { loop: { trackTempo: false } };
 XoneK3.BEATJUMP_GAP_MS = 130;
 XoneK3.PULSE_CO_MS = 30;
 XoneK3.BEAT_PLAYING_MODE = 'pulse';
@@ -764,12 +763,6 @@ is how far a deviation LED's knob can be from its bound CO before
 the LED shows the co-match gradient. `TAKEOVER` is the rearm
 tolerance. The relation guarantees LED "matched" implies control
 live.
-
-**`VIRTUAL_CLOCKS.loop.trackTempo`** — the loop clock is the only
-virtual timeline. `false` (default): real seconds, scaled by
-`rate_ratio`. `true`: follows `playposition` delta, handles
-reverse playback. See INTERNALS §6 for the accumulation
-mechanics.
 
 ## 2.10 Diagnostics
 

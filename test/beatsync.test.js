@@ -209,18 +209,6 @@ test('beat_active fires _onBeat hook', function(t) {
 
 // ── playposition handler ────────────────────────────────────
 
-test('playposition advances running virtual clocks in trackTempo mode', function(t) {
-    var c = setup();
-    withBeat(c);
-    XoneK3.VIRTUAL_CLOCKS.loop.trackTempo = true;
-    c._startVirtualClock(1);
-    c._decks[1].loopClock.lastTrackPos = 0.4;
-    engine._set('[Channel1]', 'playposition', 0.6);
-    engine._trigger('[Channel1]', 'playposition', 0.6);
-    t.approx(c._decks[1].loopClock.pos, 0.7, 1e-6);
-    XoneK3.VIRTUAL_CLOCKS.loop.trackTempo = false;
-});
-
 test('playposition does not advance stopped clocks', function(t) {
     var c = setup();
     withBeat(c);

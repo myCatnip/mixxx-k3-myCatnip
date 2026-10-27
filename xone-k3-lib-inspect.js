@@ -180,7 +180,7 @@
         print('  clocks:  ' + (open
             ? ('open (' + this._beatConns.length + ' channels)')
             : 'closed'));
-        print('  loop tempo: ' + (XoneK3.VIRTUAL_CLOCKS.loop.trackTempo ? 'track' : 'real'));
+        print('  loop tempo: real seconds (session clock)');
         print('');
         for (var ch = 1; ch <= 4; ch++) {
             var st = this._decks[ch];

@@ -15,7 +15,7 @@ if (typeof XoneK3._requireLoad !== 'function') {
     throw new Error('Xone K3: xone-k3-lib-controller-beat.js — xone-k3-lib-core.js must load first');
 }
 XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
-    ['K3Controller', '_freshDeckState', 'VIRTUAL_CLOCKS',
+    ['K3Controller', '_freshDeckState',
      'DEFAULT_BEAT_DECK', 'BEAT_REPAINT_THROTTLE_MS']);
 
 (function() {
@@ -24,20 +24,6 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // Hotcue slots snapshotted for phrase-marker colours and watched
     // for place / recolour / delete / drag. 16 = Mixxx's max.
     XoneK3.HOTCUE_MAX = 16;
-
-    // Wrap detection is direction-based: a jump opposite playback
-    // direction is a wrap. Loop length is added back so the
-    // accumulated position keeps marching forward musically.
-    function applyLoopWrapAdjust(st, clock, delta, newPos, reversing) {
-        if (!st.loopActive || st.loopEndN <= st.loopStartN) return delta;
-        var loopLen = st.loopEndN - st.loopStartN;
-        if (!reversing) {
-            if (delta < 0) return delta + loopLen;
-        } else {
-            if (delta > 0) return delta - loopLen;
-        }
-        return delta;
-    }
 
     // ============================================================
     // CHANNEL / LOOP STATE
@@ -103,13 +89,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // VIRTUAL CLOCK (accumulated position)
     // ============================================================
     // clock.pos accumulates playhead movement through loop wraps.
-    // It's the cascade source in loop mode. trackTempo picks
-    // between two equivalent accumulation strategies.
-    XoneK3.K3Controller.prototype._virtualTempoTrack = function() {
-        var cfg = XoneK3.VIRTUAL_CLOCKS.loop;
-        return !!(cfg && cfg.trackTempo);
-    };
-
+    // It's the cascade source in loop mode.
     XoneK3.K3Controller.prototype._startVirtualClock = function(ch) {
         var st = this._decks[ch];
         var clock = st.loopClock;
@@ -118,9 +98,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // gate sees the right value regardless of listener state.
         // One CO read per clock start — negligible.
         st.playing = engine.getValue(grp, 'play_indicator') > 0;
-        var pos = engine.getValue(grp, 'playposition');
-        clock.pos = pos;
-        clock.lastTrackPos = pos;
+        clock.pos = engine.getValue(grp, 'playposition');
         clock.lastTs = Date.now();
         clock.running = true;
         this._resolveDisplaySource(ch);
@@ -153,34 +131,30 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         return false;
     };
 
-    XoneK3.K3Controller.prototype._advanceVirtualClock = function(ch, newPos) {
+    XoneK3.K3Controller.prototype._advanceVirtualClock = function(ch) {
         var st = this._decks[ch];
         var clock = st.loopClock;
         if (!clock.running) return;
 
+        // Real-seconds accumulation: forward-only, session-clock
+        // semantics. Wall time doesn't reverse when the deck does,
+        // so reverse mode and jog-scrub don't move the clock
+        // backward. Wrap detection is unnecessary — dt always
+        // advances.
+        //
+        // st.playing and _channelRate both read from caches
+        // populated by listeners (see _openChannelBeatClocks);
+        // no CO reads on this path. Date.now() is not monotonic —
+        // dt clamped to zero.
         var now = Date.now();
-        if (this._virtualTempoTrack()) {
-            var delta = newPos - clock.lastTrackPos;
-            var reversing = this._reverseCache[ch] > 0;
-            delta = applyLoopWrapAdjust(st, clock, delta, newPos, reversing);
-            clock.pos += delta;
-        } else {
-            // Real-seconds mode: forward-only. dt is clamped to
-            // zero — Date.now() is not monotonic.
-            //
-            // st.playing and _channelRate both read from caches
-            // populated by listeners (see _openChannelBeatClocks);
-            // no CO reads on this path.
-            if (st.playing && clock.lastTs > 0) {
-                var dt = (now - clock.lastTs) / 1000;
-                if (dt < 0) dt = 0;
-                var dur = this._trackMeta(ch).duration;
-                var rate = this._channelRate(ch);
-                if (dur > 0) clock.pos += (dt * rate) / dur;
-            }
+        if (st.playing && clock.lastTs > 0) {
+            var dt = (now - clock.lastTs) / 1000;
+            if (dt < 0) dt = 0;
+            var dur = this._trackMeta(ch).duration;
+            var rate = this._channelRate(ch);
+            if (dur > 0) clock.pos += (dt * rate) / dur;
         }
 
-        clock.lastTrackPos = newPos;
         clock.lastTs = now;
     };
 
@@ -678,14 +652,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         if (now - st.lastPositionSync < XoneK3.BEAT_REPAINT_THROTTLE_MS) return;
         st.lastPositionSync = now;
 
-        // Throttled. The clock accumulates by dt (real seconds)
-        // or by playhead delta (track tempo) — same total either
-        // way, just larger steps at lower frequency. Real-seconds
-        // mode used to read play_indicator + rate_ratio per call;
-        // both are now cached (st.playing via _onPlayIndicator,
-        // rate_ratio via the listener in _openChannelBeatClocks),
-        // so the throttled body reads zero COs.
-        this._advanceVirtualClock(ch, newPos);
+        // Throttled. The clock accumulates by dt (real seconds),
+        // forward-only. st.playing and rate_ratio are cached by
+        // listeners (_onPlayIndicator, the rate_ratio listener in
+        // _openChannelBeatClocks), so this body reads zero COs.
+        this._advanceVirtualClock(ch);
 
         this._deriveOriginFromPosition(ch, newPos);
 

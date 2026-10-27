@@ -110,16 +110,8 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // ============================================================
     // TIMELINE
     // ============================================================
-    // One virtual clock per channel: the loop clock. Starts on
-    // loop-on, stops on loop-off, seeded from the playhead.
-    // Track is the fallback when it isn't running.
-    //
-    // trackTempo false (default) — advance in real seconds.
-    // trackTempo true — follow position delta (rate-sensitive).
-    XoneK3.VIRTUAL_CLOCKS = {
-        loop: { trackTempo: false }
-    };
-
+    // TIME_SIG drives the beat cascade (bar / phrase boundaries)
+    // and the layer/shift track-end countdown. See setTimeSig.
     XoneK3.TIME_SIG = null;
 
     XoneK3.setTimeSig = function(barBeats, phraseBars) {

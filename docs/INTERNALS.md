@@ -14,8 +14,7 @@ patches — see `CUSTOMISE.md`. This file is the engine.
 xone-k3-lib-core.js               bootstrap, tunables, PATCH_NAMES,
                                   utilities, tokens, transfer curve,
                                   sysex math, beat math, K2 palette,
-                                  VIRTUAL_CLOCKS, BEATJUMP_GAP_MS,
-                                  PULSE_CO_MS
+                                  BEATJUMP_GAP_MS, PULSE_CO_MS
 xone-k3-lib-schemes.js            palette, scheme engine,
                                   LED_TRANSFERS, coMatchSample
 xone-k3-lib-binding.js            Binding primitive, colour render
@@ -281,18 +280,10 @@ every pitch-down — see §21.
 `clock.pos` advances by the amount the playhead would have moved
 if the loop played through in sequence.
 
-**`trackTempo: false`** (default) — real seconds, `dt × rate /
-duration`. Forward-only; the wall clock doesn't know the playhead
-wrapped.
-
-**`trackTempo: true`** — playhead delta. Wrap detection is
-direction-based: a jump opposite the playback direction is a
-wrap, corrected by adding loop length. Handles reverse playback
-(real-seconds mode does not).
-
-Both rate-scale at the same effective tempo. Single-wrap per
-tick — a loop short enough to wrap twice per update would be one
-loop-length off, not reachable in shipped configs.
+Real seconds, `dt × rate / duration`. Forward-only; the wall
+clock doesn't know the playhead wrapped, and doesn't reverse when
+the deck does — the loop clock is a session clock, not a position
+readout. Rate-scales with the deck's effective tempo.
 
 ## Derived flags
 
@@ -970,10 +961,9 @@ carries an inline disable.
   returns a negative fractional beat. `_cascadeCount` floors it,
   `beatLevel` normalises via modulo. Pre-start scrub cycles
   backward through the phrase instead of freezing the LED.
-- **The loop clock accumulates, it doesn't read the playhead.**
-  Both modes rate-scale at the same effective tempo.
-- **Real-seconds mode needs no wrap detection.** Forward only.
-- **Wrap detection is direction-based, not boundary-based.**
+- **The loop clock is a session clock, not a position readout.**
+  Accumulates dt × rate / duration, forward-only. Doesn't reverse
+  on deck reverse, doesn't need wrap detection.
 - **`_cascadeCount(ch, trackBeatF)` is the single count
   selector.**
 - **`beat_active` drives the pulse in both modes.** Cascade reads
@@ -986,10 +976,9 @@ carries an inline disable.
 - **`_advanceVirtualClock` clamps `dt` to zero.** `Date.now()` is
   not monotonic; a backward NTP step would shift the loop-mode
   count backward.
-- **`_advanceVirtualClock` reads zero COs.** Real-seconds mode
-  uses `st.playing`, `_channelRate`, `_reverseCache`. Track-tempo
-  mode uses `_reverseCache` and the `playposition` delta the
-  caller passes in.
+- **`_advanceVirtualClock` reads zero COs.** Uses `st.playing`
+  and `_channelRate` — both cached by listeners. No reverse
+  read; reverse doesn't move the session clock.
 - **`_onPlayposition` reads one CO per fire — `playposition`**,
   above the throttle gate so the direction check has a fresh
   value. Once past the throttle the body is CO-free.
@@ -1040,8 +1029,9 @@ carries an inline disable.
 - **`_rateCache[1..4]`** — `rate_ratio` snapshot. Listener-fed,
   seeded by `_catchUpChannel`. Removes a CO read from
   `_advanceVirtualClock`.
-- **`_reverseCache[1..4]`** — reverse flag. Listener-fed.
-  Removes two CO reads from the guard path.
+- **`_reverseCache[1..4]`** — reverse flag. Listener-fed,
+  seeded by `_catchUpChannel`. Removes a per-tick CO read from
+  the beat-edge guard in `_onPlayposition`.
 - **`_flatCache`** — keyed on `segs._cacheId` then
   `_calibFingerprint()`. Bounded at 1024. See §12.
 - **`_hwCache`** — bounded at 1024.

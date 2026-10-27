@@ -376,7 +376,7 @@ test('_advanceVirtualClock: not running → no-op', function(t) {
     var c = H.ctrl();
     setupTrack(c, 1);
     var before = c._decks[1].loopClock.pos;
-    c._advanceVirtualClock(1, 0.6);
+    c._advanceVirtualClock(1);
     t.eq(c._decks[1].loopClock.pos, before);
 });
 
@@ -387,7 +387,7 @@ test('_advanceVirtualClock: real-time advances by dt/duration', function(t) {
     c._startVirtualClock(1);
     var start = c._decks[1].loopClock.pos;
     c._decks[1].loopClock.lastTs = Date.now() - 1000;
-    c._advanceVirtualClock(1, 0.2);
+    c._advanceVirtualClock(1);
     var advanced = c._decks[1].loopClock.pos - start;
     t.approx(advanced, 0.01, 0.005);
 });
@@ -399,36 +399,8 @@ test('_advanceVirtualClock: real-time does not advance when paused', function(t)
     c._startVirtualClock(1);
     var start = c._decks[1].loopClock.pos;
     c._decks[1].loopClock.lastTs = Date.now() - 1000;
-    c._advanceVirtualClock(1, 0.6);
+    c._advanceVirtualClock(1);
     t.eq(c._decks[1].loopClock.pos, start);
-});
-
-test('_advanceVirtualClock: trackTempo follows position delta', function(t) {
-    var c = H.ctrl();
-    setupTrack(c, 1);
-    XoneK3.VIRTUAL_CLOCKS.loop.trackTempo = true;
-    c._startVirtualClock(1);
-    c._decks[1].loopClock.pos = 0.5;
-    c._decks[1].loopClock.lastTrackPos = 0.5;
-    c._advanceVirtualClock(1, 0.6);
-    t.approx(c._decks[1].loopClock.pos, 0.6, 1e-9);
-    XoneK3.VIRTUAL_CLOCKS.loop.trackTempo = false;
-});
-
-test('_advanceVirtualClock: trackTempo with loop wrap correction', function(t) {
-    var c = H.ctrl();
-    setupTrack(c, 1);
-    XoneK3.VIRTUAL_CLOCKS.loop.trackTempo = true;
-    c._decks[1].loopActive = true;
-    c._decks[1].loopStartN = 0.2;
-    c._decks[1].loopEndN   = 0.4;
-    c._startVirtualClock(1);
-    c._decks[1].loopClock.pos = 0.39;
-    c._decks[1].loopClock.lastTrackPos = 0.39;
-    c._advanceVirtualClock(1, 0.21);
-    // Delta = -0.18 + 0.2 = +0.02 → pos 0.41
-    t.approx(c._decks[1].loopClock.pos, 0.41, 1e-6);
-    XoneK3.VIRTUAL_CLOCKS.loop.trackTempo = false;
 });
 
 // ── _resolveDisplaySource ──────────────────────────────────

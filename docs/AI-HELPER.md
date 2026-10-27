@@ -213,9 +213,8 @@ phrasings plus the closest workaround.
   → activeDisplaySource is 'track' or 'loop'.
 
   "Track pitch changes in the phrase clock."
-  → Both modes already do. Real-seconds mode scales by
-    _channelRate (reads rate_ratio). trackTempo: true reads
-    playposition delta, which Mixxx rate-scales.
+  → Already does. _channelRate reads rate_ratio, so the loop
+    clock scales with the deck's effective tempo.
 
   "The beat LED drifts on a pitched deck, loop reading only."
   → Verify _channelRate reads rate_ratio, not rate. Reading
