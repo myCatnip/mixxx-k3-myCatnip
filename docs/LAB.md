@@ -1,14 +1,3 @@
-## Dump format check
-
-Valid JS, paste-ready. Multi-line with trailing commas, nested blocks (offScheme/coScheme/beat) inline where compact. One thing that doesn't match the docs: the outer line is `XoneK3.SCHEMES.NAME = {...};` — that doesn't paste **inside** `Object.assign(XoneK3.SCHEMES, {...})` because it's a statement, not a property. Options: paste after the block, or rename to `NAME: {...},`. Cheapest fix is the doc: paste **after** the Object.assign block. That's what the LAB.md below says.
-
-Colours are dumped with `[r, g, b, brightness]` including brightness even when it's the default — no default-elision on the array itself, only on scheme-level fields. That's fine; paste re-parses cleanly.
-
----
-
-## `docs/LAB.md` — full file
-
-```markdown
 # colorLab
 
 Build LED colour ramps on the hardware. Dump them as JavaScript.
@@ -28,12 +17,8 @@ to Cat.
    its colour.
 4. Press another segment. Repeat.
 5. Shift + `press0` to dump. The scheme prints to the console.
-6. Copy the printed block into `xone-k3-cat-schemes.js`,
-   **after** the existing `Object.assign(XoneK3.SCHEMES, {...})`
-   block. The dumped line is a full statement
-   (`XoneK3.SCHEMES.NAME = {...};`), not a property — it goes
-   outside the `Object.assign`, not inside it.
-7. Reload Cat.
+6. Paste into `xone-k3-cat-schemes.js` (format and paste location
+   in §Dump), reload Cat.
 
 **Preview doesn't touch the edit buffer.** Shift + `pressR`
 loads the preview into edit. `layer` returns to edit unchanged.
@@ -97,17 +82,6 @@ The layer button swaps between two modes.
                           │ pressL
                           ▼
                     back to EDIT
-```
-
-Preview flow:
-
-```
-   press slot N    →   previewSource = N
-   shift + encL    →   previewSource = registry name
-                       (scrolls; stays in current mode)
-   shift + pressR  →   load preview into edit
-   press slot,     →   save preview into that slot,
-   saveArmed true      load into edit, exit to edit mode
 ```
 
 ### EDIT
@@ -201,15 +175,12 @@ to that index. New cells are black **gaps** — they exist in the
 array but aren't marked as real stops. The cell you pressed
 *is* marked real, even if you leave it black.
 
-The gap-vs-real distinction drives fill and delete (below).
-
 **Shift + press** deletes the cell:
 
 - **Real stop** → cascade. The stop and every gap cell between
   its real neighbours are removed, so the neighbours become
   adjacent.
-- **Gap** → splice just that cell. Subsequent cells shift down
-  by one. No cascade.
+- **Gap** → splice just that cell. Subsequent cells shift down.
 
 Cell 0 can't be deleted. Selection jumps to cell 0 after any
 delete.
@@ -222,9 +193,8 @@ non-black) or a **gap** (extension cell you haven't pressed).
 - Fill anchors on real stops. Gaps are what fill paints.
 - Editing a gap with non-black makes it real automatically.
 - Saving to a slot, baking, or loading a scheme collapses all
-  gaps into real stops. A pasted scheme from `cat-schemes.js`
-  has no gap state — everything is fully set. Gap state exists
-  only during the current edit session.
+  gaps into real stops. Gap state exists only during the current
+  edit session.
 
 ### Black is a colour
 
@@ -273,8 +243,9 @@ Three state toggles. Their LEDs show on/off.
 - **Interp** — `true`: blend between stops. `false`: snap.
 - **Calibration** — `true`: apply the flat-target solve. `false`:
   raw values to the wire.
-- **Ratio** — turn on for per-stop weights. Only works when the
-  scheme has ≤ 9 stops. Turning it off wipes the table.
+- **Ratio** — turn on for per-stop weights. Requires the scheme
+  to have at most 9 stops — with more, ratio edits are blocked
+  and any existing ratio table is wiped.
 
 ### Marker
 
@@ -289,10 +260,10 @@ Shift + press the marker LED clears the marker.
 The marker takes an off-brightness as its last colour field:
 `'red, 80, 16'` is `red@80` on, `red@16` off.
 
-When the deviation LED's knob sits inside
-`markerPosition ± markerWidth`, the marker colour wins over the
-ramp sample. The lab preview LED shows it raw — no beat cascade
-applied; the runtime LEDs cascade it like a static LED.
+When the deviation LED's knob sits inside the marker band, the
+marker colour wins over the ramp sample. The lab preview LED
+shows it raw — no beat cascade applied; the runtime LEDs cascade
+it like a static LED.
 
 ### Fill gaps
 
@@ -383,7 +354,7 @@ Toggling off and dumping discards it.
 
 ## Slots and bakes
 
-Three of the sixteen slots are automatic bakes of the current
+Four of the sixteen slots are automatic bakes of the current
 preview. They rewrite whenever the preview changes; you never
 save to them by hand.
 
@@ -586,6 +557,14 @@ If `XoneK3.SCHEME_REGISTRY` is defined (`xone-k3-lab.js`), scroll
 iterates that list instead of scanning `SCHEMES`. Use it to order
 what shows up and hide test schemes.
 
+## Edit an existing scheme
+
+1. Shift + `encoderL` to scroll to it.
+2. Shift + `pressR` to load into edit — before this, edits are
+   no-ops (see intro).
+3. Edit.
+4. Shift + `press0` to dump, paste over the old scheme.
+
 ## Shutdown
 
 On preset unload, the lab dumps every populated slot to the
@@ -595,92 +574,17 @@ Chord shutdown: shift + layer held, `press3` held 2 s. Releasing
 shift, layer, or `press3` cancels the timer. Works from EDIT and
 SLOTS.
 
-## Workflows
-
-### Build from scratch
-
-1. Load. Edit mode. Buffer starts as one black stop.
-2. Press segment 0. Edit.
-3. Press segment 1. Scheme extends. Edit.
-4. Repeat.
-5. Fill gaps if anchors are far apart.
-6. Turn the preview knob to sweep.
-7. Adjust marker: position, width, colour.
-8. For a beat pulse: press `grid2_3`, set colours and time
-   signature, press `grid2_3` again to exit.
-9. Shift + `press0` to dump.
-10. Paste, rename.
-
-### Edit an existing scheme
-
-1. Load.
-2. Shift + `encoderL` to scroll until the scheme is previewed.
-3. **Shift + `pressR`** to load the preview into the buffer.
-   Nothing you do before this changes the buffer.
-4. Edit.
-5. Shift + `press0` to dump.
-6. Paste over the old scheme.
-
-Alternative: `layer` → slots, scroll, then shift + `pressR`.
-
-### Save to a slot
-
-1. In edit mode, get the buffer how you want it.
-2. Press `layer` → slots.
-3. Press `pressR` to arm.
-4. Press the slot you want. Saves, loads the slot into the
-   buffer, exits to edit mode.
-5. Continue editing.
-
-Slot presses without arming just preview — the grid stays up and
-the preview LED tracks the slot. Press `layer` to leave.
-
-### Fade to black across multiple colours
-
-1. Build the ramp. Calibration on.
-2. Preview the wire slot (15). Its stops are the target hw
-   brightness for each colour.
-3. Dump the wire slot. Copy the emitted colours.
-4. Paste as a new scheme with `calibration: false`.
-5. Add `[0, 0, 0]` at the end.
-
-Repeat for each colour. All ramps will match perceptually at
-their anchors and all fade cleanly to black.
-
-## Terms
-
-| | |
-|---|---|
-| **Stop** | One entry in `colors`. RGB + optional brightness. |
-| **Real stop** | A stop the user set — pressed, non-black, or loaded from a saved scheme. Fill anchors on these. |
-| **Gap** | An extension cell the user hasn't pressed. Fill paints these. Collapsed to real stops on save. |
-| **Preview** | A scheme being inspected. Not editable. |
-| **Edit buffer** | The working scheme. Only mutated in edit mode. |
-| **Bake** | Automatic rewrite into an output slot. See Slots. |
-| **Wire** | Bake level where the calibration solve is frozen into brightness. |
-
 ## Debug output
 
-Shift + `press0` and other edits print to the console when
-`XoneK3._debugPrintsOn = true`.
+Prints go through `debugPrint` when `XoneK3._debugPrintsOn = true`.
+Mode events print when `XoneK3.MODE_PRINTS = true`.
+
+Examples:
 
 ```
 [k3] seg 3 r = 80
-[k3] curve = 0.325
-[k3] preview slot 5
 [k3] saved edit -> slot 3
-[k3] beat barBeats = 3
-[k3] edit := slot5
-```
-
-Mode events print when `XoneK3.MODE_PRINTS = true`.
-
-```
-[k3] mode = EDIT
-[k3] mode = SLOTS (preview=edit)
-[k3] arm = ON
 [k3] preview = slot5
-[k3] scheme = filterEcho
 ```
 
 Warnings fire once per boot via `_warnOnce`. The preview-only
@@ -688,12 +592,9 @@ key is `labEditWhilePreviewing`. Reload the preset to re-arm.
 
 ## Not in the lab
 
-- No music bindings. That's Cat.
 - No undo. Dump before unloading.
 - No persistence across presets.
-- Ratio editing only touches the first 9 stops.
+- Ratio editing is blocked when the scheme has more than 9 stops
+  (existing ratio is wiped).
 - Beat config is edited but not played on the segment strip.
   The preview LED pulses; the strip does not.
-- Gap/real distinction doesn't persist. Saving, baking, and
-  loading all collapse gaps to real stops. Only the current edit
-  session tracks the difference.

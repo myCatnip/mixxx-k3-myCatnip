@@ -28,6 +28,34 @@ over outputs — Cat, oneK3, oneK3 miniFX, and colorLab all ship on
 
 ---
 
+## Focus: active deck and active FX
+
+Two independent axes decide what the top half drives at any
+moment:
+
+- **`activeDeck`** — `'A'` or `'B'`. Which of two deck slots is live.
+- **`activeFx`** — `'A'` or `'B'`. Which of two FX slots is live.
+
+Each slot holds a *pinned* assignment (`selectedDeckA/B`,
+`selectedFxA/B`). Switching activeDeck or activeFx changes which
+slot's channel is targeted by focus-following controls. The
+pinned assignments themselves don't change. The `selectAB` chord
+overlay reassigns what each slot points at.
+
+- Press `press0` / `press3` → activeDeck = A / B.
+- Press `press1` / `press2` → activeFx = A / B.
+- Slip button (`grid2_1`) tap → toggle slip.
+- Slip button + shift → flip activeDeck.
+- `inspect()` (console) shows active deck, FX, and current
+  selection.
+
+Controls that follow focus use `$DECK_ACTIVE$` / `$FX_ACTIVE$` in
+their group string. When focus changes, those controls silently
+retarget to the newly-active slot's channel — EQ knobs, play/cue,
+slip LED, QFX buttons, and so on.
+
+---
+
 ## Where to go
 
 | I want to… | Read |
@@ -37,6 +65,7 @@ over outputs — Cat, oneK3, oneK3 miniFX, and colorLab all ship on
 | Look up an FX cell by unit and mode | this file, §FX cell layouts |
 | Change a colour, rebind a button, add a mode | `CUSTOMISE.md` |
 | Understand the runtime, tune internals | `INTERNALS.md` |
+| Tune performance, see caching strategy | `PERFORMANCE.md` |
 | Build a colour ramp on the hardware | `LAB.md` |
 | Look up a term | `GLOSSARY.md` |
 | Ask an AI to edit for me | `AI-HELPER.md` |
@@ -287,30 +316,13 @@ selectAB
   grid row 1: deck B ← channel 1-4
   grid row 2: fx A   ← unit 1-4
   grid row 3: fx B   ← unit 1-4
-  Layer press: exit
   pressR held + tap a deck cell: load onto that channel
 
 fxRouting
   gridN_M: toggle FX(N+1) → channel(M+1) group-enable
-  Layer press: exit
 
-Layer overlays (enter via chord + slip; exit via chord + slip):
-
-hotcue916 (cue mode only)
-  grid rows 2-3: hotcues 9-16 instead of 1-8
-  press unset: creates with PHRASE_MARKER_COLORS[0]
-  shift + press: clears
-  grid0_1 / grid1_1 (beatjump16) recolour yellow
-  hidden in LOOP, reapplies on return to CUE
-
-loopOdd (loop mode only)
-  grid rows 2-3: odd loop sizes 7/5/3/1/3/32/3/16/3/8/1/2
-  shift: odd beatjump sizes (same cell map)
-  grid0_1 / grid1_1 (beatjump direction) recolour yellow
-  hidden in CUE, reapplies on return to LOOP
-
-Both overlays can be on at once; each is visible only in its
-own layer.
+Layer overlays (hotcue916 / loopOdd) — see GRID rows 2-3 above.
+Both can be on at once; each is visible only in its own layer.
 ```
 
 ---
@@ -531,7 +543,9 @@ above, button below in each):
 | 3 | feedback | display only |
 | 4 | send | enable |
 
-Add a new named layout to `MINI_LAYOUTS` (in `xone-k3-cat-fx.js`):
+This is the shipped `echo` layout (units 2–4). To use it on a
+different unit, or to build your own, add a named layout to
+`MINI_LAYOUTS` (in `xone-k3-cat-fx.js`):
 
 ```js
 // MINI_LAYOUTS:
@@ -559,16 +573,16 @@ var TWO_DECK_MINI_FX_LAYOUTS = {
 ```
 
 The shipped `echo` layout is already wired to units 2–4 and
-pairs with `1.miniEcho.xml` — load that preset on each unit
-the layout drives.
+pairs with `1.miniEcho.xml` — load that preset on each unit the
+layout drives.
 
-No Mixxx effect chain presets are shipped for the mini layout —
-its shape assumes a different per-effect arrangement, so build
-your own. Same for oneK3: its default is just meta knobs on
-effect 1 and 2 with their enables.
+No Mixxx effect chain preset is shipped for the `split` default
+(unit 1) — its shape assumes a different per-effect arrangement,
+so build your own. Same for oneK3: its default is just meta
+knobs on effect 1 and 2 with their enables.
 
-The same shape works for focus mode (`FX_LAYOUTS`), with different
-cell names. Full field vocabulary: CUSTOMISE §1.9.
+The same shape works for focus mode (`FX_LAYOUTS`), with
+different cell names. Full field vocabulary: CUSTOMISE §1.9.
 
 ---
 
@@ -752,67 +766,3 @@ press3: hold 2 s → Mixxx shutdown
 
 Releasing shift, layer, or press3 cancels the timer. Works in
 both EDIT and SLOTS.
-```
-
----
-
-## Files
-
-```
-Runtime:
-  xone-k3-lib-core.js
-  xone-k3-lib-schemes.js
-  xone-k3-lib-binding.js
-  xone-k3-lib-controller.js
-  xone-k3-lib-controller-colour.js
-  xone-k3-lib-controller-beat.js
-  xone-k3-lib-controller-render.js
-  xone-k3-lib-controller-boot.js
-  xone-k3-lib-funcs.js
-  xone-k3-lib-inspect.js
-
-Cat layer tree (playback presets):
-  xone-k3-cat-schemes.js
-  xone-k3-cat-fx.js
-  xone-k3-cat-top.js
-  xone-k3-cat-bottom.js
-  xone-k3-cat-overlays.js
-  xone-k3-cat.js
-
-Boot overrides (2 lines each):
-  xone-k3-kitten.js
-  xone-k3-onek3.js
-  xone-k3-onek3-minifx.js
-
-colorLab runtime:
-  xone-k3-cat-schemes.js   (shared — SCHEME_REGISTRY lives here)
-  xone-k3-lab.js
-  xone-k3-colorlab.js
-
-Preset definitions:
-  xone-k3-cat.midi.xml
-  xone-k3-kitten.midi.xml
-  xone-k3-onek3.midi.xml
-  xone-k3-onek3-minifx.midi.xml
-  xone-k3-colorlab.midi.xml
-```
-
----
-
-## Things that surprise people
-
-| | |
-|---|---|
-| One LED stuck white | Its knob hasn't sent a MIDI value yet. Wiggle it. |
-| Cat press1 no longer selects deck B | After the top-row unification, press1 selects **active FX A**. Deck B lives on press3. press0/3 are deck selectors, press1/2 are FX slot selectors — same in every mode. |
-| Cat encoders no longer follow focus | enc0 and enc3 pin to deck A / B pregain. enc1 cycles the active deck's QFX chain; enc2 is off in focus mode. oneK3 uses enc1/enc2 for pinned A/B QFX chains. |
-| Bottom grid doesn't follow your deck | Shift + slip (bottom grid `grid2_1`) flips which of A or B is the active deck. |
-| Chord `pressR` doesn't respond | Shift then layer must be pressed together first. |
-| Chord `pressL` does nothing in focus mode | `pressL` swaps twoDeck ↔ twoDeckMini. No-op from focus. |
-| `grid2_0` flashes but nothing changes | No loop is running. The display toggle needs the loop clock. |
-| Beatjump doesn't fire after touching a loop control | Loop touched <130 ms ago (`XoneK3.BEATJUMP_GAP_MS`). |
-| Console silent when you want to see edits | Edit prints are off by default. `XoneK3._debugPrintsOn = true`. |
-| Layer / shift LED shows a colour when the deck is paused | Paused beat display. Jog or drag the playhead to move it. `XoneK3.BEAT_PAUSED_MODE = 'off'` disables. |
-
-Everything else lives in `CONCEPTS.md` (how it works) and
-`CUSTOMISE.md` (how to change it).

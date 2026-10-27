@@ -31,6 +31,7 @@ file changes all four. colorLab is a separate tree — see `LAB.md`.
 | Add a custom behaviour | §1.13 |
 | Change boot config | §2.6 |
 | Change runtime tunables | §2.9 |
+| Look up a func's arguments | §2.11 |
 
 ---
 
@@ -140,10 +141,13 @@ press0: {
 }
 ```
 
+See CONCEPTS §10 for other model limits.
+
 ## 1.5 Make an LED follow a knob (or just show state)
 
 **Deviation** — add `knob: '<name>'`. The LED samples the ramp
-at that knob's position.
+at that knob's position. Until the referenced knob sends its
+first MIDI event, the LED shows white (see `_renderDeviation`).
 
 ```js
 button0_0: {
@@ -161,7 +165,7 @@ The ramp can carry a marker band:
 myCatnip: {
     colors: [...],
     markerColor: [127, 0, 0, 100],
-    markerWidth: 2,                  // half-width, 0..127 units
+    markerWidth: 2,                  // band width in markerPosition units, 0..127
     markerPosition: 63.5             // 0 = left, 127 = right
 }
 ```
@@ -237,6 +241,10 @@ A bare partial without `colors` is rejected with a console
 warning. Derive from an existing scheme with
 `B.composeScheme({ scheme: 'catFX', markerPosition: 127 })`.
 
+**Naming trap:** don't name a scheme after a palette colour
+(e.g. `red`). `colorScheme.scheme: 'red'` will use your scheme,
+but `colors: ['red']` will always use the palette.
+
 ## 1.8 Anchor the phrase at a hotcue
 
 Set `PHRASE_MARKER_COLORS` in `xone-k3-cat-schemes.js` to the
@@ -246,16 +254,17 @@ Mixxx hotcue colour hexes you want to treat as phrase markers:
 XoneK3.PHRASE_MARKER_COLORS = [0xC50A08, 0x0044FF];
 ```
 
+Shipped default: `[0xF2F2FF]`. Empty list = feature off.
+
 Put a hotcue at the phrase-start beat, set its colour to red
 (`0xC50A08`). The origin derives on the next playposition tick.
 Same hotcue doubles as a jump.
 
-Empty list = feature off. Up to `XoneK3.HOTCUE_MAX` hotcues
-scanned (default 16, declared at the top of
-`lib-controller-beat.js`; Mixxx supports 36). Set it *before*
-boot if you place markers past hotcue 16. Setting it after boot
-extends the per-tick derive scan but not the observer set — the
-observer connections are wired once at clock-open, so a
+Up to `XoneK3.HOTCUE_MAX` hotcues scanned (default 16, declared
+at the top of `lib-controller-beat.js`; Mixxx supports 36). Set
+it *before* boot if you place markers past hotcue 16. Setting it
+after boot extends the per-tick derive scan but not the observer
+set — the observer connections are wired once at clock-open, so a
 post-boot raise won't watch markers above the boot-time limit.
 Origin still re-derives on the next playhead throttle.
 
@@ -293,6 +302,17 @@ Cell fields:
 | `ledTracks` | *(displayOnly only)* Override the tracked knob. Literal cell name (`'knob1_0'`), or — in twoDeck — abstract slot (`'knob0'` / `'knob1'`) resolved through the column's slot map. |
 | `marker` | `'low'` / `'mid'` / `'high'` or 0..127 |
 | `schemePosition` | 0..127 `schemePosition` override |
+
+**Which unit a cell controls.** The layout patch picks its target
+through `_resolveFxPatchName`:
+
+- **focus / mini**: `press1` / `press2` flip active FX slot
+  (which pin is used). To change what a slot points at:
+  `selectAB` overlay.
+- **twoDeck**: both columns always use `selectedFxA` /
+  `selectedFxB` (not the active slot). `press1` / `press2` flip
+  `activeFx` but don't affect the columns. Reassign via
+  `selectAB` overlay.
 
 The runtime keeps `activePatches` in sync with the current FX
 selection via `_syncFxLayout` — you don't rebind by hand.
@@ -421,6 +441,8 @@ call as a separate event, and the rate would overcount.
 Tuning knobs: `windowMs` (in the func, shorter = snappier),
 `divisor` (events/sec per step, lower = climbs faster), `cap`
 (ceiling on the multiplier).
+
+See CONCEPTS §10 for other model limits.
 
 ## 1.13 Custom funcs
 
@@ -582,8 +604,9 @@ isShifted                 true | false
 ```
 
 Without `equals` or `contains`, the LED is on when the resolved
-value is truthy. If the resolved value is a positive number with
-no comparator, the runtime warns once per binding at boot.
+value is truthy. A numeric `on.state` with no comparator warns
+once per binding on first render (`_isOn`) — not at bind time,
+so a binding whose LED never renders never warns.
 
 ## 2.4 Tokens
 
@@ -626,7 +649,7 @@ Resolved at bind time in `group`, `inKey`, `outKey`,
 | `brightnessScale` | `1` | Multiplier on flat-target. |
 | `markerColor` | `null` | Marker band colour. |
 | `markerPosition` | `63.5` | Marker centre, 0..127. |
-| `markerWidth` | `0` | Half-width. `0` = no marker. |
+| `markerWidth` | `0` | Band width in `markerPosition` units. `0` = no marker. |
 | `offScheme` | `null` | Named off-ramp. `null` = generated at `DEFAULT_RGB_BRIGHTNESS_OFF`. |
 | `coScheme` | `'coMatch'` | Steering ramp when knob and CO disagree. |
 | `reverse` | `false` | Flip the ramp direction. |
@@ -742,27 +765,17 @@ index, so that LED is K2-locked for the whole session.
 ## 2.9 Runtime tunables
 
 ```js
-XoneK3.PHRASE_MARKER_COLORS = [];      // [] = off
+// cat-schemes.js
+XoneK3.PHRASE_MARKER_COLORS = [0xF2F2FF];   // [] = feature off
+XoneK3.THEME = { ... };                     // see §1.2
+XoneK3.QFX_CHAIN_LIST = [...];              // see cat-schemes.js
 
-XoneK3.THEME = { deck: { ... }, fx: { ... } };
-
-XoneK3.QFX_CHAIN_LIST = [
-    'filterNone',
-    'filterReverb', 'filterSmoothGrowl', 'filterEcho',
-    'filterFlanger', 'filterMoog', 'filterBalance'
-];
-
-XoneK3.VIRTUAL_CLOCKS = {
-    loop: { trackTempo: false }
-};
-
+// lib-core.js
+XoneK3.VIRTUAL_CLOCKS = { loop: { trackTempo: false } };
 XoneK3.BEATJUMP_GAP_MS = 130;
-
-XoneK3.PULSE_CO_MS = 30;    // momentary CO pulse width, ms
-
-XoneK3.BEAT_PLAYING_MODE = 'pulse';  // 'pulse' | 'solid' | 'off'
-XoneK3.BEAT_PAUSED_MODE  = 'solid';  // 'pulse' | 'solid' | 'off'
-
+XoneK3.PULSE_CO_MS = 30;
+XoneK3.BEAT_PLAYING_MODE = 'pulse';
+XoneK3.BEAT_PAUSED_MODE  = 'solid';
 XoneK3.CO_MATCH_EPSILON = 1 / 127;
 XoneK3.TAKEOVER_EPSILON = 2 / 127;
 
@@ -771,37 +784,33 @@ XoneK3.clearTimeSig();
 ```
 
 `QFX_CHAIN_LIST` order must match Preferences → Effects → Quick
-Effect Chains.
+Effect Chains. Only the chains listed there light up correctly on
+QFX buttons. If a QFX button always shows the first scheme, check
+`loaded_chain_preset` — it defaults to 0 when Mixxx has no chain
+loaded or the loaded chain isn't in the list.
 
-**`BEATJUMP_GAP_MS`** — the only rate-related tunable. Gates
-beatjumps only, only when the target channel is in an active
-loop. Set to `0` to disable, `150–200` for stricter. See
-INTERNALS §25 for the gate logic.
+**`BEATJUMP_GAP_MS`** — gates beatjumps on a channel in an active
+loop when less than N ms has elapsed since the last loop-touching
+event. See INTERNALS §21 for the gate logic and PERFORMANCE for
+tuning.
 
 **`BEAT_PLAYING_MODE` / `BEAT_PAUSED_MODE`** — what a beat
-scheme's LED shows, per deck state. `'pulse'` is the bright/dim
-half-beat alternation. `'solid'` shows the current beat's
-cascade colour, held. `'off'` disables the cascade. Paused with
-`'solid'` (the default) means jogging / beatjump / mouse-drag
-shows the beat colour of wherever you land — useful for finding
-the current beat without playing. For paused display to work on
-a custom beat LED, its `outKey` (or `on:`) must read 1 while
-paused — `track_loaded` works; `play_indicator` doesn't.
+scheme's LED shows, per deck state. For paused display on a
+custom beat LED, its `outKey` (or `on:`) must read 1 while paused
+— `track_loaded` works; `play_indicator` doesn't. Behaviour
+detail in CONCEPTS §7 / INTERNALS §6.
 
 **`CO_MATCH_EPSILON` < `TAKEOVER_EPSILON`** must hold. `CO_MATCH`
-sets how far the physical knob can be from its bound CO before
-the LED shows the co-match steering gradient. `TAKEOVER` sets how
-close physical must be at rebind for `_rearmSoftTakeover` to
-prime soft takeover. The LED claims "matched" only inside the
-smaller band, so any matched display implies control is live.
+is how far a deviation LED's knob can be from its bound CO before
+the LED shows the co-match gradient. `TAKEOVER` is the rearm
+tolerance. The relation guarantees LED "matched" implies control
+live.
 
 **`VIRTUAL_CLOCKS.loop.trackTempo`** — the loop clock is the only
-virtual timeline.
-
-- `false` (default): advances in real seconds, scaled by
-  `[ChannelN],rate_ratio`. Pitch changes are reflected.
-- `true`: follows position delta, which Mixxx has already
-  rate-scaled. Differs only in loop-wrap handling.
+virtual timeline. `false` (default): real seconds, scaled by
+`rate_ratio`. `true`: follows `playposition` delta, handles
+reverse playback. See INTERNALS §6 for the accumulation
+mechanics.
 
 ## 2.10 Diagnostics
 
@@ -822,49 +831,86 @@ XoneK3.controllers[0].inspect('patches')    // activePatches, stack
 XoneK3.controllers[0].inspect('why', 'layer')    // pipeline walk
 ```
 
-Full command list and symptom table: INTERNALS §26.
+Full command list and symptom table: INTERNALS §18.
 
 ## 2.11 Funcs
 
-Full annotated list lives in `AI-HELPER.md` under `FUNCS`. This
-is a category index.
+Every func lives on `XoneK3.FUNCS`. Called by `Binding.input()`
+when a binding declares `func:`. Args are passed unchanged as
+`args[0..n]`.
 
-| Category | Examples |
-|---|---|
-| Select / focus | `k3Select`, `setActiveDeckTo`, `setActiveFxTo`, `toggleActiveDeck`, `toggleActiveFx` |
-| Timeline | `cycleDisplaySource` |
-| Patch / overlay / mode | `layerButton`, `toggleOverlay`, `toggleLayerOverlay`, `toggleTopMode`, `toggleMiniFx` |
-| Encoders | `encPregainStep`, `encLoopMove`, `encLoopMoveAccel`, `encBeatjump` |
-| Buttons | `pressSetValue`, `beatjumpButton`, `reloopToggleResetAnchor`, `shutdownHold` |
-| BPM | `bpmPress` |
-| Hotcues | `hotcueSetPhraseColor` |
+Select / focus:
 
----
+  k3Select        ['deck', 'A', 3]     pin channel 3 into slot A;
+                                       with pressR held on deck, loads
+                                       onto channel 3
+  k3SelectActive  ['deck', 3]          (unused by shipped presets)
+  setActiveFxTo   ['A']
+  setActiveDeckTo ['A']                set active deck to A; with
+                                       pressR held, loads onto slot
+                                       A's pinned channel
+  toggleActiveFx
+  toggleActiveDeck
 
-# 3. Common mistakes
+Timelines:
 
-Console warnings are emitted **once per unique key per boot**.
-Fix the config, reload the preset, and the warning fires again.
+  cycleDisplaySource                   toggle track ↔ loop (no-op
+                                       when the loop clock is stopped)
 
-| Symptom | Cause |
-|---|---|
-| LED stays dark | Scheme name typo. Console: `scheme "X" not found`. |
-| LED is the wrong colour | Scheme name collides with a palette colour. Rename. |
-| Binding does nothing | Forgot to reload the preset. |
-| `on:` never lights | Value read doesn't match `equals`, or isn't truthy. |
-| Hotcue LED wrong | `outKey` doesn't match `hotcue_N_status`. |
-| Toggle LED never lights | No `outKey` and no `on:`. Add one. |
-| Group-enable LED shows blue | Ramp scheme on a static LED. Use `schemeFromState` alone with `map: FX_COLOR_MAP`. |
-| Beat doesn't pulse | Deck not playing, or `BEAT_PLAYING_MODE` is not `'pulse'`. |
-| Paused deck shows no beat colour | The binding's `outKey` (or `on:`) reads 0 while paused. Use `track_loaded` or `on: true`. |
-| Beat pulses but colour never changes | Only `beat.color` set. Add `bar` / `phrase`. |
-| Overlay does nothing | Patch doesn't have `_host`, or host isn't active. |
-| Grid buttons fire under an overlay | Overlay didn't null them. Add `{}` in the overlay. |
-| Layer button does nothing in a patch | Patch has no `layer` binding. |
-| FX columns point at wrong unit | Focus: unshifted `press2` / `press3`. twoDeck: `selectAB` overlay. mini: shift + `press2` / `press3`. |
-| QFX LED always shows first scheme | `loaded_chain_preset` stuck at 0, or `QFX_CHAIN_LIST` doesn't match Preferences order. |
-| Changing a `THEME` colour has no effect | Nothing bound to that slot, or the emitter reads THEME from a variable captured at config-eval time. |
-| `accel` does nothing | Binding has no `func`. |
-| Warning: "scheme object has no colors" | A bare partial. Use `composeScheme` in config. |
-| Warning: "missing scheme" | A `colorScheme` without a `scheme:` field. `scheme` is required. |
-| Warning prints only once | `_warnOnce` dedupes per key per boot. Reload to clear. |
+Patch / overlay / mode:
+
+  layerButton        ['cue', 'loop']
+  toggleOverlay      ['name', ['sib']]
+  toggleLayerOverlay ['cueName', 'loopName']
+      Picks target by _patchActive('cue') / _patchActive('loop').
+      Both overlays can sit in activePatches at once; _host gates
+      visibility.
+  layerExitOverlay   ['name']
+  toggleTopMode
+  toggleMiniFx
+
+Encoders:
+
+  encPregainStep       [0.025]
+  encQuickFxCycle
+  encKeySyncReset
+  encKeySync           — any-direction key sync (pulses sync_key)
+  encKeyReset          — any-direction key reset (pulses reset_key)
+  encKeyShift
+  encLoopMove          ['in', 0.010]
+      Loop resize. 'in' moves the IN point (OUT anchored);
+      'out' moves the OUT point (IN anchored). Ungated.
+      Stamps _lastLoopTouchMs after the write.
+  encLoopMoveAccel     ['in', 0.010]
+      Self-accelerating loop resize. Args:
+      [side, step, cap?, divisor?]. Same anchor semantics as
+      encLoopMove. Must NOT also carry accel: on the binding.
+      Also stamps _lastLoopTouchMs.
+  encBeatjump
+      Beatjump forward/back. Gated by _beatjumpAllowed when in
+      loop. Uses _pulseCo.
+  encBeatjumpStepScale ['1/32', 16]
+  encStepParam         ['[Master]', 'gain', 0.01]
+  encBpmPressedHeadMix
+  encPlaylistNav
+
+Buttons:
+
+  pressSetValue        ['1/4']
+      Writes an absolute value on press. Stamps _lastLoopTouchMs
+      when inKey is `beatloop_size`. Does NOT stamp for
+      `beatjump_size`.
+  beatjumpButton       ['beatjump_1_backward']
+      Gated by _beatjumpAllowed. Uses _pulseCo.
+  reloopToggleResetAnchor
+      Resets loop_anchor then pulses reloop_toggle. Stamps
+      _lastLoopTouchMs.
+  beatloopActivateResetAnchor
+      Resets loop_anchor then pulses beatloop_activate. Stamps
+      _lastLoopTouchMs.
+  bpmPress             ['encoderL']
+  loadSelectedTrack
+  shutdownHold
+  hotcueSetPhraseColor ['N']
+      Activates hotcue N; if unset, also writes
+      PHRASE_MARKER_COLORS[0] as its colour. Release writes 0.

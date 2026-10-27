@@ -60,27 +60,17 @@ xone-k3-colorlab.js        colorLab layers + boot
 `lab.js` sits after `lib-funcs.js` — it references
 `XoneK3.FUNCS.*` at load time for `LAB_PAINTER_FUNCS`.
 
-**Why five controller files.** All extend `K3Controller.prototype`
-— no new classes, no imports beyond `_requireLoad`. Split by
-concern; each `.midi.xml` loads all five between `lib-binding.js`
-and `lib-funcs.js`. Any change to the file list means editing
-five `.midi.xml` plus `test/harness.js`.
-
-| File | Concern |
-|---|---|
-| `lib-controller.js` | Constructor, patches, focus, modes, chord, binding application |
-| `lib-controller-colour.js` | Colour-scheme parsing |
-| `lib-controller-beat.js` | Timeline, loop clock, beat pipeline |
-| `lib-controller-render.js` | LED writes, calibration, beatjump gate |
-| `lib-controller-boot.js` | init / shutdown, MIDI wiring, boot |
+**Why five controller files.** All extend `K3Controller.prototype`,
+split by concern. Any change to the file list means editing five
+`.midi.xml` plus `test/harness.js`.
 
 **Cat split** — `cat-schemes → cat-fx → cat-top → cat-bottom →
 cat-overlays → cat`. Each declares its own `_requireLoad` prereqs.
 
 **Bootstrapping.** `lib-core.js` opens with `var XoneK3 = (typeof
-XoneK3 !== 'undefined') ? XoneK3 : {};` — Mixxx's Qt engine shares
-one global object across `<scriptfiles>`. Every other file opens
-with `_requireLoad(file, prereqs)` which throws on missing symbols.
+XoneK3 !== 'undefined') ? XoneK3 : {};` — Mixxx shares one global
+object across `<scriptfiles>`. Every other file opens with
+`_requireLoad(file, prereqs)` which throws on missing symbols.
 
 ---
 
@@ -108,38 +98,22 @@ with `_requireLoad(file, prereqs)` which throws on missing symbols.
 
 ## Non-obvious state
 
-Beyond the binding map and `activePatches`, the controller carries:
+Beyond the binding map and `activePatches`:
 
-- `_lastLoopTouchMs[1..4]` — per-channel timestamp of the last
-  loop-touching event (beatjump gate)
-- `_decks[1..4]` — per-channel timeline and beat state
+- `_lastLoopTouchMs[1..4]` — beatjump gate timestamps
+- `_decks[1..4]` — per-channel timeline and beat state (see `_freshDeckState`)
 - `_phraseOrigin[1..4]` — beat where "count 1" sits
-- `_trackMetaCache{}` — per-channel `{duration, fileBpm, samples}`,
-  cleared on `track_loaded`. Incomplete reads not cached (§6).
-- `_rateCache[1..4]` — per-channel `rate_ratio` snapshot.
-  Populated by `_catchUpChannel` and `_onTrackLoaded`, kept
-  current by the `rate_ratio` CO listener. `_channelRate` reads
-  this first; falls back to a live CO read on a cold cache.
-- `_reverseCache[1..4]` — per-channel reverse flag (1/0).
-  Populated by `_catchUpChannel` and `_onTrackLoaded`, kept
-  current by the `reverse` CO listener. Read by
-  `_advanceVirtualClock` (trackTempo mode) and by the beat-edge
-  guard in `_onPlayposition`.
-- `_flatCache{}` — per-controller `_flatTarget` cache, keyed by
-  `segs._cacheId` then `_calibFingerprint()` (§12)
-- `_calibCurveName` — the calibration curve name from boot config
-- `_calibFingerprint()` — computed at call time (not at
-  construction) so runtime mutations to `wbActive`, `hkBoost`,
-  `lumGamma` invalidate the flat-target cache. A constructor-time
-  string can't do this — the lab's tuning overlay mutates those
-  fields directly.
-- `_resolvedTargetHashCache` — WeakMap<cfg, {fingerprint, value}>,
-  memo for `_resolvedTargetHash` (§8)
+- `_trackMetaCache{}` — `{duration, fileBpm, samples}`, cleared on
+  `track_loaded` / `track_samples`. Incomplete reads not cached (§6).
+- `_rateCache[1..4]` — `rate_ratio` snapshot, listener-fed
+- `_reverseCache[1..4]` — reverse flag, listener-fed
+- `_flatCache{}` — `_flatTarget` cache, keyed on segments id + `_calibFingerprint()` (§12)
+- `_calibFingerprint()` — computed at call time. See PERFORMANCE for why.
+- `_resolvedTargetHashCache` — WeakMap<cfg, {fingerprint, value}> (§8)
 - `_resolvedPatchCache{}` — memoized patch merges
-- `_ledCache{}`, `_sysexQueue[]`, `_sysexTimer` — per-controller
-  LED dedupe and drain
-- `_recomputeDepth`, `_recomputeCompletedAt`,
-  `_refreshAllLedsDepth` — phase tracking and re-entrancy guards
+- `_ledCache{}`, `_sysexQueue[]`, `_sysexTimer` — LED dedupe and drain
+- `_recomputeDepth`, `_recomputeCompletedAt`, `_refreshAllLedsDepth` —
+  phase tracking and re-entrancy guards
 
 ## The recompute cycle
 
@@ -152,9 +126,8 @@ _recompute()
   _refreshAllLeds   → _syncBeatClocks, then b._refresh() per binding
 ```
 
-`_recompute` ends with `_refreshAllLeds`. **Callers do not refresh
-after.** `_reapplyByTokens` ends with the same call unless the
-caller passed `{ skipRefresh: true }` (§8).
+**Callers don't refresh after.** `_reapplyByTokens` ends with the
+same call unless passed `{ skipRefresh: true }` (§8).
 
 One physical control is one `Binding`.
 
@@ -162,102 +135,60 @@ One physical control is one `Binding`.
 
 # 3. Boot and multi-device
 
-`XoneK3.boot(devices)` / `bootLab(devices)` → `_bootWith(devices,
-Ctor, label)` constructs controllers and resets boot-scoped state
+`_bootWith(devices, Ctor, label)` resets boot-scoped state
 (`_schemeCache`, `_compiledCache`, `_warned`, `_modeSeen`,
-`_funcIdCounter`, `_funcIdMap`, `_segsCacheCounter`). `ctrl.init()`
-blanks LEDs, runs `_recompute`, `_initExtra`, `_validateBindings`,
-and schedules a delayed beat-clock reopen.
+`_funcIdCounter`, `_funcIdMap`, `_segsCacheCounter`), constructs
+controllers, calls `init()`, wires MIDI inputs.
 
-**Boot-race catch-up.** The initial `_recompute` inside `init()`
-opens the beat clocks. On Mixxx startup that first open can race
-the CO tree — connections register but never fire. `init`
-schedules a 250 ms one-shot that closes and reopens the clocks.
-`_shuttingDown` guards a reload landing inside the delay window.
-`track_loaded` also re-syncs, as belt-and-braces.
+`init()` blanks LEDs, runs `_recompute`, `_initExtra`,
+`_validateBindings`, and schedules a **250 ms beat-clock reopen**.
+Mixxx's first CO tree read at startup can register connections
+that never fire; the reopen lets them fire. `_shuttingDown` guards
+a reload landing inside the window. `_funcIdCounter` / `_funcIdMap`
+reset per boot — otherwise `inspect()` prints ids whose value
+depends on reload count.
 
-The reopen also protects `_trackMetaCache`: pre-open reads may
-have returned incomplete metadata (CO tree not settled). Those
-reads aren't cached (§6), so the first `playposition` tick after
-reopen re-caches.
-
-**`_funcId` reset.** `_funcIdCounter` and `_funcIdMap` are
-boot-scoped. Without the reset, `inspect()` output showed `_47`-
-style ids whose value depended on how many times the preset had
-been reloaded.
-
-Each controller owns its own binding map, sysex queue, beat clock
-connections, LED cache, `_lastLoopTouchMs`, and caches.
-
-`XoneK3.halt()` iterates `XoneK3.controllers`, calls `shutdown()`
-on each, clears the array.
+`halt()` calls `shutdown()` on every controller and clears the
+array.
 
 ---
 
 # 4. Patches
 
 `activePatches` is an ordered list of patch names. The stack is
-those in order (chord held aside), then shift companions, then
-chord last.
+those (chord held aside, `_host` filtered), then shift
+companions, then chord last.
 
-- `_host` on a patch — the overlay gate. Applies only while one
-  of its hosts is also active.
-- `layerButton, from, to` — swap the named patch. Intercepted
-  when shift is held: enters the chord instead.
+- `_host` — overlay gate. Applies only while one of its hosts is active.
+- `layerButton, from, to` — swap. Intercepted when shift held: enters chord.
 
 Three single mutations plus one batched:
 
 ```js
-addPatch(name)             // append, one recompute
-removePatch(name)          // delete by name, one recompute
-replacePatch(from, to)     // swap in place, one recompute
+addPatch(name), removePatch(name), replacePatch(from, to)
 _batchPatches(mutator)     // N edits, one recompute
 ```
 
-`_batchPatches(mutator)` gives the mutator a **copy** of
-`activePatches`. It may mutate the copy in place or return a
-fresh array — whatever ends up in the copy (or in the return)
-becomes the new `activePatches`. `activePatches` is untouched
-until the mutator returns cleanly, so a throw needs no rollback.
-
-`addPatch` / `removePatch` / `replacePatch` **throw** when called
-from inside a mutator. Nested `_batchPatches` throws too.
+`_batchPatches` gives the mutator a **copy**. Nested calls throw;
+`addPatch` / `removePatch` / `replacePatch` throw inside a mutator.
 
 Resolution: `_resolvePatch(name, seen)` shallow-merges parents in
 order, then overlays the patch's own bindings. Cycle detection via
-`seen`; a repeated name throws.
+`seen`.
 
-**Memoization.** `_resolvePatch` caches its merged result per
-name in `_resolvedPatchCache`. Patches are fixed at construction,
-so a resolved patch is stable for the controller's lifetime.
-Returning the cached object keeps `resolved[name]` references
-identical across recomputes — that's what makes `_applyResolved`'s
-`oldCfgs[name] === cfg` short-circuit fire.
+**Memoization.** `_resolvePatch` caches per name in
+`_resolvedPatchCache`. Patches are fixed at construction, so a
+resolved patch is stable per controller. Returning the cached
+object makes `_applyResolved`'s `oldCfgs[name] === cfg`
+short-circuit fire.
 
-**Sibling layers do not inherit.** `CUE` and `LOOP` are siblings —
-a cell defined in one is invisible when only the other is active.
+**Sibling layers do not inherit.** CUE / LOOP are siblings.
 `twoDeckMini` inherits from `twoDeck` via `patch: ['twoDeck']`.
 
 ## Patch name constants
 
-`XoneK3.PATCH_NAMES` in `lib-core.js`:
-
-```js
-FOCUS_BASE:       'topShared',
-FOCUS_LAYOUT:     'fxLayout',
-TWODECK_BASE:     'twoDeck',
-TWODECK_A_LAYOUT: 'fxLayoutA',
-TWODECK_B_LAYOUT: 'fxLayoutB',
-MINI_BASE:        'twoDeckMini',
-MINI_LAYOUT:      'fxMini',
-CHORD:            'chord',
-CUE:              'cue',
-LOOP:             'loop',
-SELECT_AB:        'selectAB',
-FX_ROUTING:       'fxRouting'
-```
-
-Layout names are built with `PN.FOCUS_LAYOUT + n`.
+`XoneK3.PATCH_NAMES` in `lib-core.js`. Layout names built with
+`PN.FOCUS_LAYOUT + n`.
 
 ---
 
@@ -269,59 +200,28 @@ twoDeck mode:   twoDeck     + fxLayoutA<n> + fxLayoutB<n>
 mini mode:      twoDeckMini + fxMini<n>
 ```
 
-`XoneK3.TOP_MODES` in `lib-controller.js`:
+`XoneK3.TOP_MODES` in `lib-controller.js`. `owns` = every patch
+name for unwind; `activate(ctrl)` = the list to add.
 
-- `owns` — every patch name belonging to the mode, for unwind
-- `activate(ctrl)` — patches to add given current focus
-
-Mode is inferred from `activePatches` by `currentTopMode()`.
-There is no `this.topMode`.
-
-## Mode swaps
+Mode inferred from `activePatches` via `currentTopMode()`. There
+is no `this.topMode`.
 
 `setTopMode(mode)` unwinds every patch owned by any mode, then
 re-inserts the target's activate list at the position where the
-first owned patch sat. Non-owned patches keep their relative
-order. One `_batchPatches`.
+first owned patch sat. Non-owned patches keep relative order. One
+`_batchPatches`.
 
-Wrappers:
+`F.toggleTopMode`: focus → twoDeck family → focus.
+`F.toggleMiniFx`: twoDeck ↔ mini; focus → no-op.
 
-```
-F.toggleTopMode:  focus → twoDeck family → focus
-F.toggleMiniFx:   twoDeck → mini / mini → twoDeck / focus → no-op
-```
-
-## `_resolveFxPatchName`
-
-Single source of truth for fx-pattern → live patch name:
-
-```js
-m = /^fx(Layout[AB]?|Mini)(\d)$/.exec(name)
-if (!m) return undefined
-kind = m[1]
-LayoutA → 'fxLayoutA' + selectedFxA
-LayoutB → 'fxLayoutB' + selectedFxB
-Mini    → 'fxMini'    + selectedFxCurrent
-else    → 'fxLayout'  + selectedFxCurrent
-```
-
-Returns `undefined` (not mine), `null` (mine but missing target),
-or the target name. `_syncFxLayout` warns once per boot on `null`.
+`_resolveFxPatchName` returns `undefined` (not mine), `null`
+(mine but missing), or the target name. `_syncFxLayout` warns once
+per boot on `null`.
 
 Adding a new layout family: extend the regex, add a branch.
 
-## Boot mode
-
-Boot picks via `initialPatches`:
-
-```
-Cat / Kitten:   ['topShared', 'fxLayout1', 'cue']
-oneK3:          ['twoDeck', 'fxLayoutA1', 'fxLayoutB1', 'cue']
-oneK3 miniFX:   ['twoDeckMini', 'fxMini1', 'cue']
-```
-
-The constructor aligns each `fx*` entry with its side's boot
-selection before the first `_recompute`.
+Boot picks via `initialPatches` — see `BOOT_DEFAULTS` in
+`cat.js`.
 
 ---
 
@@ -330,357 +230,182 @@ selection before the first `_recompute`.
 Two timelines per channel. They describe *where the phrase
 colouring reads from*; they don't move the playhead.
 
-```
-                     ┌──────────────────────────────────┐
-                     │  TRACK   playposition            │
-                     │  beat 0 = file start             │
-                     │  origin sets where "count 1" is  │
-                     └──────────────────────────────────┘
-                                    │
-                                    │  (loop engages)
-                                    ▼
-                     ┌──────────────────────────────────┐
-                     │  LOOP CLOCK                      │
-                     │  accumulates playhead movement   │
-                     │  through wraps                   │
-                     └──────────────────────────────────┘
-                                    │
-                                    ▼
-                        ┌──────────────────────┐
-                        │  displaySource      │
-                        │  'track' | 'loop'   │
-                        └──────────────────────┘
-                                    │
-                                    ▼
-                          count = abs - origin + 1
-```
+- **TRACK** — `playposition`. Beat 0 = file start. Origin sets where "count 1" sits. Default.
+- **LOOP CLOCK** — accumulates playhead movement through wraps.
 
-## Per-channel state
-
-```js
-{
-    count: 1, active: false, hasBeat: false, loopActive: false,
-    playing: false,
-    displaySource: 'track',
-    loopClock: { running: false, pos: 0, lastTs: 0, lastTrackPos: 0 },
-    loopStartN: 0, loopEndN: 0,
-    lastBeatRepaint: 0, lastBeatEdge: 0, lastPositionSync: 0
-}
-```
-
-`_freshDeckState()` in `lib-controller.js` returns a fresh one.
+Per-channel state shape: `_freshDeckState()` in `lib-controller.js`.
 
 ## Origin
 
-`_phraseOrigin[ch]` — the beat where "count 1" sits. Derived from
-marker hotcues (`PHRASE_MARKER_COLORS`) by
-`_deriveOriginFromPosition`. Writer runs on every throttled
-playposition tick, `track_loaded`, any `track_samples` change,
-and any hotcue colour / position change.
+Derived from marker hotcues (`PHRASE_MARKER_COLORS`) by
+`_deriveOriginFromPosition`. Runs on every throttled playposition
+tick, `track_loaded`, any `track_samples` change, and any hotcue
+colour / position change.
 
-Derivation: beat of the last marker at-or-before the playhead. If
-no marker precedes but one exists ahead, origin anchors to the
-first upcoming marker — pre-marker playback runs negative counts,
-which `beatLevel` modulos through the phrase. If no marker exists
-at all, origin is 0.
-
-**Reads only `st.hotcueState`, never the COs.** The cache is
-seeded by `_seedHotcueCache(ch)` at clock-open, again on
-`track_loaded`, and on any `track_samples` change (load-over-
-current). The hotcue colour / position observers update it one
-field at a time as each CO fires. This was the per-tick cost
-that thrashed the CO mutex against the audio thread — the old
-implementation re-scanned all 16 hotcues (up to 33 CO reads)
-every 30 ms per deck.
-
-Frozen in loop mode. `_resetBeat` (from `track_loaded`) is the
-only hard reset. No manual setter — origin follows the playhead.
+**Reads only `st.hotcueState`, never the COs.** Frozen in loop
+mode. `_resetBeat` is the only hard reset. No manual setter.
 
 ## Beat maths
 
-Metadata cache: `duration`, `fileBpm`, `samples` — fixed for a
-loaded track. Content bounds are read fresh (`bounds.end` can move
-mid-playback).
+Metadata cached per channel (`duration`, `fileBpm`, `samples`) —
+fixed for a loaded track. Content bounds read fresh.
 
-Incomplete reads aren't cached. `_trackMeta` writes the cache only
-when `duration > 0`. A preset reloaded while a track is already
-loaded would otherwise cache zeros forever — `track_loaded` fires
-only on track *change*, not on preset reload.
+**Incomplete reads aren't cached.** `_trackMeta` writes only when
+`duration > 0` — the CO tree may not have settled at first read.
 
-```
-_channelRate(ch)     prefers rate_ratio, falls back to 1 + rate
-_readFileBpm(ch)     reads file_bpm, falls back to bpm / rate
-_trackMeta(ch)       cached wrapper. Only cached when duration > 0.
-_beatF(ch, pos)      pos * duration * fileBpm / 60 (beat 0 = file start)
-_trackBeatF(ch)      _beatF(ch, playposition)
-```
+See `_beatF` and `_trackBeatF` in `lib-controller-beat.js` for
+the formula.
 
-`bounds.start` = 0 unconditionally. Beat 0 is file start.
-`bounds.end` = `outro_end_position / samples` — feeds only the
+`bounds.start = 0` unconditionally. `bounds.end` feeds only the
 track-end countdown, never the cascade or origin.
 
 ## Source selection
 
-```js
-_cascadeCount(ch, trackBeatF):
-    if displaySource === 'loop' && loopClock.running:
-        loopBeatF = _beatF(ch, loopClock.pos)
-        if loopBeatF !== null:
-            return floor(loopBeatF) - origin + 1
-    return floor(trackBeatF) - origin + 1
-```
-
-**The pulse is not the count.** Pulse phase (bright/dim half of
-the beat) always comes from `playposition`'s fractional beat, in
-both modes. Reading `clock.pos` for the pulse would desync two
-decks the moment one looped.
-
-`_virtualBeatFor(ch)` — inspect accessor for the loop-mode count.
+`_cascadeCount(ch, trackBeatF)` — see code. The pulse is not the
+count; pulse phase always comes from `playposition`'s fractional
+beat, in both modes.
 
 ## Playback rate
 
-`_channelRate(ch)` returns the deck's playback multiplier.
-Prefers `rate_ratio`; falls back to `1 + rate`.
+`_channelRate(ch)` returns the deck's multiplier. Prefers
+`rate_ratio`; falls back to `1 + rate`.
 
-`[ChannelN],rate` is the slider position (~−0.08..+0.08), not a
-multiplier. A `<= 0` guard on it silently returns unity on every
-pitch-down — see §21.
+**`[ChannelN],rate` is the slider position (~−0.08..+0.08), not
+a multiplier.** A `<= 0` guard on it silently returns unity on
+every pitch-down — see §21.
 
 ## Loop clock accumulation
 
-The loop clock doesn't read the playhead. It **accumulates**:
-every tick, `clock.pos` advances by the amount the playhead would
-have moved if the loop played through in sequence.
+`clock.pos` advances by the amount the playhead would have moved
+if the loop played through in sequence.
 
-`clock.pos` is in track-fraction units (same as `playposition`).
+**`trackTempo: false`** (default) — real seconds, `dt × rate /
+duration`. Forward-only; the wall clock doesn't know the playhead
+wrapped.
 
-Two strategies, selected by `VIRTUAL_CLOCKS.loop.trackTempo`:
+**`trackTempo: true`** — playhead delta. Wrap detection is
+direction-based: a jump opposite the playback direction is a
+wrap, corrected by adding loop length. Handles reverse playback
+(real-seconds mode does not).
 
-**`trackTempo: false` (default)** — real seconds.
-
-```js
-if (playing && clock.lastTs > 0) {
-    var dt = (now - clock.lastTs) / 1000;
-    if (dt < 0) dt = 0;         // backward NTP step guard
-    clock.pos += (dt * _channelRate(ch)) / duration;
-}
-```
-
-No wrap detection needed — the wall clock doesn't know the
-playhead wrapped. Forward-only.
-
-**`trackTempo: true`** — playhead delta.
-
-```js
-delta = newPos - clock.lastTrackPos;
-reversing = engine.getValue(group, 'reverse') > 0;
-delta = applyLoopWrapAdjust(st, clock, delta, newPos, reversing);
-clock.pos += delta;
-```
-
-Wrap detection is direction-based: a jump opposite the playback
-direction is a wrap.
-
-```js
-function applyLoopWrapAdjust(st, clock, delta, newPos, reversing) {
-    if (!st.loopActive || st.loopEndN <= st.loopStartN) return delta;
-    var loopLen = st.loopEndN - st.loopStartN;
-    if (!reversing) { if (delta < 0) return delta + loopLen; }
-    else            { if (delta > 0) return delta - loopLen; }
-    return delta;
-}
-```
-
-Handles reverse playback (real-seconds mode does not). Both modes
-rate-scale at the same effective tempo.
-
-Single-wrap per tick. A loop short enough to wrap twice within a
-single `playposition` update would be one loop-length off. Not
-reachable in shipped configs.
+Both rate-scale at the same effective tempo. Single-wrap per
+tick — a loop short enough to wrap twice per update would be one
+loop-length off, not reachable in shipped configs.
 
 ## Derived flags
 
-```js
-activeDeckVirtual      = (displaySource !== 'track')
-activeLoopVirtual      = loopClock.running
-activeDisplaySource    = displaySource
-```
+`activeDeckVirtual`, `activeLoopVirtual`, `activeDisplaySource`.
 
 `_refreshDisplayFlags()` is the only writer. Called from
-`_refreshActiveAlt` (inside recompute) and from
-`_resolveDisplaySource`, `_resetBeat`, `cycleDisplaySource` when
-the channel is the active deck. Those three call
-`_refreshAllLeds('<why>')` themselves — flag-reading LEDs have no
-CO connection, so the toggle otherwise only appears at the next
-recompute.
+`_refreshActiveAlt` (inside recompute), `_resolveDisplaySource`,
+`_resetBeat`, and `cycleDisplaySource` when the channel is the
+active deck. The latter three call `_refreshAllLeds` themselves —
+flag-reading LEDs have no CO connection.
 
 ## Beat display modes
 
-Two tunables, one per deck state, same vocabulary:
+Two tunables, one per deck state:
 
-| | Default | Applies when |
-|---|---|---|
-| `XoneK3.BEAT_PLAYING_MODE` | `'pulse'` | Deck is playing |
-| `XoneK3.BEAT_PAUSED_MODE`  | `'solid'` | Deck is paused |
-
-| Value | Behaviour |
+| | Default |
 |---|---|
-| `'pulse'` | Bright on the first half of the beat, dim on the second — from `trackFrac < 0.5`, not time |
-| `'solid'` | On-ramp + cascade, no brightness pulse |
-| `'off'` | Off-ramp, no cascade |
+| `XoneK3.BEAT_PLAYING_MODE` | `'pulse'` |
+| `XoneK3.BEAT_PAUSED_MODE`  | `'solid'` |
 
-`Binding._isBeatOffPhase` reads whichever matches `st.playing`.
-The playing path with `'pulse'` (the default) is byte-identical
-to pre-tunable behaviour.
+`'pulse'` — bright first half, dim second (from `trackFrac < 0.5`).
+`'solid'` — cascade colour held. `'off'` — off-ramp, no cascade.
 
-For a beat LED to light while paused, its `logicalOn` source
-must read 1 when the deck is stopped. Shipped `layer` / `shift`
-cells use `outKey: 'track_loaded'`; `play_indicator` blacks the
-LED regardless of mode.
-
-The cascade colour comes from `st.count`, kept current by the
-`playposition` handler — jog, beatjump, mouse drag all update
-it.
+`Binding._isBeatOffPhase` reads the one matching `st.playing`.
+For a beat LED to light while paused, its `logicalOn` source must
+read 1 while stopped. Shipped `layer` / `shift` cells use
+`outKey: 'track_loaded'`; `play_indicator` blacks the LED
+regardless of mode.
 
 ## Display cycle
 
 `cycleDisplaySource` toggles track ↔ loop while the loop clock
-runs. No-op when it doesn't. The manual choice sticks until the
-next loop start/stop or play/pause transition.
+runs. **The loop clock runs iff `loopActive && playing`.** Pause
+is exit; resume is entry.
 
-**The loop clock runs iff `loopActive && playing`.** Pause is
-treated as exiting the loop; resume as entering it.
+All four start/stop call sites route through `_syncVirtualClock`.
+Returns `true` when state changed.
 
-All four start/stop call sites route through
-`_syncVirtualClock(ch)`, the single decision point:
-
-```js
-if (st.loopActive && st.playing && !st.loopClock.running)  start
-if (!(st.loopActive && st.playing) && st.loopClock.running) stop
-else                                                          no-op
-```
-
-Returns `true` when the clock state changed, `false` on no-op.
-
-| Caller | Uses the return value? |
+| Caller | Uses return? |
 |---|---|
-| `_onLoopEnabled` | No — `_resolveDisplaySource` fires the repaint |
-| `_onPlayIndicator` | Yes — no-op branch needs an explicit `_refreshBeatLeds` so `_isBeatOffPhase` picks up the new `st.playing` (the no-loop pause case has no display-source change to piggyback on) |
+| `_onLoopEnabled` | No — `_resolveDisplaySource` repaints |
+| `_onPlayIndicator` | Yes — no-op branch needs explicit `_refreshBeatLeds` |
 | `_catchUpChannel` | No |
 | `_onTrackLoaded` | No |
 
-`displaySource` is always `'track'` while the clock is stopped,
-so paused / jogged playback reads from `playposition` and shows
-the correct beat colour.
-
-Behavioural consequence: pausing inside a loop resets the
-iteration count. Resume lands on whatever loop beat the playhead
-is on. Jogging while paused moves the resume point — the next
-`play` seeds from there.
-
-A manual `cycleDisplaySource` toggle to `'track'` while playing
-is overwritten by the resume re-seed. If you want to hold 'track'
-across a pause, cycle again after resume.
+`displaySource` is always `'track'` while the clock is stopped.
+Pausing inside a loop resets the iteration count — resume lands
+on whatever loop beat the playhead is on. Jogging while paused
+moves the resume point. A manual `cycleDisplaySource` to
+`'track'` while playing is overwritten by resume re-seed.
 
 ---
 
 # 7. Focus
 
-Two independent focus concepts.
-
-```
-Slot state:                    Derived:
-  activeDeck : 'A' | 'B'         selectedDeckCurrent
-  activeFx   : 'A' | 'B'         selectedDeckAlt
-                                 selectedFxCurrent
-  selectedDeckA : 1..4           selectedFxAlt
-  selectedDeckB : 1..4
-  selectedFxA   : 1..4
-  selectedFxB   : 1..4
-```
+Two independent axes: deck focus (A/B) and FX focus (A/B). Each
+slot holds an assignment (`selectedDeckA/B`, `selectedFxA/B`).
 
 `_refreshActiveAlt()` recomputes the four derived fields and calls
-`_refreshDisplayFlags`. Called from the constructor, then from
+`_refreshDisplayFlags`. Called from the constructor,
 `setSelectedFor`, `setActiveDeck`, `setActiveFx`.
 
-## _afterFocusChanged
+## `_afterFocusChanged`
 
 All three setters route through one helper:
 
-```js
-_afterFocusChanged(tokens, reason):
-    this._refreshActiveAlt()
-    this._reapplyByTokens(tokens, { skipRefresh: true })
-    if (!this._syncFxLayout().swapped) this._refreshAllLeds(reason)
+```
+_refreshActiveAlt()
+_reapplyByTokens(tokens, { skipRefresh: true })
+if !_syncFxLayout().swapped: _refreshAllLeds(reason)
 ```
 
 One repaint per focus change on every path.
 
-## _syncFxLayout
+## `_syncFxLayout`
 
-Scans `activePatches` for any entry matching the fx-pattern regex,
-resolves each via `_resolveFxPatchName`, swaps via one
-`_batchPatches`. Returns `{ swapped, reason }`. `swapped: false`
-means the caller refreshes itself.
+Scans `activePatches` for fx-pattern entries, resolves each via
+`_resolveFxPatchName`, swaps via one `_batchPatches`. Returns
+`{ swapped, reason }`. `swapped: false` means the caller refreshes
+itself.
 
 ---
 
 # 8. Routing via tokens
 
-Bindings reach focus via tokens in their group string. Tokens
+Bindings reach focus via `$TOKEN$` in their group string. Tokens
 resolve at bind time; `_reapplyByTokens` re-applies any binding
 whose `_usedTokens` include the changed token.
 
-```js
-K3Controller._reapplyByTokens = function(tokens, opts) {
-    var fingerprint = null;
-    for (var name in this.bindings) {
-        var b = this.bindings[name];
-        if (!b._usedTokens || !b._rawCfg) continue;
-        var hit = false;
-        for (var i = 0; i < tokens.length; i++) {
-            if (b._usedTokens.indexOf(tokens[i]) !== -1) { hit = true; break; }
-        }
-        if (!hit) continue;
-        if (fingerprint === null) fingerprint = this._tokenFingerprint();
-        var h = this._resolvedTargetHash(b._rawCfg, fingerprint);
-        if (b._resolvedTargetHash === h) continue;
-        this._applyOneSafe(name, b._rawCfg, true, fingerprint);
-    }
-    if (!(opts && opts.skipRefresh)) this._refreshAllLeds('token-reapply');
-};
-```
+Three short-circuits keep `_reapplyByTokens` cheap:
 
-**Short-circuit on resolved target.** `_resolvedTargetHash(cfg,
-fingerprint)` resolves every token-bearing field against current
-focus and hashes the result. `b._resolvedTargetHash` is written by
-`_applyBinding` on every successful bind, cleared on unbind. A
-focus flip between two slots resolving to the same channel skips
-the rebind.
+- **Resolved-target equality.** `_resolvedTargetHash(cfg,
+  fingerprint)` resolves every token-bearing field against
+  current focus and hashes the result. `b._resolvedTargetHash`
+  is written by `_applyBinding` at bind, cleared on unbind. A
+  focus flip that resolves to the same channel skips the rebind.
+- **Memoization.** `_resolvedTargetHashCache` is a WeakMap keyed
+  on the cfg object, holding `{fingerprint, value}`. The
+  fingerprint is a positional snapshot of every `TOKENS` state
+  field. Any state change that could alter a token's value
+  changes the fingerprint, invalidating the entry.
+- **Shared fingerprint.** `_reapplyByTokens` computes the
+  fingerprint once and passes it to `_applyOneSafe` →
+  `_applyBinding` → `_resolvedTargetHash`, so the WeakMap still
+  hits.
 
 **Every rebind routes through `_applyOneSafe`.** One throwing
-binding is caught and warned; the pass continues. `_applyOneSafe`
-takes an optional fourth `fingerprint` argument — `_reapplyByTokens`
-passes its shared value so `_resolvedTargetHashCache` still hits.
+binding is caught and warned; the pass continues.
 
-**Memoized per (cfg, token fingerprint).** `_resolvedTargetHashCache`
-is a WeakMap keyed on the cfg object, holding `{fingerprint,
-value}`. The fingerprint is a positional snapshot of every field
-in `XoneK3.TOKENS`. Any state change that could alter a token's
-value changes the fingerprint, invalidating the entry. Adding a
-token to the registry covers it automatically.
+`_usedTokens` and `_validateBindings` both walk
+`XoneK3._tokenFields(cfg)`, derived from `_BINDING_FIELDS` rows
+carrying a `token:` label. `_resolvedTargetHash` walks the same
+rows. Adding a token-bearing field is one row.
 
-`_usedTokens` is populated in `_collectTokens`. Both it and
-`_validateBindings` share `XoneK3._tokenFields(cfg)`, which walks
-every `XoneK3._BINDING_FIELDS` row that carries a `token:` label
-and reads the corresponding cfg path. `_resolvedTargetHash` walks
-the same rows to resolve each target against current focus.
-
-Adding a new token-bearing field is one row in
-`XoneK3._BINDING_FIELDS` — both `_tokenFields` and
-`_resolvedTargetHash` pick it up automatically.
-
-**`skipRefresh: true`** — all three focus setters use it, then
+`skipRefresh: true` — all three focus setters use it, then
 refresh via `_syncFxLayout`'s recompute or their own trailing
 `_refreshAllLeds`.
 
@@ -696,7 +421,7 @@ Two states interact: `isShifted` and `_chordActive`.
 - `shift` release while `_chordActive` → `_exitChord()` then `unshift()`
 
 **Chord wins over shift companions.** `_buildStack` holds the
-`chord` entry aside and appends it after shift companions.
+`chord` entry aside and appends after shift companions.
 
 `layerButton`:
 
@@ -710,15 +435,13 @@ ctrl.replacePatch(args[0], args[1]);
 The shipped chord declares `grid2_1` as
 `toggleLayerOverlay(['hotcue916', 'loopOdd'])` — the func picks
 target by `_patchActive('cue')` / `_patchActive('loop')`. Both
-overlays may sit in `activePatches` simultaneously; `_host: 'cue'`
-/ `_host: 'loop'` gate visibility. Toggling in cue does not touch
-the loop overlay's state and vice versa.
+overlays may sit in `activePatches` simultaneously; `_host` gates
+visibility.
 
-`shutdownHold` is a 2-second hold; releasing shift, layer, or the
+`shutdownHold` is a 2 s hold; releasing shift, layer, or the
 binding cell cancels the timer via `Binding._reset`.
 
-`_pulseCo(group, co)` fires a CO high, then clears it on a
-`PULSE_CO_MS` one-shot timer.
+`_pulseCo(group, co)` fires a CO high, clears on `PULSE_CO_MS`.
 
 ---
 
@@ -726,38 +449,10 @@ binding cell cancels the timer via `Binding._reset`.
 
 ## Count and pulse — separate sources
 
-- **Cascade count** — 1-based beat number. Picks which cascade
-  level and colour override. Track mode: from `playposition`.
-  Loop mode: from `loopClock.pos`.
+- **Cascade count** — 1-based beat number. Track mode: from
+  `playposition`. Loop mode: from `loopClock.pos`.
 - **Pulse phase** — bright half vs dim half. Always from
   `playposition`'s fractional beat, in both modes.
-
-```
-   playposition ─────┐
-                     │  (track beat F)
-   loopClock.pos ────┤
-                     │  (loop beat F)
-                     ▼
-              _cascadeCount(ch, trackBeatF)
-                     │        ← displaySource picks which
-                     ▼
-                floor(...) - origin + 1
-                     │
-                     ▼
-                beatLevel(beat, count)
-                     │
-                     ▼
-          { level, color, brightness }
-                     │
-                     ▼
-          _renderStatic / deviation
-                     │
-                     ▼
-          applyBeat() → cascade
-
-   playposition (track frac) ─────► st.active
-                                    (bright / dim phase)
-```
 
 ## The four-case matrix
 
@@ -773,161 +468,95 @@ The gate for "is this deck producing beats" is `st.hasBeat`, not
 
 ## Phase helpers
 
-`Binding._beatStateFor(compiled)` — shared preamble for every
-beat-aware render path. Returns the deck state when the deck has
-seen at least one beat, else null.
+`Binding._beatStateFor(compiled)` — shared preamble. Returns the
+deck state when the deck has seen a beat, else null.
 
-`Binding._isBeatOffPhase(compiled)` — wraps it with the
-`!st.active` flip.
+`Binding._isBeatOffPhase(compiled)` — wraps with `!st.active`.
 
 ## Two writers of `st.active`
 
-- `beat_active` handler — high → true, low → false. Fires in both
-  display modes.
-- `_repaintFromPosition` handler — sets `active = trackFrac < 0.5`.
+- `beat_active` handler — high → true, low → false.
+- `_repaintFromPosition` — `active = trackFrac < 0.5`.
 
 Both write from track frac, so they agree.
 
-The position handler skips *the pulse repaint* in track mode when
-the deck is playing forward and a recent `beat_active` edge exists
-(within 1.5 s) — that's what prevents the flicker inside a loop.
-It still calls `_syncBeatCount(ch)` before returning so a dropped
-or throttled edge doesn't freeze the cascade colour.
+The position handler skips the pulse repaint in track mode when
+playing forward and a recent `beat_active` edge exists (within
+1.5 s) — that's what prevents the flicker inside a loop. It still
+calls `_syncBeatCount` before returning.
 
-The guard also requires the playhead not to be moving backward.
-`beat_active` fires reliably on forward playback but irregularly
-on backward jog — the guard would leave `st.active` frozen while
-count kept moving (`_syncBeatCount` only touches `count`). Backward
-movement bypasses the guard so `_repaintFromPosition` runs, updating
-both fields from the same source. `st.lastPlayPos` is the per-tick
-`playposition` snapshot; `undefined` until the first tick, so the
-guard behaves normally on boot.
+The guard also requires the playhead not moving backward —
+`beat_active` fires irregularly on backward jog, and the guard
+would freeze `st.active` while count kept moving. Backward
+bypasses the guard so `_repaintFromPosition` runs.
 
-`_refreshBeatLeds(ch)` filters by resolved beat deck.
-
-## `beatLevel`
-
-Defined in `lib-core.js`. Counts are valid for any integer,
-including zero and negatives. `beatLevel` normalises via modulo.
-
-## Throttle
-
-`BEAT_REPAINT_THROTTLE_MS = 30`. Two timestamps per channel,
-gated independently (`lastBeatRepaint`, `lastPositionSync`).
+`st.lastPlayPos` is the per-tick `playposition` snapshot;
+undefined until the first tick.
 
 ## Clock connections
 
-Eight per channel:
+Eight per channel, wired in `_openChannelBeatClocks`:
 
-| Array | Connection | What it does |
+| Array | CO | Effect |
 |---|---|---|
-| `_beatConns` | `beat_active` | Pulse source. Drives `st.active` transitions. |
-| `_playConns` | `playposition` | Advances the loop clock; position-tick repaint. |
-| `_playConns` | `play_indicator` | Sets `st.playing`; repaints on every transition. Resyncs the clock anchor on rising edge. |
-| `_playConns` | `track_loaded` | Clears `_trackMetaCache[ch]`, resets beat state, clears `_lastLoopTouchMs[ch]`, re-syncs beat clocks. |
-| `_playConns` | `loop_enabled` | Starts / stops the loop clock on edge. |
+| `_beatConns` | `beat_active` | Pulse source. |
+| `_playConns` | `playposition` | Advances loop clock; position-tick repaint. |
+| `_playConns` | `play_indicator` | Sets `st.playing`. |
+| `_playConns` | `track_loaded` | Clears `_trackMetaCache`, resets beat state. |
+| `_playConns` | `loop_enabled` | Starts / stops loop clock. |
 | `_playConns` | `slip_enabled` | Count resync. |
-| `_playConns` | `track_samples` | Track identity changed — clears `_trackMetaCache[ch]`, re-seeds `st.hotcueState`, re-derives phrase origin, resyncs count. `track_loaded` isn't reliable for load-over-current or pre-settle races. |
-| `_playConns` | `rate_ratio` | Updates `_rateCache[ch]` for `_channelRate`. |
+| `_playConns` | `track_samples` | Track identity changed. |
+| `_playConns` | `rate_ratio` | Updates `_rateCache[ch]`. |
 | `_playConns` | `reverse` | Updates `_reverseCache[ch]`. |
 
-Plus hotcue colour/position observers when
-`PHRASE_MARKER_COLORS` is non-empty (2 × `XoneK3.HOTCUE_MAX`
-per channel, i.e. 32 with the default of 16). The observers are
-wired once at clock-open, so raising `XoneK3.HOTCUE_MAX` after
-boot extends the per-tick derive scan but not the observer set
-— origin still re-derives on the next playhead throttle.
+Plus hotcue colour / position observers when
+`PHRASE_MARKER_COLORS` is non-empty (2 × `HOTCUE_MAX` per channel).
+Wired once at clock-open — raising `HOTCUE_MAX` after boot extends
+the per-tick derive scan but not the observer set.
 
 Each observer updates one `st.hotcueState` field and re-derives
-origin from the cache — no scan. The observers also seed
-`st.hotcueState` once at wiring time, before the observer
-connections are made. Contrast the pre-cache implementation,
-where every observer fire re-scanned all 16 hotcues: a track
-load (32 CO writes per channel) fired ~1024 CO reads per channel
-in a few ms.
+origin from the cache — no scan.
 
-`_openBeatClocks` ends with a catch-up loop: re-reads loop state
-for every channel, starts the loop clock where a loop is already
-active, re-reads `play_indicator` into `st.playing`, populates
-`_rateCache[ch]`, and syncs the beat count. CO connections fire
-on change, not on setup — without this, a preset reload during
-an active loop leaves the loop clock idle, and a reload during
-playback leaves `st.playing = false` so paused mode renders on a
-playing deck.
+`_openBeatClocks` ends with a **catch-up loop**: re-reads loop
+state, starts the loop clock where already active, re-reads
+`play_indicator` into `st.playing`, populates `_rateCache`,
+syncs count. CO connections fire on change, not on setup — a
+preset reload during playback would otherwise render paused mode
+on a playing deck.
 
-`_syncBeatClocks` is the only caller of open/close. Runs once per
-recompute, from `_refreshAllLeds`. Gate is `_needsBeatClocks` —
-returns `_beatLeds.length > 0`, with a fallback scan of `_applied`
-when the array is empty. That fallback fires only when a prior
-`_applyBinding` threw partway; dead code in the shipped path,
-present as a safety net.
-
-In shipped presets the clocks are effectively always open
-(`countdownScheme` carries `beat:` and is on the layer/shift
-buttons). Closing wipes per-channel timeline state but preserves
-`_phraseOrigin`.
+`_syncBeatClocks` is the only caller of open / close. Gate is
+`_needsBeatClocks` — returns `_beatLeds.length > 0`, with a
+fallback scan of `_applied` when the array is empty. Dead code in
+the shipped path; safety net only.
 
 ---
 
 # 11. Scheme pipeline
 
-```
-scheme ref (string | object | colour spec)
-   │
-   │  compileScheme(ref, overrides)
-   │    resolveScheme(ref)
-   │      - string: SCHEMES[name], then SCHEME_DEFAULTS
-   │      - object with .colors: as-is + defaults
-   │      - object without .colors: warn + null
-   │    if the above produced a scheme with colors:
-   │        _buildSegments(colors, ratio, brightness)
-   │        _computeTmap(raw)
-   │    else:
-   │        resolveColorEntry(ref)  → single-colour fallback
-   ▼
-compiled: {
-    on, off, co, marker,
-    tmap: { position, curve },
-    markerPosition, markerWidth,
-    interp, calibration, brightnessScale, reverse,
-    beat
-}
-```
+`compileScheme(ref, overrides)` resolves the raw scheme (string →
+`SCHEMES[name]` + defaults; object with `.colors` → as-is; object
+without `.colors` → warn + null), then either builds segments and
+the tmap (full scheme) or falls back to a single-colour ramp.
 
 Bare palette names resolve to single-colour schemes. Cached by
-name when `ref` was a string and no overrides were passed.
+name when `ref` is a string and no overrides were passed.
 
 Off-ramp is either `offScheme` compiled, or `on` with brightness
 dropped to `DEFAULT_RGB_BRIGHTNESS_OFF`.
 
-Partial objects with no `colors` warn and return null.
-
 ## t-composer
 
-`sampleT(compiled, t)`:
-
-```js
-t = t - m.position;
-if (t < 0) t = 0;
-if (t > 1) t = 1;
-if (m.curve !== 0) t = _warp(t, m.curve);
-```
-
-Position first (slides the ramp and its curve pivot through knob
-space), then warp. `CURVE_GAIN = 4.0`, pivot at 0.5.
-
-Position is `(schemePosition - 63.5) / 127`.
-
-Bounds: out-of-range clamps to 0 or 1 and holds the boundary
-segment colour.
+`sampleT(compiled, t)` shifts position first, clamps, then warps.
+Position-first is what makes `schemePosition` slide the whole
+curve — pivot included — through knob space. Out-of-range clamps
+to 0 or 1 and holds the boundary segment.
 
 ## Co-matching
 
-`XoneK3.coMatchSample(compiled, group, key, physical, isOn)` —
-shared helper for both `Binding._renderCoMatch` and
-`LabController._renderCoMatch`.
+`XoneK3.coMatchSample` — shared helper for both
+`Binding._renderCoMatch` and `LabController._renderCoMatch`.
 
-## _funcId
+## `_funcId`
 
 Boot-scoped. Reset in `_bootWith` (§3).
 
@@ -937,165 +566,80 @@ Boot-scoped. Reset in `_bootWith` (§3).
 
 Every render goes through `Binding._refresh`:
 
-```
-1. _csActive?  → _refreshColorScheme()
-2. outKey?     → getValue(group, outKey), send on/off
-3. neither     → nothing
-```
+1. `_csActive`? → `_refreshColorScheme()`
+2. `outKey`? → read `outKey`, send on/off
+3. Neither → nothing
 
-`_refreshColorScheme`:
+`_refreshColorScheme` resolves `_isOn()`, `_evaluateScheme()`,
+checks the beat-off-phase gate, then dispatches to
+`_renderStatic` or `_renderDeviation`. See the function for the
+exact branch order.
 
-```
-logicalOn = _isOn()
-
-scheme = _evaluateScheme()
-
-if !scheme:                      send black, done
-
-beatOffPhase = _isBeatOffPhase(scheme)
-
-if beatOffPhase && !logicalOn:   send black, done
-isOn = logicalOn && !beatOffPhase
-
-if !_csDeviation:  // static
-    ramp = isOn ? on : off
-    send ramp[0] with beat cascade, done
-
-else:              // deviation
-    knob = _csKnob
-    if knob has never reported: send white hw 127, done
-    physical = knob._normalized
-    if scheme.co and knob has a CO:
-        steer = coMatchSample(...)
-        if steer: sample co-ramp, send, done
-    dev = (physical - 0.5) * 2
-    devDir = scheme.reverse ? -dev : dev
-    if markerHit(scheme, devDir): send marker, done
-    t = (devDir + 1) / 2
-    ramp = isOn ? on : off
-    sample, beat-apply, send
-```
-
-The beat gate sits *above* the ramp selection.
+The beat gate sits **above** the ramp selection.
 
 `_evaluateScheme()` resolves base + closure + ref-identity memo
-into one compiled scheme or null. A scheme function returning a
-fresh object twice with identical content fires
+into one compiled scheme. A scheme function returning a fresh
+object twice with identical content fires
 `_warnOnce('csSchemeFresh:<binding>')` — fix is `composeScheme`
-or hoisting the object out of the closure.
+or hoisting the object.
 
 ## Calibration
 
-`_emitAt` splits into:
+`_emitAt(rgb, hw)` = white-balance × transfer × channelPerceptual,
+summed to Y, `pow(Y, lumGamma)`, boosted by `hkBoost × saturation`.
 
-```
-_channelEmit(rgb, hw)     → [r, g, b] linear emissions
-                              white-balance × transfer × channelPerceptual
-sum → Y                   total linear luminance
-Math.pow(Y, lumGamma)     perceptual compression
-× (1 + hkBoost × sat)     saturation boost
-```
+## Flat target
 
-## Flat target (cached)
-
-`_flatTarget(segs)` scans the ramp's stops for minimum perceived
-luminance. Cached per-controller in `_flatCache`, keyed by
-`segs._cacheId` then `_calibFingerprint()` on read:
-
-```js
-if (segs._cacheId === undefined) segs._cacheId = ++_segsCacheCounter;
-var entry = this._flatCache[segs._cacheId];
-if (entry && entry.key === this._calibFingerprint()) return entry.value;
-// compute value
-this._flatCache[segs._cacheId] = { key: this._calibFingerprint(), value: value };
-```
+`_flatTarget(segs)` scans stops for minimum perceived luminance.
+Cached per controller in `_flatCache`, keyed by `segs._cacheId`
+then `_calibFingerprint()`.
 
 `_calibFingerprint()` is a method, not a stored string. Every
 `_emitAt` input is included — curve name, calibrationMode,
-wbActive, wbGain, channelPerceptual, hkBoost, lumGamma — so any
-runtime mutation of a tuning field invalidates the cache. The
-lab's tuning overlay (shift+press3) mutates `wbActive` via
-`labToggleWb`, `hkBoost` and `lumGamma` via the tuning encoders;
-a constructor-time hash would serve stale flat targets for every
-scheme seen before the mutation.
+wbActive, wbGain, channelPerceptual, hkBoost, lumGamma — so a
+runtime tuning mutation invalidates the cache. See PERFORMANCE
+for the rationale.
 
-Two controllers with different fingerprints don't share entries.
-Segments arrays are owned by `_compiledCache`, reset per boot, so
-entries per controller per boot are bounded by distinct schemes.
-
-## Hardware solve (cached)
+## Hardware solve
 
 `_calibratedHw(rgb, targetLum)` bisects `_emitAt` over 12
 iterations. Cached in `_hwCache`, bounded at 1024 entries.
 
-## _isOn
+## `_isOn`
 
-Three sources, checked in order:
-
-```js
-if (this._csOn !== null && this._csOn !== undefined) {
-    if (this._csOn === true)  return 1;
-    if (this._csOn === false) return 0;
-    // conditional: patchActive / state / co
-}
-if (this.group && this.outKey) return engine.getValue(this.group, this.outKey) > 0 ? 1 : 0;
-return 0;
-```
-
-| Shape | Fields |
-|---|---|
-| `true` / `false` | Boolean unconditional |
-| `{ patchActive }` | Respects `_host` |
-| `{ state }` | Dot-path, truthy check |
-| `{ state, equals }` | Strict equality |
-| `{ state, contains }` | Array/string membership |
-| `{ co, group }` | Mixxx CO |
+Three sources, checked in order: `colorScheme.on` (unconditional
+`true` / `false`, or `{ patchActive | state | co }` with optional
+`equals` / `contains`), then `group + outKey`, else 0.
 
 Numeric `on.state` without `equals` warns once per binding, from
-`_isOn` on first render — not at bind time.
+`_isOn` on first render.
 
 `on.co` gets its own `engine.makeConnection` in `_parseCsOn`,
 pushed onto `b._conns`. `_bindConns` skips the `outKey` connection
 when `_csOn` is set.
 
-## schemeFromState list branch
+## `schemeFromState.list`
 
-`schemeFromState.list` uses the CO value directly. The CO that
-feeds QFX (`loaded_chain_preset`) is 0-based. Out-of-range clamps
-to the last entry.
+Uses the CO value directly (0-based). `loaded_chain_preset` is
+0-based. Out-of-range clamps to the last entry.
 
 ---
 
 # 13. Input mods
 
-`Binding.input()`:
-
-```
-1. _onInput(b)                  subclass hook
-2. normalized update            knobs / faders only
-3. accel multiply               only when _accel is set
-4. func dispatch or default
-```
-
-Then repaints every observer LED.
+`Binding.input()` order: `_onInput(b)` → normalized update (knobs /
+faders) → accel multiply → func dispatch or default → observer
+repaints.
 
 ## Accel
 
-`_parseAccel` normalises to `{ amount, curve, window, fullAt }`:
+`_parseAccel` normalises to `{ amount, curve, window, fullAt }`.
+`reps = 1 + (amount - 1) × pow(min(1, rate/fullAt), curve)` where
+`rate` = events per second over `window`. `_accelEvents` persists
+across rebinds.
 
-```js
-rate = ev.length * 1000 / window;
-t = Math.min(1, rate / fullAt);
-t = Math.pow(t, curve);
-reps = 1 + (amount - 1) * t;
-```
-
-`_accelEvents` persists across rebinds.
-
-**Inert without `func`.** The default path writes an absolute
-value once per MIDI event; repeating is a no-op.
-`_auditBindingCfg` warns once per binding per boot when `accel`
-is declared without `func`.
+**Inert without `func`.** `_auditBindingCfg` warns once per
+binding per boot when `accel` is declared without `func`.
 
 ## valueCurve
 
@@ -1104,9 +648,8 @@ uncurved.
 
 ## Self-accelerating funcs
 
-A func can implement its own acceleration by tracking event rate
-on `this`. The binding must NOT also carry `accel:`. One source
-of acceleration per binding.
+A func can track its own event rate on `this`. The binding must
+NOT also carry `accel:`. One source of acceleration per binding.
 
 ---
 
@@ -1114,22 +657,16 @@ of acceleration per binding.
 
 `_applyResolved` diffs hashes, not object identity.
 
-`_BINDING_CFG_FIELDS` is derived from `XoneK3._BINDING_FIELDS` in
-`lib-core.js` — every row with `hash: true`, in table order.
-Fields starting with `_` are structural metadata and deliberately
-omitted from the table's cfg-field rows.
+`_BINDING_CFG_FIELDS` is derived from `_BINDING_FIELDS` — every
+row with `hash: true`, in table order. Fields starting with `_`
+are omitted.
 
-`_hashBindingValue`:
+`_hashBindingValue(field, v)`: `undefined` → empty;
+`func` → `_funcId`; objects → key-sorted `_stableStringify`;
+strings → `JSON.stringify` (quoted, so `|` inside can't shift the
+field boundary); everything else → `String`.
 
-- `undefined` → empty string
-- `func` → resolved through `_funcId`
-- Objects / arrays → `_stableStringify` (key-sorted)
-- Strings → `JSON.stringify` (quoted, so a `|` inside a value
-  can't shift the field boundary)
-- Everything else → `String`
-
-`_hashBinding` joins parts with `\u0001` (SOH). JSON-quoted
-strings escape `\u0001`, so values can't inject the delimiter.
+`_hashBinding` joins parts with `\u0001` (SOH).
 
 `_applyResolved` also caches the cfg object reference per binding
 name: `oldCfgs[name] === cfg` skips the hash recompute. Works
@@ -1137,75 +674,50 @@ because `_resolvePatch` memoizes its output — a repeated
 recompute over the same stack returns the same `resolved[name]`
 references.
 
-Each per-binding `_applyBinding` call is wrapped via `_applyOneSafe`,
-a named method with its own try/catch. A throwing binding warns once
-via `_warnOnce('applyBindThrow:<name>')` (or `'applyUnbindThrow:<name>'`
-when the cfg is null and the pass is unbinding) and doesn't stop the
-pass. The unbind sweep is `_unbindRemoved`, which iterates
-`_appliedHashes` and calls `_applyOneSafe(name, null)` for every entry
-missing from the new resolved set.
+Each per-binding `_applyBinding` call is wrapped via
+`_applyOneSafe`, a named method with its own try/catch. Warns once
+via `_warnOnce('applyBindThrow:<name>')` / `applyUnbindThrow` and
+doesn't stop the pass. `_unbindRemoved` sweeps `_appliedHashes`
+for missing entries.
 
-`_safeBinding` still exists — it's used by `_refreshAllLeds` and
-`_refreshBeatLeds`, where the loop-variable-capture problem it was
-designed to solve still applies (both iterate over live bindings in a
-`for` loop).
+`_safeBinding` is used by `_refreshAllLeds` and `_refreshBeatLeds`,
+where the loop-variable-capture problem applies.
 
 `_auditBindingCfg` runs per rebind, gated on `_debugPrintsOn`.
-Warns about cfg keys not in `_BINDING_CFG_FIELDS` (hash will miss
-them) and `accel` without `func`.
 
 ---
 
-# 15. _bindingDefaults
+# 15. `_bindingDefaults`
 
 Standalone factory returning every reset-able Binding field at
-its default value. Called by the `Binding` constructor and
-`_reset`. Adding a reset-able field means editing one list.
+default. Called by the constructor and `_reset`. Adding a reset-
+able field means editing one list.
 
 Session-scoped state lives outside the factory:
 
 ```
-_normalized        knob/fader position
-_accelEvents       accel rate window
-_loopAccelEvents   self-accelerating func rate window
-pressHeld          BPM tap state
-turnHappened       BPM tap state
-_ledObservers      LED observers
-_held              push-button held flag (see _releaseHeldWrite)
+_normalized, _accelEvents, _loopAccelEvents, pressHeld,
+turnHappened, _ledObservers, _held
 ```
 
 ---
 
-# 16. _snapshotBinding
+# 16. `_snapshotBinding`
 
 Before every `_reset`, `_applyBinding` captures fields that
 `_unbind` and `_rearmSoftTakeover` need after the wipe.
 
-`_SNAPSHOT_FIELDS` is derived from `XoneK3._BINDING_FIELDS` in
-`lib-core.js` — every row with a `snapshot:` clause, expanded to
-`[source, dest, transform]`. The current table:
+`_SNAPSHOT_FIELDS` is derived from `_BINDING_FIELDS` — every row
+with a `snapshot:` clause, expanded to `[source, dest, transform]`.
+`_SNAPSHOT_IGNORED` is derived from `ignored: true` rows. Anything
+reset-able not classified as either triggers a boot-time warning
+when `_debugPrintsOn` is set.
 
-| source    | dest       | transform |
-|-----------|------------|-----------|
-| `group`   | `group`    | —         |
-| `inKey`   | `inKey`    | —         |
-| `type`    | `wasPot`   | `isPot`   |
-| `_rawCfg` | `wasBound` | `truthy`  |
-| `_noLED`  | `wasNoLED` | —         |
-| `_k2`     | `wasK2`    | —         |
-| `idx`     | `idx`      | —         |
+Transform names are implemented in `XoneK3._snapshotTransform`.
+Adding one means editing that function plus the table row.
 
-`_SNAPSHOT_IGNORED` is derived the same way — every row with
-`ignored: true`. Anything reset-able not classified as snapshot
-or ignored triggers a boot-time warning (gated on
-`_debugPrintsOn`).
-
-Transform names are implemented in `XoneK3._snapshotTransform` in
-`lib-binding.js`. Adding one means editing that function plus the
-table row.
-
-`_resolvedTargetHash` is controller-set, not in
-`_bindingDefaults`, so the snapshot audit doesn't see it.
+`_resolvedTargetHash` is controller-set, not in `_bindingDefaults`,
+so the audit doesn't see it.
 
 ---
 
@@ -1215,50 +727,32 @@ table row.
 
 ## State
 
-```
-_lab.edit             scheme buffer
-_lab.slots[16]        null or a scheme object
-_lab.previewSource    'edit' | 0..15 | registry name
-_lab.previewing       bool
-_lab.saveArmed        bool
-_lab.previewPos       0..1
-_lab.previewKnown     bool
-_lab.previewOn        on-ramp vs off-ramp
-_lab.selectedSegment  index, or -1 for marker
-_lab.ratioEdit        bool
-_lab.schemeName       registry cursor
-_lab.beatTarget       target level or null
-_lab._version         monotonic, bumped on every input event
-_onBeat               fires on every beat edge
-```
+`this._lab = { slots[16], edit, previewSource, previewing,
+saveArmed, previewPos, previewKnown, previewOn, selectedSegment,
+ratioEdit, schemeName, beatTarget, _version }`.
 
-`_lab.edit` may carry an optional `colorSet` parallel bool array
-(lab editing state — real stop vs gap). Never persisted:
-`_cloneScheme` strips it, so save / load / bake / dump all drop
-it. Reloaded schemes default to all-true. Only the current edit
-session carries gap state. `ledSelectTarget` (cascade delete) and
-`ledFillGaps` are the two consumers. See LAB.md.
+- `slots[0..15]` — saved schemes. 0/1/2/3 = on/off/co/co-off.
+- `edit` — working buffer. May carry `colorSet` (parallel bool
+  array; real stop vs gap). Lab editing state, never persisted —
+  `_cloneScheme` strips it.
+- `previewSource` — `'edit'`, 0..15, or a registry name.
+- `_version` — bumped on every input event, keys the preview
+  compile cache.
 
 ## Gates and overrides
 
 `_commitPreview()` returns `_lab.edit` when
-`previewSource === 'edit'`, else null (with
-`_warnOnce('labEditWhilePreviewing')`). Preview mode is
-preview-only — the edit funcs are no-ops while previewing. The
-only paths from a preview into `_lab.edit` are `_loadPreview()`
-(shift+R), `_editThis()` (slots mode), and the armed-slot save
-in `_selectSlot`.
+`previewSource === 'edit'`, else null (warn once). Edit funcs are
+no-ops while previewing.
 
-`_selectSlot` guards against a null `_previewScheme()`: clears
-the arm and falls through to normal preview rather than writing
-`null` into `edit`.
+`_selectSlot` guards against a null `_previewScheme()` — clears
+the arm and falls through to normal preview.
 
-`_renderPreviewLED` wraps its render path in try/catch — a
-user-authored scheme function that throws paints the preview
-black and fires `_warnOnce('labPreviewThrow')`.
+`_renderPreviewLED` wraps in try/catch — a user scheme that
+throws paints black and warns once.
 
-`_onPatchChange(from, to)` handles the auto-bake when leaving
-`colorLab` and the mode prints.
+`_onPatchChange` handles auto-bake when leaving `colorLab` and
+the mode prints.
 
 `_applyAutoBake()` runs when preview lands on `'edit'` or slots
 0..11.
@@ -1268,73 +762,46 @@ whenever `_onBeat` is set.
 
 ## Preview compile cache
 
-Keyed on `_lab._version` (bumped by `_onInput`) and `previewSource`.
-Beat-driven renders between inputs hit the cache.
+Keyed on `_lab._version` and `previewSource`. Beat-driven renders
+between inputs hit the cache.
 
 ## Preview LED render
 
-`_renderPreviewLED` is a thin try/catch wrapper — the catch lives at
-the outermost frame so a body throw's stack trace points at the
-actual failing call, not at "somewhere inside _renderPreviewLED".
-The body is `_renderPreviewLedBody`: cache read, beat-state check,
+`_renderPreviewLED` is a try/catch wrapper so a body throw's stack
+points at the actual failing call. The body is
+`_renderPreviewLedBody`: cache read, beat-state check,
 stopped-beat-target branch, four-case matrix, then `_previewFrame`.
 
-`_previewFrame` is the final three-way in the pipeline: co-match →
-marker → ramp sample. First branch to paint wins; the ramp is the
-unconditional fallback. This is the same shape as
-`Binding._refreshColorScheme`, just with the lab's own knob / CO
-sources instead of a binding's `_csKnob` / `outKey`.
+`_previewFrame` = co-match → marker → ramp. First branch to paint
+wins.
 
 ## Slot-0 preview chain
 
 When `previewSource === LAB_SLOT.ON`, `_previewCompiled` wires
-slots 1–3 as compile overrides:
-
-| Slot | Wired as |
-|---|---|
-| 1 | `offScheme` |
-| 2 | `coScheme` |
-| 3 | `offScheme` on the co ramp |
-
-Missing slots fall through to engine defaults. Only
-`_previewCompiled` does this; a normal `compileScheme` ignores
-slots 1–3.
+slots 1/2/3 as `offScheme` / `coScheme` / co-`offScheme`
+overrides. Missing slots fall through to engine defaults.
 
 ## Binding discovery
 
-Renderers don't hardcode which cell shows what. Every lab painter
-asks for its cells by func reference via `_findCellsByFunc`.
-`XoneK3.LAB_PAINTER_FUNCS` lists every func owned by a painter.
+Renderers don't hardcode cells — they ask via `_findCellsByFunc`.
+`LAB_PAINTER_FUNCS` lists painter-owned funcs.
 
 ## Bake
 
-`bakeScheme(ref, ctrl, level)` — lab-only.
-
-Three levels, sampled at 23 points (structural samples at the
-segment count):
-
-- **structural** — one stop per segment; `ratio`, `curve`, and
-  `schemePosition` emitted alongside so `compileScheme`
-  reproduces the source spans and shifts.
-- **sampled** — sample at 23 uniform points, tmap applied
-- **wire** — the above, plus the calibration solve. Marks
-  `calibration: false`
+`bakeScheme(ref, ctrl, level)` — lab only. Three levels: structural
+(one stop per segment), sampled (23 uniform points), wire (sampled
++ calibration solve, marks `calibration: false`). Structural
+preserves `ratio`, `curve`, `schemePosition`.
 
 ## Shutdown dump
 
 `LabController.shutdown` is overridden to run the slot dump
-synchronously, before the parent's async sysex drain. Dumping
-from `_shutdownExtra` would race the caller.
+synchronously before the parent's async sysex drain.
 
 ## Mode prints
 
-```js
-XoneK3.MODE_PRINTS = false;
-XoneK3.modePrint(line)
-XoneK3.modePrintFirst(mode, hint)
-```
-
-Flipped on by colorLab's boot config (`modePrints: true`).
+`XoneK3.modePrint(line)` / `modePrintFirst(mode, hint)`. Gated on
+`MODE_PRINTS`, flipped on by colorLab's boot config.
 
 ---
 
@@ -1344,80 +811,61 @@ Flipped on by colorLab's boot config (`modePrints: true`).
 
 | Channel | Gate | Reset on boot |
 |---|---|---|
-| `debugPrint` | `_debugPrintsOn` | no (persists) |
-| `modePrint` / `modePrintFirst` | `MODE_PRINTS` | `MODE_PRINTS = false` in `_bootWith`; `_modeSeen` reset |
-| `_warnOnce` | none — fires first occurrence | via `_warned` |
+| `debugPrint` | `_debugPrintsOn` | no |
+| `modePrint` / `modePrintFirst` | `MODE_PRINTS` | via `_bootWith` |
+| `_warnOnce` | none | via `_warned` |
 
-`debugPrint` walks `PRINT_TABLES`, uses the first table that has
-the key.
+`debugPrint` walks `PRINT_TABLES`, first matching table wins.
+`_warnOnce(key, msg)` prints `[k3] <msg>` once per key.
 
-`_warnOnce(key, msg)` prints `[k3] <msg>` the first time a `key`
-is seen. Cleared in `_bootWith`.
-
-`_syncBeatClocks` prints one line when `_debugPrintsOn` is set:
+`_syncBeatClocks` prints one diagnostic line when
+`_debugPrintsOn`:
 
 ```
 [k3] _syncBeatClocks want=1 have=1 _beatLeds=2 applied=45
 ```
 
-`want` = `_needsBeatClocks()`, `have` = connections open,
-`_beatLeds` = fast-path array length, `applied` = resolved binding
-count. Mismatch at boot means the open/close decision is wrong;
-`_beatLeds=0` with `applied=45` means a binding threw during
-`_applyResolved` and the safety net is carrying the load.
+Mismatch at boot = open/close decision wrong. `_beatLeds=0` with
+`applied=45` = a binding threw during `_applyResolved`; safety net
+carrying the load.
 
-The beatjump gate prints when `_debugPrintsOn` is set:
+The beatjump gate prints when `_debugPrintsOn`:
 
 ```
 [k3] beatjump gated: 87ms / 130ms
 ```
 
-`87ms` = time since last loop-touching event; `130ms` =
-`BEATJUMP_GAP_MS`.
-
 ## Probes
 
-```js
-XoneK3.controllers[0].inspect()             // top-level state
-XoneK3.controllers[0].inspect('press0')     // one binding
-XoneK3.controllers[0].inspect('patches')    // activePatches, stack
-XoneK3.controllers[0].inspect('beat')       // clock, counters, timelines
-XoneK3.controllers[0].inspect('tokens')     // token → bindings
-XoneK3.controllers[0].inspect('dark')       // unbound bindings
-XoneK3.controllers[0].inspect('why', 'layer')    // pipeline walk for one binding
-```
-
-`inspect('rate')` is a stub — prints one line pointing at
-`BEATJUMP_GAP_MS`.
-
-`inspect('why', name)` walks the render pipeline for a single
-binding and prints where it stopped. Read-only.
+See `lib-inspect.js` header. `inspect('why', name)` walks the
+render pipeline for one binding and prints where it stopped.
+Read-only.
 
 ## Symptom table
 
 | Symptom | Cause |
 |---|---|
 | Nothing lights | Preset not loaded. Reload. |
-| `Xone K3: <file> requires <symbols>` at load | `<scriptfiles>` order in the `.midi.xml` is wrong. |
-| LEDs half-update on patch switch | A binding field is missing from `_BINDING_CFG_FIELDS`. |
-| Soft takeover stops working after a rebind | A reset-able field is missing from `_SNAPSHOT_FIELDS`. |
+| `Xone K3: <file> requires <symbols>` at load | `<scriptfiles>` order wrong. |
+| LEDs half-update on patch switch | A binding field missing from `_BINDING_CFG_FIELDS`. |
+| Soft takeover stops working after a rebind | A reset-able field missing from `_SNAPSHOT_FIELDS`. |
 | Fader stuck at endpoint after deck switch | `_rearmSoftTakeover` bridge didn't fire. Check `b._normalized !== undefined` at rebind. |
-| No beat after Mixxx startup until reload | Init-time beat-clock open raced the CO tree. `init`'s 250 ms reopen fixes; if it still happens, bump the delay or check `_shuttingDown`. |
-| Beat LEDs stay dark after the 250 ms reopen | `_trackMeta` caching incomplete values. Verify the `if (meta.duration > 0)` guard is present. |
+| No beat after Mixxx startup until reload | Init-time beat-clock open raced the CO tree. `init`'s 250 ms reopen fixes; bump delay or check `_shuttingDown` if it still happens. |
+| Beat LEDs stay dark after the 250 ms reopen | `_trackMeta` caching incomplete values. Check the `if (meta.duration > 0)` guard. |
 | Loop clock doesn't resume after a preset reload during an active loop | `_openBeatClocks`'s catch-up loop reads loop state on open. |
 | Beat colour sticks while playing; correct when jogged | Position-tick guard returned before syncing count. `_syncBeatCount` must run before the early return. |
-| Beat LED fires faster/slower on pitched deck, loop reading only | `_advanceVirtualClock` scaled by `[ChannelN],rate` (slider). Must read `rate_ratio`. |
+| Beat LED fires faster/slower on pitched deck, loop reading only | `_advanceVirtualClock` scaled by `[ChannelN],rate`. Must read `rate_ratio`. |
 | Two decks drift out of phase in loop mode at same tempo | Both decks on the same accumulation strategy? Check `_cascadeCount` reads `clock.pos`. |
 | Beat count jumps backward on tight loops | Wrap detection direction-based? Check `reversing` is read correctly. |
-| Beat LED drifts across loop iterations, both decks at unity | `duration × fileBpm / 60` not an integer. Snap `duration` to nearest beat-multiple, or switch to `trackTempo: true`. |
-| Beatjump doesn't fire after touching a loop control | Gated by `_beatjumpAllowed` — less than `BEATJUMP_GAP_MS` since last loop-touching event on that channel. Set `_debugPrintsOn = true` for the gate line. |
-| `[k3] _batchPatches mutator threw: …` | The mutator hit an exception. `activePatches` was not modified (mutator edits a copy). |
-| `[k3] _applyBinding(<name>) threw: …` | One binding's bind path threw; rest of the pass continued. |
-| `[k3] _syncFxLayout: fx-pattern patch … has no matching target` | An fx-family patch name is in `activePatches` but missing from `patches:`. |
+| Beat LED drifts across loop iterations, both decks at unity | `duration × fileBpm / 60` not an integer. Snap `duration` to a beat-multiple, or switch to `trackTempo: true`. |
+| Beatjump doesn't fire after touching a loop control | Gated by `_beatjumpAllowed` — less than `BEATJUMP_GAP_MS` since last loop-touching event. Set `_debugPrintsOn` for the gate line. |
+| `[k3] _batchPatches mutator threw: …` | Mutator hit an exception. `activePatches` not modified (copy). |
+| `[k3] _applyBinding(<name>) threw: …` | One binding's bind path threw; rest continued. |
+| `[k3] _syncFxLayout: fx-pattern patch … has no matching target` | An fx-family patch is in `activePatches` but missing from `patches:`. |
 | `[k3] colorScheme scheme function on X returns a fresh object each call` | Wrap with `composeScheme` or hoist the object. |
-| Play doesn't respond after a hotcue pad press; recovers after a mouse-seek | Held hotcue press survived a rebind. The release wrote 0 to the wrong CO, so `hotcue_N_activate` stays 1 and Mixxx stays in preview mode. Fixed by `_releaseHeldWrite` in `_applyBinding` (fires on both unbind and rebind paths). If still seen, check `Binding._held` is set for push-mode buttons in `input()`. |
+| Play doesn't respond after a hotcue pad press; recovers after mouse-seek | Held hotcue press survived a rebind. `_releaseHeldWrite` in `_applyBinding` writes 0 on both unbind and rebind. If still seen, check `Binding._held` is set for push-mode buttons. |
 
-Full behaviour-driven symptoms (config author's view): CUSTOMISE §3.
+Full behaviour-driven symptoms: CUSTOMISE §3.
 
 ---
 
@@ -1432,63 +880,49 @@ Full behaviour-driven symptoms (config author's view): CUSTOMISE §3.
 
 ## Adding a binding field
 
-1. Add a row to `XoneK3._BINDING_FIELDS` in `lib-core.js`. Set:
+1. Add a row to `_BINDING_FIELDS` in `lib-core.js`:
    - `hash: true` if it affects runtime behaviour or LED output
    - `token: '<label>'` if it can carry a `$TOKEN$`
    - `snapshot: { dest, transform? }` if `_unbind` /
-     `_rearmSoftTakeover` must read it after a rebind
-   - `ignored: true` if it's reset-able but neither snapshotted
-     nor hashed
+     `_rearmSoftTakeover` needs it after rebind
+   - `ignored: true` if reset-able but neither snapshotted nor hashed
 
    `_BINDING_CFG_FIELDS`, `_SNAPSHOT_FIELDS`, `_SNAPSHOT_IGNORED`,
-   `_tokenFields` and `_resolvedTargetHash` all derive from this
-   table — nothing else to edit for those five.
-2. If `_bindCore` should read it, add a branch there.
-3. If reset-able, add it to `XoneK3._bindingDefaults`.
-4. Turn on `XoneK3._debugPrintsOn` and reload. The boot-time
-   audits (`_auditBindingCfg`, `_auditSnapshotFields`) fire if a
-   reset-able field isn't classified.
+   `_tokenFields`, `_resolvedTargetHash` all derive from this table.
+2. If `_bindCore` should read it, add a branch.
+3. If reset-able, add to `_bindingDefaults`.
+4. Turn on `_debugPrintsOn` and reload. Boot-time audits fire if
+   a reset-able field isn't classified.
 
 ## Adding a func
 
 ```js
 XoneK3.FUNCS.myFunc = function(args, ch, c, v, s) {
-    // this    = Binding
-    // args    = cfg.args array
-    // v       = MIDI value, s = MIDI status
+    // this = Binding, args = cfg.args, v = MIDI value, s = status
 };
 ```
 
-LED state comes from `colorScheme` and its `on:` shape.
-
-**If your func touches a loop** (moves a boundary, engages a
-loop, changes loop size, or jumps the playhead), call
-`this._ctrl._touchLoop(this.group)` after the write. **If your
-func is a beatjump**, call `this._ctrl._beatjumpAllowed(this.group)`
-first and bail if it returns `false`.
+Loop-touching funcs: `this._ctrl._touchLoop(this.group)` after
+the write. Beatjump funcs: `this._ctrl._beatjumpAllowed(this.group)`
+first, bail if false.
 
 ## Adding a top-half mode
 
-1. Define the base patch and its `_shift` companion in
-   `xone-k3-cat-top.js`.
-2. Define layout patches that inherit from the base; emitters
-   live in `xone-k3-cat-fx.js`.
-3. Add all of them to `CAT_LAYERS` in `xone-k3-cat.js`.
-4. Add an entry to `XoneK3.TOP_MODES` in `lib-controller.js`
-   with `owns` and `activate(ctrl)`.
-5. Extend `_resolveFxPatchName`'s regex in `lib-controller.js`.
-6. Write a swap func (or extend `toggleTopMode` / `toggleMiniFx`)
-   that calls `ctrl.setTopMode(mode)`.
-7. Bind it on a chord cell.
-8. Add any new files to every `.midi.xml` and to
-   `test/harness.js`.
+1. Base patch + `_shift` in `cat-top.js`.
+2. Layout patches inheriting from the base, emitters in
+   `cat-fx.js`.
+3. Add all to `CAT_LAYERS` in `cat.js`.
+4. Entry in `XoneK3.TOP_MODES` in `lib-controller.js`.
+5. Extend `_resolveFxPatchName`'s regex.
+6. Swap func (or extend `toggleTopMode` / `toggleMiniFx`).
+7. Bind on a chord cell.
+8. Add any new files to every `.midi.xml` and to `test/harness.js`.
 
-CUSTOMISE §1.16 has the schema detail.
+CUSTOMISE §1.9 has the schema detail.
 
 ## Adding a controller concern
 
-If the new method group doesn't fit any of the five existing
-controller files, add a sixth. Pattern:
+Sixth controller file. Pattern:
 
 ```js
 'use strict';
@@ -1502,48 +936,32 @@ XoneK3._requireLoad('xone-k3-lib-controller-<name>.js',
 })();
 ```
 
-Then add the filename to every `.midi.xml` (5 files) and to
-`test/harness.js`.
+Add filename to every `.midi.xml` (5 files) and `test/harness.js`.
 
 ---
 
 # 20. Tests
 
-`node test/run.js` from the controllers directory.
+`node test/run.js`. Files share one vm sandbox. `run.js` resets
+mutable globals before every test — tunables, debug flags,
+`_warned`, `_modeSeen`, `_funcIdCounter`, `_funcIdMap`,
+`_schemeCache`, `_compiledCache`, `VIRTUAL_CLOCKS`, `TIME_SIG`,
+`BEATJUMP_GAP_MS`, mocks, controllers array, print log.
 
-```
-test/
-  run.js               runner + assertions + per-test reset
-  harness.js           loads lib + cat files into a vm sandbox
-  helpers.js           ctrl(), bootCat(), bootLab(), bind(), send()
-  mocks/engine.js      CO values, connections, timers
-  mocks/midi.js        sysex + short msg capture
-  ... test files
-```
-
-Test files share one vm sandbox. `run.js` resets mutable globals
-before every test: tunables, debug flags, `_warned`, `_modeSeen`,
-`_funcIdCounter`, `_funcIdMap`, `_schemeCache`, `_compiledCache`,
-`VIRTUAL_CLOCKS`, `TIME_SIG`, `BEATJUMP_GAP_MS`, mocks, controllers
-array, print log.
-
-`SCHEMES` is reset by `lib-schemes.js` on every reload — the
-config files re-register their own schemes. A scheme removed from
-a config is gone after reload.
+`SCHEMES` is reset by `lib-schemes.js` on every reload — config
+files re-register their own.
 
 Adding a new mutable global on `XoneK3` means adding a reset line
-to `resetGlobals()` in `run.js`. `_funcIdCounter` /
-`_funcIdMap` are in this list — a test booting two controllers
-in sequence expects the second's ids to start from `_0`.
+to `resetGlobals()` in `run.js`.
 
-Coverage: see the test file list. Not tested: real Mixxx, real
-LED bytes, config contents as data, lab round-trip state machine.
+Coverage: see test file list. Not tested: real Mixxx, real LED
+bytes, config contents as data, lab round-trip state machine.
 
 ## Lint
 
-`eslint.config.js` at the project root. Flat config, no plugins.
-`no-implicit-globals` on for runtime files; the single `var
-XoneK3` in `lib-core.js` carries an inline disable.
+`eslint.config.js`, flat config, no plugins. `no-implicit-globals`
+on for runtime files; the single `var XoneK3` in `lib-core.js`
+carries an inline disable.
 
 ---
 
@@ -1555,152 +973,96 @@ XoneK3` in `lib-core.js` carries an inline disable.
   returns a negative fractional beat. `_cascadeCount` floors it,
   `beatLevel` normalises via modulo. Pre-start scrub cycles
   backward through the phrase instead of freezing the LED.
-- **The loop clock accumulates, it doesn't read the playhead
-  directly.** Both accumulation modes rate-scale at the same
-  effective tempo.
+- **The loop clock accumulates, it doesn't read the playhead.**
+  Both modes rate-scale at the same effective tempo.
 - **Real-seconds mode needs no wrap detection.** Forward only.
 - **Wrap detection is direction-based, not boundary-based.**
 - **`_cascadeCount(ch, trackBeatF)` is the single count
   selector.**
-- **`beat_active` drives the pulse in both modes.** The cascade
-  reads `clock.pos` in loop mode; the pulse reads the track
-  fraction.
+- **`beat_active` drives the pulse in both modes.** Cascade reads
+  `clock.pos` in loop mode; pulse reads track fraction.
 - **`_syncVirtualClock(ch)` is the single start/stop decision.**
-  Starts when `loopActive && playing && !running`; stops when
-  `!(loopActive && playing) && running`; returns `true` if the
-  state changed. Four call sites — `_onLoopEnabled`,
-  `_onPlayIndicator`, `_catchUpChannel`, `_onTrackLoaded` — all
-  route through it.
+  Returns `true` if state changed. Four call sites route through it.
 - **`_refreshDisplayFlags` is the only writer of the three
   derived flags.**
-- **All three focus setters refresh exactly once on every path**
-  — via `_afterFocusChanged`.
-- **`_advanceVirtualClock` clamps `dt` to zero.** Date.now() is
+- **All three focus setters refresh exactly once on every path.**
+- **`_advanceVirtualClock` clamps `dt` to zero.** `Date.now()` is
   not monotonic; a backward NTP step would shift the loop-mode
   count backward.
 - **`_advanceVirtualClock` reads zero COs.** Real-seconds mode
-  uses `st.playing` (kept current by `_onPlayIndicator`),
-  `_channelRate` (reads `_rateCache`), and `_reverseCache` for
-  wrap direction. Track-tempo mode uses `_reverseCache` and
-  the `playposition` delta the caller passes in. Accumulation
-  is identical between modes — `dt` grows from ~7 ms to ~30 ms
-  per step in real-seconds.
+  uses `st.playing`, `_channelRate`, `_reverseCache`. Track-tempo
+  mode uses `_reverseCache` and the `playposition` delta the
+  caller passes in.
 - **`_onPlayposition` reads one CO per fire — `playposition`**,
-  above the throttle gate so the pre-gate direction check has
-  a fresh value. Once past the throttle the body does zero
-  additional CO reads: `st.playing` and `_reverseCache[ch]` are
-  cached, `_syncBeatCount` and `_repaintFromPosition` accept
-  `pos` from the caller.
-- **`_beatF` reads zero COs.** It uses cached track metadata
-  only. `_getContentBounds` is called from `countdownScheme`
-  (which needs `bounds.end`) but not from `_beatF` — the
-  function's only use of the bounds was `bounds.start`, which is
-  always `0`.
-- **`_repaintFromPosition(ch, pos)` accepts `pos`.** When called
-  from `_onPlayposition`, the caller just read `playposition`
-  for `_advanceVirtualClock` — passing it in saves one redundant
-  CO read per throttled tick. Called with `pos === undefined`
-  (default), it falls back to `_trackBeatF(ch)`.
-- **`_syncBeatCount(ch, pos)` accepts `pos`.** Same convention
-  as `_repaintFromPosition`. The guard branch in
-  `_onPlayposition` passes `newPos`, avoiding a redundant
-  `playposition` re-read. Every other caller omits `pos` and
-  gets the live-read fallback.
+  above the throttle gate so the direction check has a fresh
+  value. Once past the throttle the body is CO-free.
+- **`_beatF` reads zero COs.** Uses cached track metadata only.
+- **`_repaintFromPosition(ch, pos)` accepts `pos`.** Saves one
+  CO read per throttled tick. Falls back to live read when
+  `undefined`.
+- **`_syncBeatCount(ch, pos)` accepts `pos`.** Same convention.
 - **The loop clock scales by `_channelRate(ch)`, not
-  `[ChannelN],rate`.** Mixxx's `rate` CO is the slider position
-  (~−0.08..+0.08). A `<= 0` guard on it silently turns the
-  multiplier into unity and disables scaling on every pitch-down.
-  `_channelRate` reads `rate_ratio` and falls back to `1 + rate`
-  for older builds.
+  `[ChannelN],rate`.** Mixxx's `rate` is the slider position. A
+  `<= 0` guard silently returns unity.
 - **`_closeBeatClocks` preserves `_phraseOrigin`.** Playhead
-  hasn't moved; the derivation would produce the same value on
-  the next tick anyway.
+  hasn't moved.
 - **`hasBeat` means "position is meaningful", not "deck is
-  playing".** `st.playing` mirrors `play_indicator` and selects
-  which of `BEAT_PLAYING_MODE` / `BEAT_PAUSED_MODE` applies in
-  `_isBeatOffPhase`.
+  playing".** `st.playing` mirrors `play_indicator` and picks
+  `BEAT_PLAYING_MODE` / `BEAT_PAUSED_MODE`.
 - **The loop clock is the only virtual timeline.**
 - **Boot-time beat-clock reopen.** See §3.
 - **`_openBeatClocks` catches up state on open.** See §10.
-- **`st.lastPlayPos` gates the beat-edge guard.** `_onPlayposition`
-  bypasses the 1.5 s guard when the playhead moved backward since
-  the last tick. Jog-scrub-backward while playing keeps
-  `reverse = 0`, so `reversing` alone isn't enough — the frozen
-  `st.active` symptom is specific to that path. `_repaintFromPosition`
-  runs on the bypass so count *and* pulse both update.
+- **`st.lastPlayPos` gates the beat-edge guard.** Backward motion
+  bypasses the 1.5 s guard so `_repaintFromPosition` runs.
 
 ## Beatjump gate
 
-- **One gate, one value.** `BEATJUMP_GAP_MS = 130` in
-  `lib-core.js`. Gated: `beatjumpButton`, `encBeatjump`.
+- **One gate, one value.** `BEATJUMP_GAP_MS` in `lib-core.js`.
 - **Stamped by:** beatjump (on pass, in loop), `encLoopMove`,
   `encLoopMoveAccel`, `pressSetValue` on `beatloop_size`,
   `beatloopActivateResetAnchor`, `reloopToggleResetAnchor`.
-  NOT stamped by `beatjump_size`, hotcues, play, EQ, faders.
+  NOT by `beatjump_size`, hotcues, play, EQ, faders.
 - **Outside a loop every beatjump fires and nothing is stamped.**
-- **Gate lives in `lib-controller-render.js`**
-  (`_beatjumpAllowed`, `_touchLoop`).
+- **Gate lives in `lib-controller-render.js`.**
 - **No per-binding override.**
 
 ## Caches
 
-- **`_decks[ch].hotcueState`** — per-channel `{n: {color, pos}}`
-  snapshot of all hotcues 1..HOTCUE_MAX. Seeded by
-  `_seedHotcueCache(ch)` at clock-open, `track_loaded`, and any
-  `track_samples` change. Maintained by the hotcue observers, one
-  field per fire. Observers read `_decks[ch]` fresh on every
-  fire — `_resetBeat` replaces the deck-state object, so a
-  captured reference would write into the pre-reset cache while
-  `_deriveOriginFromPosition` reads the current one.
-  `_deriveOriginFromPosition` reads only this — zero CO reads
-  per throttled playposition tick.
-- **`_trackMetaCache`** — per-channel, reset on `track_loaded`
-  and on `track_samples` change. Incomplete reads (duration 0)
-  not cached. The `track_samples` listener is the reliable
-  invalidation point — `track_loaded` doesn't re-fire on
-  load-over-current and can arrive before Mixxx settles
-  `duration` / `file_bpm`, which caches the previous track's
-  metadata. Symptom of an un-invalidated cache: beats advance at
-  the wrong rate for every track loaded after the first, persists
-  across track reloads, clears on Mixxx restart. See §6.
-- **`_rateCache[1..4]`** — per-channel `rate_ratio` snapshot.
-  Populated by `_catchUpChannel` and `_onTrackLoaded`, kept
-  current by the `rate_ratio` CO listener wired at
-  clock-open. `_channelRate` reads this first; falls back to a
-  live CO read on a cold cache. Removes one CO read per
-  throttled playposition tick from `_advanceVirtualClock`.
-- **`_reverseCache[1..4]`** — per-channel reverse flag (1/0).
-  Populated by `_catchUpChannel` and `_onTrackLoaded`, kept
-  current by the `reverse` CO listener wired at clock-open.
-  Read by `_advanceVirtualClock` (trackTempo mode) and by the
-  beat-edge guard in `_onPlayposition`. Removes two CO reads
-  per throttled playposition tick from the guard path
-  (`play_indicator` via `st.playing`, `reverse` via the cache).
-- **`_flatCache`** — keyed by `segs._cacheId` then
-  `_calibFingerprint()`. Two controllers with different
-  fingerprints don't share entries. See §12 for why the
-  fingerprint is computed at call time.
+- **`_decks[ch].hotcueState`** — per-channel hotcue snapshot.
+  Seeded at clock-open, `track_loaded`, `track_samples`.
+  Observers read `_decks[ch]` fresh on every fire (`_resetBeat`
+  replaces the object). `_deriveOriginFromPosition` reads only
+  this — zero COs per tick.
+- **`_trackMetaCache`** — reset on `track_loaded` and
+  `track_samples`. Incomplete reads (duration 0) not cached. The
+  `track_samples` listener is the reliable invalidation point;
+  `track_loaded` doesn't re-fire on load-over-current and can
+  arrive pre-settle. Un-invalidated cache symptom: beats advance
+  at wrong rate for every track after the first, clears on restart.
+- **`_rateCache[1..4]`** — `rate_ratio` snapshot. Listener-fed,
+  seeded by `_catchUpChannel`. Removes a CO read from
+  `_advanceVirtualClock`.
+- **`_reverseCache[1..4]`** — reverse flag. Listener-fed.
+  Removes two CO reads from the guard path.
+- **`_flatCache`** — keyed on `segs._cacheId` then
+  `_calibFingerprint()`. See §12.
 - **`_hwCache`** — bounded at 1024.
 - **`_ledCache`, `_sysexQueue`** — per-controller.
-- **`_blankLeds`** — stops the sysex drain timer, clears the
-  queue, sends black. Note-off sweep runs unconditionally — a
-  previous session may have left K2 notes lit, and sysex blanks
-  can't reach them.
-- **`_resolvedPatchCache`** — set once at construction, no
-  invalidation needed.
+- **`_blankLeds`** — stops drain, clears queue, sends black.
+  Note-off sweep runs unconditionally (previous session may have
+  left K2 notes lit).
+- **`_resolvedPatchCache`** — set once at construction.
 - **`_resolvedTargetHashCache`** — WeakMap keyed on cfg,
-  invalidated by token fingerprint. See §8.
-- **`_funcIdCounter` / `_funcIdMap`** — reset every boot. See §3.
+  invalidated by token fingerprint.
+- **`_funcIdCounter` / `_funcIdMap`** — reset every boot.
 - **`SCHEMES` / `COLORS`** — cleared by `lib-schemes.js` on every
-  evaluation, re-registered by the config files that follow.
-  Compiled-scheme references on live bindings are object
-  references, not names — they survive the clear.
+  evaluation. Compiled-scheme references on live bindings are
+  object references, not names — they survive the clear.
 
 ## Beat math
 
-- **`sampleT` order is position → curve.** Preserves the curve's
-  shape at every position and holds the boundary segment colour
-  out of range.
+- **`sampleT` order is position → curve.** Preserves curve shape
+  at every position; holds boundary segment out of range.
 - **The beat gate sits above ramp selection.**
 - **Marker bypasses the flat solve but DOES beat-apply.**
   Co-match does not — cascade flashes defeat its purpose.
@@ -1713,80 +1075,45 @@ XoneK3` in `lib-core.js` carries an inline disable.
 - **Sibling layers do not inherit.**
 - **`_recompute` always calls `_refreshAllLeds` internally.**
 - **`_reapplyByTokens` short-circuits on resolved target.** See §8.
-- **`_refreshAllLeds` is re-entrancy-guarded.**
-  `_refreshAllLedsDepth > 0` short-circuits the nested call. The
-  only legitimate nested path is `_refreshAllLeds →
-  _syncBeatClocks → _openBeatClocks → _startVirtualClock →
-  _resolveDisplaySource → _refreshAllLeds('display-source')`.
-  Skipping the inner call is safe: the outer call iterates every
-  binding *after* `_syncBeatClocks` returns.
-- **`_safeBinding(fn, thisArg, args, warnKey, warnPrefix)`** is
-  the shared per-binding try/catch. The method reference and its
-  argument array are passed separately — no closure over
-  `var`-scoped names, safe under re-entrancy.
+- **`_refreshAllLeds` is re-entrancy-guarded.** Only legitimate
+  nested path is `_refreshAllLeds → _syncBeatClocks →
+  _openBeatClocks → _startVirtualClock → _resolveDisplaySource →
+  _refreshAllLeds('display-source')`.
+- **`_safeBinding`** — shared per-binding try/catch. Method
+  reference and args passed separately, safe under re-entrancy.
 - **`_batchPatches` gives the mutator a copy and enforces the
-  contract in code.** See §4.
+  contract in code.**
 - **`setTopMode` preserves position.** Non-owned patches keep
-  their relative order across the top-half block.
+  relative order.
 - **Numeric `on.state` without `equals` warns once per binding,
-  from `_isOn` only.** A binding whose LED never renders never
-  fires the warning.
+  from `_isOn` only.**
 - **`_applyBinding` refreshes only when the caller asks.** Batch
-  callers (`_applyResolved`, `_unbindRemoved`, `_reapplyByTokens`)
-  pass `skipRefresh: true` and rely on the trailing
-  `_refreshAllLeds`. `_applyResolved` gates the flag on
-  `_recomputeDepth > 0` so direct callers (tests, external
-  scripts) still get a per-binding refresh without an explicit
-  `_refreshBinding(name)` call. One wire send per binding per
-  recompute, not two.
+  callers pass `skipRefresh: true`. `_applyResolved` gates on
+  `_recomputeDepth > 0` so direct callers still get a per-binding
+  refresh.
 - **Hash cache relies on cfg object identity being stable.**
-- **`_hashBinding` uses `\u0001` as the separator and
-  JSON-quotes strings.** A `|` inside a `group` can't shift the
-  boundary.
-- **`_onInput(b)` runs before the binding's func, on every
-  physical event.**
+- **`_hashBinding` uses `\u0001` as separator and JSON-quotes
+  strings.**
+- **`_onInput(b)` runs before the binding's func.**
 - **`accel` does nothing on the default input path.**
 - **Mod state survives rebind.**
-- **Soft-takeover bridge.** `_rearmSoftTakeover` runs on rebind;
-  Mixxx is uninitialised and drops the next write unless it lands
-  within its own tolerance (~1/128) of the current CO. A physical
-  already near CO at rebind — switching back to a deck whose
-  fader hasn't moved — would otherwise get stuck at the endpoint.
-  The bridge writes CO's own value back to itself: diff is zero,
-  Mixxx's check passes, `initialized` flips, subsequent writes
-  are accepted regardless of step size. `TAKEOVER_EPSILON = 2/127`
-  is deliberately larger than `CO_MATCH_EPSILON = 1/127` — LED
-  "matched" implies control is live.
-- **First bind also rearms soft takeover.** `type` is fixed at
-  construction, so `_snapshotBinding` sets `wasPot = true`; on
-  first bind `prev.group` is `undefined` while `b.group` is set,
-  so the `b.group === prev.group && b.inKey === prev.inKey`
-  short-circuit fails and `engine.softTakeover(g, k, false)` +
-  `true` runs. Soft takeover is enabled from the first bind. The
-  bridge is skipped because `_normalized` is `undefined` at that
-  moment.
-- **Held push buttons are released on rebind.** `Binding._held`
-  is set in `input` for push-mode buttons (session-scoped — not
-  in `_bindingDefaults`). `_applyBinding` calls
-  `_releaseHeldWrite` on both the unbind and rebind paths: if
-  the binding is still held but the target changed (different
-  `group`/`inKey`, or different `buttonMode`), the old CO is
-  written to 0. Without this, a held hotcue pad whose binding
-  is swapped by a patch change, chord, or focus move would
-  leave `hotcue_N_activate` at 1 and Mixxx stays in preview
-  mode — the next play press does nothing until a mouse-seek
-  resets preview state.
+- **Soft-takeover bridge.** `_rearmSoftTakeover` writes CO's own
+  value back to itself: diff zero, Mixxx's check passes,
+  `initialized` flips. `TAKEOVER_EPSILON = 2/127` >
+  `CO_MATCH_EPSILON = 1/127` — LED "matched" implies control
+  live.
+- **First bind also rearms soft takeover.**
+- **Held push buttons are released on rebind.** Without it, a
+  held hotcue pad swapped by patch change stays at 1, Mixxx stays
+  in preview mode.
 - **`valueCurve` doesn't touch `_normalized`.**
 - **LED on/off state comes from `colorScheme.on`, `outKey`, or
   nothing.**
-- **`_isOn` returns `v ? 1 : 0`** for state without `equals` or
-  `contains`.
+- **`_isOn` returns `v ? 1 : 0`** for state without comparators.
 - **`_patchActive` is the source of truth.**
 - **`_buildStack` puts chord last.**
 - **Beat clocks are lazy but effectively always open in shipped
-  presets.** `_needsBeatClocks` returns `_beatLeds.length > 0`,
-  with a fallback scan of `_applied` when the array is empty —
-  dead code in the shipped path.
+  presets.**
 - **`on.co` gets its own connection.**
 - **Lab renderers discover cells by func reference.**
 - **`track_loaded` also resets a channel's beat counter and
@@ -1800,65 +1127,45 @@ XoneK3` in `lib-core.js` carries an inline disable.
 - **`_sendColor` short-circuits `mixxx`-typed LEDs when
   `isOn === 0`.**
 - **THEME is read live by every shipped emitter.**
-- **`_bootWith(devices, Ctor, label)` spawns one controller per
-  entry.**
+- **`_bootWith` spawns one controller per entry.**
 - **`_tokenFields(cfg)` is the single field enumerator.**
 - **Every file after `lib-core.js` throws on missing prereqs.**
 - **`this.bindings` is the only name for the binding map.**
 - **`_bindConns` skips the `outKey` connection when `_csOn` is
-  set** — including `on: false`. The gate checks
-  `_csOn === null || _csOn === undefined` explicitly, not
-  truthiness, so `on: false` correctly suppresses the `outKey`
-  listener.
+  set** — including `on: false`.
 - **`countdownScheme` derives its A / B family from the raw
   group token,** not the resolved group.
 - **`_sendSysExLED`'s drain timer bails on empty queue only.**
-  Shutdown relies on this — it polls `_sysexQueue.length === 0`
-  before tearing down beat clocks.
+  Shutdown polls `_sysexQueue.length === 0`.
 - **`_validateBindings` token warnings go through `_warnOnce`.**
-  Fire once per boot regardless of `_debugPrintsOn`.
 - **`LabController.shutdown` runs the slot dump synchronously**
-  before the parent's async sysex drain. See §17.
+  before the parent's async sysex drain.
 - **`_evaluateScheme` warns on fresh-object identity.**
 
 ---
 
 # 22. Limits
 
+Only the entries below are unique to this section. Everything
+else you might expect here lives in §21 under Caches, Beat math,
+or Patches and bindings.
+
 - `chain_selector` only steps ±1. Not a readable index.
-- Markers bypass the flat solve but DO get beat cascades.
-- Co-match does not get beat cascades.
 - Boot-white is session-scoped.
 - Beat displays on paused decks too; `BEAT_PLAYING_MODE` /
   `BEAT_PAUSED_MODE` pick the behaviour. A beat LED whose
-  `logicalOn` reads 0 while paused (`play_indicator`, a
-  mismatched `on:`) blacks out regardless of mode.
+  `logicalOn` reads 0 while paused blacks out regardless of mode.
 - `barBeats` / `phraseBars` clamped 1..32 in the lab.
 - `prePhraseBeats` clamped 0..`phraseLen - 1`.
 - Bake: structural samples at segment count; sampled / wire at
-- 23 points.
+  23 points.
 - No BPM read for the pulse.
-- THEME changes propagate live for every shipped emitter.
 - The four `fxLayout*` / `fxMini*` patterns are the only top-half
   layout families the runtime knows about. Adding a fifth means
   extending `_resolveFxPatchName` and the mode table.
-- **One virtual clock per channel.** Adding a second means
-  re-adding a priority model.
-- **The loop clock accumulates, it doesn't read the playhead.**
-  See §6.
-- **Wrap detection only exists in tempo-tracking mode.**
-  `applyLoopWrapAdjust` corrects at most one wrap per tick.
-- **`beat_active` drives the pulse in both modes.**
 - **Sub-beat loops work for the count.** Pulse may look erratic.
-- **`_hwCache` bounded at 1024.**
-- **`_flatTarget` is per-controller.**
-- **`_reapplyByTokens` short-circuits on resolved target.**
-- **Sibling layers don't inherit.**
 - **Two layer trees.** Playback presets share `CAT_LAYERS`;
   colorLab has its own.
 - **Controller split is load-order sensitive.**
-- **Beatjump gate is a global rule.** No per-binding override.
 - **Loop-boundary encoders are ungated.** They stamp
   `_lastLoopTouchMs[ch]` but the gate only restricts beatjumps.
-- **`pressSetValue` on `beatjump_size` does not stamp
-  `_lastLoopTouchMs`.** Only `beatloop_size` writes stamp.

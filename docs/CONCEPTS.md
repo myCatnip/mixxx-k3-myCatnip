@@ -179,8 +179,7 @@ Two render paths:
 - **Deviation** — has `knob: '<name>'`. Samples the ramp at that
   knob's position.
 
-A ramp fed to a static LED shows `ramp[0]`. If a group-enable
-button renders blue, that's why.
+A ramp fed to a static LED shows `ramp[0]`.
 
 A ramp can carry a marker band (colour shown when the knob is
 within a range) or a beat cascade (per-beat colour overrides —
@@ -190,7 +189,7 @@ gradient when the physical knob disagrees with its bound CO.
 The `on:` block decides when the LED is logically on, independent
 of the scheme itself.
 
-Details: CUSTOMISE §1.1–1.6, §2.2, §2.5.
+Details: CUSTOMISE §1.1–1.6, §2.2–2.3, §2.5.
 
 ---
 
@@ -230,7 +229,7 @@ has an active loop and less than `BEATJUMP_GAP_MS` (130 ms) has
 elapsed since the last loop-touching event on that channel.
 Outside a loop every beatjump fires.
 
-Details: INTERNALS §6 (mechanics), §25 (beatjump gate).
+Details: INTERNALS §6 (mechanics), §21 (beatjump gate).
 
 ---
 
@@ -244,9 +243,32 @@ Full guide: `LAB.md`.
 
 ---
 
+## 10. What the model can't do
+
+Design boundaries. Each was a "can I..." that couldn't be served
+within the framework.
+
+- **Timed sequences / animation along the strip.** Bindings render
+  from current state only.
+- **LEDs that read other LEDs.** Each binding renders in isolation.
+- **Fades.** Beat pulses are on/off; nothing interpolates over time.
+- **Fixed-rate blinks.** Only beat-synced pulses.
+- **Per-binding beat timing.** Beat timing is per-scheme.
+- **Custom off-ramp for the beat pulse.** Off phase uses the
+  scheme's off-ramp.
+- **Beat accents on co-match.** Marker bands cascade; co-match
+  doesn't.
+- **A func driving its own LED on/off.** Store the state on the
+  controller and read it via `on:`.
+- **Debounce.** Wrap the func with your own state.
+- **`accel:` on a self-guarding func.** Double-counts.
+
+---
+
 ## Where to go next
 
 - **README.md** — physical layout, per-mode behaviour, FX cell tables
 - **CUSTOMISE.md** — how to change anything (recipes + reference)
 - **INTERNALS.md** — engine internals and debugging
+- **PERFORMANCE.md** — what's cheap/expensive, what to tune
 - **GLOSSARY.md** — one-line definitions
