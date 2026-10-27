@@ -103,6 +103,13 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     };
 
     XoneK3.Binding.prototype.input = function(ch, cc, v, s) {
+        // Preset reload: Mixxx calls old shutdown (sets _shuttingDown)
+        // then immediately wires new handlers. Physical input in that
+        // window reaches the outgoing binding, which would write
+        // stale COs (_defaultInput has no gate). Momentary presses
+        // self-cancel via the matching release; toggles don't and
+        // leave the old CO stuck at 1.
+        if (this._ctrl._shuttingDown) return;
         if (this._ctrl._onInput) this._ctrl._onInput(this);
 
         if (this.type === 'knob' || this.type === 'fader') {
