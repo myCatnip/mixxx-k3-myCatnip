@@ -55,6 +55,15 @@ function bindTargets(c, cells) {
     }
 }
 
+// _renderSegmentGrid takes (compiled, onColorLab). Tests target
+// that method directly, so supply the same two values _labRenderGrid
+// would compute for them. Keeps the unit seam without going
+// through marker paint side effects.
+function renderSegments(c) {
+    c._renderSegmentGrid(c._compiledPreview().compiled,
+                         c._patchActive('colorLab'));
+}
+
 // ── _buildCellIndex / _findCellsByFunc ─────────────────────
 
 test('_findCellsByFunc: finds cells by func id', function(t) {
@@ -93,7 +102,7 @@ test('_renderSegmentGrid: paints each stop', function(t) {
     bindTargets(c, ['grid0_0', 'grid1_0', 'grid2_0']);
     setEdit(c, {colors: [[127,0,0], [0,127,0], [0,0,127]]});
     H.clearLeds(c);
-    c._renderSegmentGrid();
+    renderSegments(c);
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
 });
 
@@ -102,7 +111,7 @@ test('_renderSegmentGrid: in-range cell beyond stop count paints black', functio
     bindTargets(c, ['grid0_0', 'grid1_0']);
     setEdit(c, {colors: [[127,0,0]]});   // 1 stop
     H.clearLeds(c);
-    c._renderSegmentGrid();
+    renderSegments(c);
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
     t.rgb(H.led(c, 'grid1_0'), 0, 0, 0);   // i=1 >= compiled.on.length=1
 });
@@ -112,14 +121,14 @@ test('_renderSegmentGrid: honours {} null from overlay', function(t) {
     bindTargets(c, ['grid0_0']);
     setEdit(c, {colors: [[127,0,0]]});
     H.clearLeds(c);
-    c._renderSegmentGrid();
+    renderSegments(c);
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
 
     // An overlay nulls the cell. The segment colour from the layer
     // below must not bleed through.
     H.bind(c, 'grid0_0', {});
     H.clearLeds(c);
-    c._renderSegmentGrid();
+    renderSegments(c);
     t.rgb(H.led(c, 'grid0_0'), 0, 0, 0);
 });
 
@@ -129,7 +138,7 @@ test('_renderSegmentGrid: unbound cell paints black', function(t) {
     bindTargets(c, ['grid0_0']);
     setEdit(c, {colors: [[127,0,0], [0,127,0]]});
     H.clearLeds(c);
-    c._renderSegmentGrid();
+    renderSegments(c);
     t.rgb(H.led(c, 'grid1_0'), 0, 0, 0);
 });
 
@@ -145,7 +154,7 @@ test('_renderSegmentGrid: shift highlights black cells white @ 50', function(t) 
     setEdit(c, {colors: [[127,0,0], [0,0,0]]});
     c.isShifted = true;
     H.clearLeds(c);
-    c._renderSegmentGrid();
+    renderSegments(c);
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
     var led = H.led(c, 'grid1_0');
     t.rgb(led, 127, 127, 127);
@@ -158,7 +167,7 @@ test('_renderSegmentGrid: black cells hide when not shifted', function(t) {
     setEdit(c, {colors: [[127,0,0], [0,0,0]]});
     c.isShifted = false;
     H.clearLeds(c);
-    c._renderSegmentGrid();
+    renderSegments(c);
     t.rgb(H.led(c, 'grid1_0'), 0, 0, 0);
 });
 
@@ -168,7 +177,7 @@ test('_renderSegmentGrid: shift does not touch non-black cells', function(t) {
     setEdit(c, {colors: [[127,0,0], [0,127,0], [0,0,127]]});
     c.isShifted = true;
     H.clearLeds(c);
-    c._renderSegmentGrid();
+    renderSegments(c);
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
     t.rgb(H.led(c, 'grid1_0'), 0, 127, 0);
     t.rgb(H.led(c, 'grid2_0'), 0, 0, 127);
@@ -183,7 +192,7 @@ test('_renderSegmentGrid: shift does not highlight gap blacks', function(t) {
     });
     c.isShifted = true;
     H.clearLeds(c);
-    c._renderSegmentGrid();
+    renderSegments(c);
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
     t.rgb(H.led(c, 'grid1_0'), 0, 0, 0, 'gap stays black under shift');
 });
@@ -197,7 +206,7 @@ test('_renderSegmentGrid: shift does not highlight during preview', function(t) 
     c._lab.previewing = true;
     c.isShifted = true;
     H.clearLeds(c);
-    c._renderSegmentGrid();
+    renderSegments(c);
     // Previewing black stays black under shift — highlight is
     // edit-mode only.
     t.rgb(H.led(c, 'grid0_0'), 0, 0, 0);

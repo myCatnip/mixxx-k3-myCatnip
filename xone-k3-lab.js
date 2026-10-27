@@ -74,12 +74,12 @@
     XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.SAMPLED]    = [0, 127, 127];
     XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.WIRE]       = [127, 0, 127];
 
-    // Segment-grid cell names, in segment-index order. Every cell
-    // that displays a scheme segment comes from this list. The
-    // renderer discovers which of these a given config actually
-    // binds via `_findCellsByFunc`; entries not bound are simply
-    // never painted by the lab painter. A preset that rebinds
-    // segment cells moves the LEDs with them automatically.
+    // Segment-grid cell names, in segment-index order. The
+    // renderer paints CALIB_TARGETS[i] with compiled segment i —
+    // positional, not by discovery. _findCellsByFunc is used by
+    // _claimedCells only, to skip cells another painter (slot
+    // grid, beat-edit targets) owns. Rebinding a cell moves the
+    // LED but breaks the segment mapping — do not rebind these.
     XoneK3.CALIB_TARGETS = [
         'button3_0',
         'button0_1','button1_1','button2_1','button3_1',
@@ -844,7 +844,9 @@
         var onColorLab = this._patchActive('colorLab');
         var onSlots    = this._patchActive('slots');
         if (!onColorLab && !onSlots) return;
-        this._renderSegmentGrid();
+        var compiled = this._compiledPreview().compiled;
+        this._renderSegmentGrid(compiled, onColorLab);
+        if (onColorLab) this._renderMarkerLED(compiled);
         if (onSlots) {
             this._renderSlotLEDs();
         } else if (this._isBeatEdit()) {
@@ -852,43 +854,46 @@
         }
     };
 
-    XoneK3.LabController.prototype._renderSegmentGrid = function() {
+    XoneK3.LabController.prototype._renderSegmentGrid = function(compiled, onColorLab) {
         var targets = (this.ledTargetGroups && this.ledTargetGroups.calib) || [];
-        var compiled = this._compiledPreview().compiled;
-        var onColorLab = this._patchActive('colorLab');
         var claimed = this._claimedCells();
-
         for (var i = 0; i < targets.length; i++) {
             var name = targets[i];
             if (claimed.has(name)) continue;
-
-            var applied = this._applied[name];
-            if (applied == null || Object.keys(applied).length === 0) {
+            var paint = this._segmentCellPaint(name, i, compiled, onColorLab);
+            if (paint) {
+                this._paintRGB(name, paint.rgb[0], paint.rgb[1], paint.rgb[2], paint.br);
+            } else {
                 this._paintRGB(name, 0, 0, 0, 0);
-                continue;
             }
-
-            if (!compiled || i >= compiled.on.length) {
-                this._paintRGB(name, 0, 0, 0, 0);
-                continue;
-            }
-            var c = compiled.on[i].color;
-            // Shift held in edit mode: highlight real black stops so
-            // they're findable for shift+press deletion. Gaps stay
-            // black — they don't need finding. Only when the strip
-            // is showing the edit buffer, never on a preview.
-            var isBlack = (c.rgb[0] === 0 && c.rgb[1] === 0 && c.rgb[2] === 0);
-            if (onColorLab && !this._lab.previewing && this.isShifted && isBlack) {
-                var rawScheme = this._editableScheme();
-                if (rawScheme && _isColorSet(rawScheme, i)) {
-                    this._paintRGB(name, 127, 127, 127, 50);
-                    continue;
-                }
-            }
-            var br = this._solveHw(c.rgb, c.brightness, compiled.on, compiled);
-            this._paintRGB(name, c.rgb[0], c.rgb[1], c.rgb[2], br);
         }
-        if (onColorLab) this._renderMarkerLED(compiled);
+    };
+
+    // Resolve one segment cell's paint decision. Returns
+    // { rgb, br } to paint, or null for black. Pulled out of
+    // _renderSegmentGrid so the two "paint black" guards collapse
+    // into one return, and the shift-highlight sits in a pure
+    // resolver rather than inside the iteration loop.
+    XoneK3.LabController.prototype._segmentCellPaint = function(name, i, compiled, onColorLab) {
+        var applied = this._applied[name];
+        if (applied == null || Object.keys(applied).length === 0) return null;
+        if (!compiled || i >= compiled.on.length) return null;
+        var c = compiled.on[i].color;
+        // Shift held in edit mode: highlight real black stops so
+        // they're findable for shift+press deletion. Gaps stay
+        // black — they don't need finding. Only when the strip
+        // is showing the edit buffer, never on a preview.
+        var isBlack = (c.rgb[0] === 0 && c.rgb[1] === 0 && c.rgb[2] === 0);
+        if (onColorLab && !this._lab.previewing && this.isShifted && isBlack) {
+            var rawScheme = this._editableScheme();
+            if (rawScheme && _isColorSet(rawScheme, i)) {
+                return { rgb: [127, 127, 127], br: 50 };
+            }
+        }
+        return {
+            rgb: c.rgb,
+            br: this._solveHw(c.rgb, c.brightness, compiled.on, compiled)
+        };
     };
 
     XoneK3.LabController.prototype._renderMarkerLED = function(compiled) {

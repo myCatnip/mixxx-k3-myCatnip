@@ -128,12 +128,11 @@
         paintStatus(ctrl);
     }
 
-    // Only repaints cells that actually changed since the last
-    // call — prevCells is the set of occupied (x,y) from the last
-    // paint. Blank those, then paint the current set. Cells that
-    // remain in both sets get repainted with the same colour, and
-    // _ledCache dedupes the wire write.
-function paintGame(ctrl) {
+    // Only repaints cells whose kind changed since the last call.
+    // prevCells maps "y,x" → kind (head|body|tail|food) from the
+    // last paint; unchanged cells skip sendLED entirely, changed
+    // cells hit _ledCache for the wire dedupe.
+    function paintGame(ctrl) {
         var s = ctrl._snake;
         if (!s) return;
         var field = XoneK3.SNAKE_PLAYFIELD;
