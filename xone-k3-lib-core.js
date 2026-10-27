@@ -70,11 +70,6 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
 
     XoneK3.BEAT_REPAINT_THROTTLE_MS = 30;
 
-    // Self-accel rate window for encLoopMoveAccel. That func reads
-    // the binding's own _loopAccelEvents list, bounded to this
-    // window.
-    XoneK3.ENC_LOOP_ACCEL_WINDOW_MS = 150;
-
     XoneK3.LAYER_BUTTON_NOTE = 0x0C;
     XoneK3.SHIFT_BUTTON_NOTE = 0x0F;
 
@@ -252,7 +247,6 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         { name: 'softTakeover', hash: true, ignored: true },
         { name: 'noLED',        hash: true, snapshot: { dest: 'wasNoLED', source: '_noLED' } },
         { name: 'k2',           hash: true, snapshot: { dest: 'wasK2',    source: '_k2'    } },
-        { name: 'accel',        hash: true },
         { name: 'colorScheme',  hash: true },
 
         // ---- tokenable cfg sub-fields (hashed as part of colorScheme) ----
@@ -397,30 +391,14 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
             if (!cfg.hasOwnProperty(k) || k.charAt(0) === '_') continue;
             if (XoneK3._BINDING_CFG_FIELDS.indexOf(k) === -1) {
                 print('[k3] binding ' + name + ' has cfg key "' + k +
-                      '" not in _BINDING_CFG_FIELDS — hash will miss it');
+                    '" not in _BINDING_CFG_FIELDS — hash will miss it');
             }
         }
-        if (cfg.accel && !cfg.func) {
+        if (cfg.accel !== undefined) {
             print('[k3] binding ' + name +
-                  ' declares accel but has no func — accel is inert on the default input path');
+                ' declares accel: — removed from the runtime. ' +
+                'Use a self-accelerating func.');
         }
-    };
-
-    XoneK3._parseAccel = function(a) {
-        if (!a) return null;
-        var cfg = (typeof a === 'number') ? { amount: a } : a;
-        if (typeof cfg !== 'object' || cfg === null) return null;
-        var amount = cfg.amount;
-        if (typeof amount !== 'number' || amount <= 1) return null;
-        function pos(v, def) {
-            return (typeof v === 'number' && v > 0) ? v : def;
-        }
-        return {
-            amount: amount,
-            curve:  pos(cfg.curve,  1),
-            window: pos(cfg.window, 200),
-            fullAt: pos(cfg.fullAt, 60)
-        };
     };
 
     // ============================================================

@@ -28,7 +28,7 @@ if (typeof XoneK3._requireLoad !== 'function') {
 }
 XoneK3._requireLoad('xone-k3-lib-controller.js',
     ['Binding', '_bindingDefaults', '_SNAPSHOT_FIELDS',
-     '_snapshotTransform', '_parseAccel', '_buildTransferRGB',
+     '_snapshotTransform', '_buildTransferRGB',
      '_tokenFields', '_BINDING_FIELDS', 'PATCH_NAMES']);
 
 (function() {
@@ -601,7 +601,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             : (b.type === 'knob' || b.type === 'fader');
         b._noLED = cfg.noLED === true;
         b._k2 = (cfg.k2 === true) ? true : undefined;
-        b._accel      = XoneK3._parseAccel(cfg.accel);
         b._valueCurve = (typeof cfg.valueCurve === 'number' && cfg.valueCurve > 0)
             ? cfg.valueCurve : 1;
     };

@@ -9,7 +9,7 @@
 //
 // Beatjump gating is handled by _beatjumpAllowed (lib-controller-
 // render.js), called from beatjumpButton and encBeatjump. Loop-
-// touching funcs (encLoopMove, encLoopMoveAccel, pressSetValue on
+// touching funcs (encLoopMove, pressSetValue on
 // beatloop_size, beatloopActivateResetAnchor, reloopToggleResetAnchor)
 // stamp _touchLoop so a subsequent beatjump waits BEATJUMP_GAP_MS.
 
@@ -56,18 +56,6 @@
             }
             patches.push(name);
         });
-    }
-
-    // The self-accel rate window from encLoopMoveAccel. Pushes
-    // `now` onto `events`, prunes to `windowMs`, then returns the
-    // integer step multiplier. Only encLoopMoveAccel uses it;
-    // other self-accelerating funcs carry their own window /
-    // divisor / cap args.
-    function _loopAccelMult(events, now, windowMs, cap, divisor) {
-        events.push(now);
-        while (events.length > 0 && events[0] < now - windowMs) events.shift();
-        var rate = events.length * 1000 / windowMs;
-        return Math.max(1, Math.min(cap, Math.round(rate / divisor)));
     }
 
     // ============================================================
@@ -578,38 +566,6 @@
                 engine.setValue(this.group, 'loop_anchor', wantAnchor);
             engine.setValue(this.group, this.inKey,
                 engine.getValue(this.group, this.inKey) + sign * dir * step);
-            this._ctrl._touchLoop(this.group);
-        },
-
-        // Self-accelerating loop-boundary move. Same anchor
-        // semantics as encLoopMove, plus a turn-rate multiplier.
-        //
-        // args: [anchor, step, cap, divisor]
-        //   cap      maximum step multiplier (default 6)
-        //   divisor  events/sec per multiplier step (default 12)
-        //
-        // Window is XoneK3.ENC_LOOP_ACCEL_WINDOW_MS (150 ms). K3
-        // encoders top out ~40–80 Hz on a hard spin.
-        encLoopMoveAccel: function(args, ch, c, v, s) {
-            var now = Date.now();
-
-            var inSide  = (args[0] === 'in');
-            var step    = XoneK3.parseNum(args[1]); if (isNaN(step)) step = 0.010;
-            var cap     = XoneK3.parseNum(args[2]); if (isNaN(cap) || cap < 1) cap = 6;
-            var divisor = XoneK3.parseNum(args[3]); if (isNaN(divisor) || divisor < 1) divisor = 12;
-
-            var mult = _loopAccelMult(
-                this._loopAccelEvents, now,
-                XoneK3.ENC_LOOP_ACCEL_WINDOW_MS, cap, divisor);
-
-            var dir = (v === 1) ? -1 : 1;
-            var sign = inSide ? 1 : -1;
-            var wantAnchor = inSide ? 1 : 0;
-
-            if (engine.getValue(this.group, 'loop_anchor') !== wantAnchor)
-                engine.setValue(this.group, 'loop_anchor', wantAnchor);
-            engine.setValue(this.group, this.inKey,
-                engine.getValue(this.group, this.inKey) + sign * dir * step * mult);
             this._ctrl._touchLoop(this.group);
         },
 

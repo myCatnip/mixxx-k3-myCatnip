@@ -27,8 +27,7 @@ file changes all four. colorLab is a separate tree — see `LAB.md`.
 | Change what an FX knob controls | §1.9 |
 | Add a shift override | §1.10 |
 | Add an overlay | §1.11 |
-| Accelerate an encoder | §1.12 |
-| Add a custom behaviour | §1.13 |
+| Add a custom behaviour | §1.12 |
 | Change boot config | §2.6 |
 | Change runtime tunables | §2.9 |
 | Look up a func's arguments | §2.11 |
@@ -388,63 +387,7 @@ When the overlay exits, the original comes back.
 **The overlay must declare a `layer` binding** if you want the
 layer button to exit it. Otherwise the host's `layer` wins.
 
-## 1.12 Accelerate an encoder
-
-Add `accel` to a binding that has a custom `func`. The runtime
-calls the func `reps` times per MIDI event, based on turn speed.
-
-```js
-encoder3: { func: F.encKeyShift, group: '$DECK_ACTIVE$', accel: 3 }
-```
-
-Full form:
-
-```js
-encoder3: { func: F.encKeyShift, group: '$DECK_ACTIVE$',
-            accel: { amount: 4, curve: 1.5, window: 250, fullAt: 50 } }
-```
-
-| Field | Default | Meaning |
-|---|---|---|
-| `amount` | 2 | Maximum multiplier |
-| `curve` | 1 | Exponent on the rate ramp; > 1 = slower ramp-up |
-| `window` | 200 ms | Rate measurement window |
-| `fullAt` | 60 | Events/sec at which `amount` is reached |
-
-**`accel` only does anything on a binding with a custom `func`.**
-A binding with just `group` + `inKey` writes an absolute value;
-repeating the write is a no-op.
-
-**If you want the multiplier logic inside the func** rather than
-in the binding config, write a self-accelerating func:
-
-```js
-XoneK3.FUNCS.myAccel = function(args, ch, c, v, s) {
-    var now = Date.now();
-    if (!this._myEvents) this._myEvents = [];
-    var ev = this._myEvents;
-    ev.push(now);
-    var windowMs = 150;
-    while (ev.length > 0 && ev[0] < now - windowMs) ev.shift();
-    var rate = ev.length * 1000 / windowMs;
-    var mult = Math.max(1, Math.min(6, Math.round(rate / 12)));
-    // ... apply mult to whatever this func does ...
-};
-```
-
-`encLoopMoveAccel` in `xone-k3-lib-funcs.js` is the worked example.
-
-**Do not also add `accel:` to the binding.** The runtime would
-call the func `reps` times per event, the func would count each
-call as a separate event, and the rate would overcount.
-
-Tuning knobs: `windowMs` (in the func, shorter = snappier),
-`divisor` (events/sec per step, lower = climbs faster), `cap`
-(ceiling on the multiplier).
-
-See CONCEPTS §10 for other model limits.
-
-## 1.13 Custom funcs
+## 1.12 Custom funcs
 
 ```js
 XoneK3.FUNCS.myFunc = function(args, ch, c, v, s) {
@@ -472,7 +415,7 @@ after the write. A subsequent beatjump gates against that event.
 multiple), call `this._ctrl._beatjumpAllowed(this.group)` first
 and bail if it returns `false`.
 
-## 1.14 Definition helpers
+## 1.13 Definition helpers
 
 Config-side pattern. Build a small function that returns binding
 objects, reuse it across a group of controls.
@@ -528,14 +471,12 @@ Resolves the base at config-eval time and returns a plain object.
 | `softTakeover` | `true` / `false`. Knobs and faders default true. |
 | `func` | A function reference from `XoneK3.FUNCS`. |
 | `args` | Array passed to the func. |
-| `accel` | Number or object. Encoder repeat multiplier. |
 | `valueCurve` | Exponent on knobs / faders. `output = input^c`. |
 | `colorScheme` | See §2.2. |
 | `noLED` | `true` disables LED writes. |
 | `k2` | `true` forces MIDI-note colour output. |
 
-`accel` and `valueCurve` apply in `Binding.input()` before
-dispatch. `valueCurve` applies at write time, after scaling;
+`valueCurve` applies at write time, after scaling;
 `_normalized` stays uncurved.
 
 ## 2.2 colorScheme
@@ -881,11 +822,6 @@ Encoders:
       Loop resize. 'in' moves the IN point (OUT anchored);
       'out' moves the OUT point (IN anchored). Ungated.
       Stamps _lastLoopTouchMs after the write.
-  encLoopMoveAccel     ['in', 0.010]
-      Self-accelerating loop resize. Args:
-      [side, step, cap?, divisor?]. Same anchor semantics as
-      encLoopMove. Must NOT also carry accel: on the binding.
-      Also stamps _lastLoopTouchMs.
   encBeatjump
       Beatjump forward/back. Gated by _beatjumpAllowed when in
       loop. Uses _pulseCo.

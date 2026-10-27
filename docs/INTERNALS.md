@@ -85,7 +85,7 @@ object across `<scriptfiles>`. Every other file opens with
    Binding.input()
         │
         ├─ _onInput(b)
-        ├─ accel / func / default write
+        ├─ func / default write
         │
         ├─ _ledObservers[i]._refresh()
 
@@ -630,28 +630,12 @@ Uses the CO value directly (0-based). `loaded_chain_preset` is
 # 13. Input mods
 
 `Binding.input()` order: `_onInput(b)` → normalized update (knobs /
-faders) → accel multiply → func dispatch or default → observer
-repaints.
-
-## Accel
-
-`_parseAccel` normalises to `{ amount, curve, window, fullAt }`.
-`reps = 1 + (amount - 1) × pow(min(1, rate/fullAt), curve)` where
-`rate` = events per second over `window`. `_accelEvents` persists
-across rebinds.
-
-**Inert without `func`.** `_auditBindingCfg` warns once per
-binding per boot when `accel` is declared without `func`.
+faders) → func dispatch or default → observer repaints.
 
 ## valueCurve
 
 Applies at write time, after `_scaleValue`. `_normalized` stays
 uncurved.
-
-## Self-accelerating funcs
-
-A func can track its own event rate on `this`. The binding must
-NOT also carry `accel:`. One source of acceleration per binding.
 
 ---
 
@@ -698,8 +682,7 @@ able field means editing one list.
 Session-scoped state lives outside the factory:
 
 ```
-_normalized, _accelEvents, _loopAccelEvents, pressHeld,
-turnHappened, _ledObservers, _held
+_normalized, pressHeld, turnHappened, _ledObservers, _held
 ```
 
 ---
@@ -1021,7 +1004,7 @@ carries an inline disable.
 
 - **One gate, one value.** `BEATJUMP_GAP_MS` in `lib-core.js`.
 - **Stamped by:** beatjump (on pass, in loop), `encLoopMove`,
-  `encLoopMoveAccel`, `pressSetValue` on `beatloop_size`,
+  `pressSetValue` on `beatloop_size`,
   `beatloopActivateResetAnchor`, `reloopToggleResetAnchor`.
   NOT by `beatjump_size`, hotcues, play, EQ, faders.
 - **Outside a loop every beatjump fires and nothing is stamped.**
@@ -1098,8 +1081,6 @@ carries an inline disable.
 - **`_hashBinding` uses `\u0001` as separator and JSON-quotes
   strings.**
 - **`_onInput(b)` runs before the binding's func.**
-- **`accel` does nothing on the default input path.**
-- **Mod state survives rebind.**
 - **Soft-takeover bridge.** `_rearmSoftTakeover` writes CO's own
   value back to itself: diff zero, Mixxx's check passes,
   `initialized` flips. `TAKEOVER_EPSILON = 2/127` >

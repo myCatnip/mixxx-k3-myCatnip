@@ -128,8 +128,6 @@ onek3-minifx, colorlab) carry 95% of requested edits. Runtime
   "anchor phrase at hotcue"            → PHRASE_MARKER_COLORS
   "which timeline am I showing"        → displaySource
   "is the loop clock running"          → activeLoopVirtual
-  "spin faster moves more"             → accel on the binding
-  "encoder that guards itself"         → self-accelerating func
   "swap mode flickers"                 → _batchPatches, not addPatch loop
   "beatjump doesn't fire after touching a loop control"
                                        → BEATJUMP_GAP_MS
@@ -163,13 +161,6 @@ phrasings plus the closest workaround.
 
   "Make this knob control two things at once."
   → A func can write to two COs.
-
-  "Make this encoder speed up when I turn faster."
-  → Add accel. If the func guards rapid calls, use a self-
-    accelerating func instead (see encLoopMoveAccel).
-
-  "encLoopMove won't accelerate."
-  → No accel on it. Switch to encLoopMoveAccel.
 
   "My beatjump doesn't fire after touching a loop control."
   → Beatjump gate. _beatjumpAllowed blocks it if less than

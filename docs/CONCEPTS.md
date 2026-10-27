@@ -261,7 +261,6 @@ within the framework.
 - **A func driving its own LED on/off.** Store the state on the
   controller and read it via `on:`.
 - **Debounce.** Wrap the func with your own state.
-- **`accel:` on a self-guarding func.** Double-counts.
 
 ---
 
