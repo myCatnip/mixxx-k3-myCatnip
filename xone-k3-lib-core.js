@@ -2,8 +2,7 @@
 // config, utilities, tokens, transfer curve, sysex math, beat
 // math, K2 palette.
 //
-// Leaf module. Loads first. Defines XoneK3._requireLoad, the
-// load-order guard every later file calls at IIFE top.
+// Leaf module. Loads first. Defines XoneK3._requireLoad.
 
 'use strict';
 
@@ -112,9 +111,8 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // TIMELINE
     // ============================================================
     // One virtual clock per channel: the loop clock. Starts on
-    // loop-on, stops on loop-off, seeded from the playhead. Track
-    // is the fallback reading whenever the loop clock isn't
-    // running.
+    // loop-on, stops on loop-off, seeded from the playhead.
+    // Track is the fallback when it isn't running.
     //
     // trackTempo false (default) — advance in real seconds.
     // trackTempo true — follow position delta (rate-sensitive).
@@ -215,15 +213,9 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // BINDING FIELD TABLE
     // ============================================================
     // One table describing every field the binding pipeline
-    // recognises. Each row is a cfg field (hash: true), a tokenable
-    // field (token: <label>), a binding-side state field snapshotted
-    // by _snapshotBinding (snapshot: {...}), or a reset-able field
-    // _unbind / _rearmSoftTakeover don't need (ignored: true).
-    //
-    // Adding a new binding field: add a row. That is the only edit.
-    // _BINDING_CFG_FIELDS, _SNAPSHOT_FIELDS, _SNAPSHOT_IGNORED,
-    // _tokenFields and _resolvedTargetHash all derive from this
-    // array — nothing else to keep in sync.
+    // recognises. Adding a field is one row — _BINDING_CFG_FIELDS,
+    // _SNAPSHOT_FIELDS, _SNAPSHOT_IGNORED, _tokenFields and
+    // _resolvedTargetHash all derive from this array.
     //
     // Row shape:
     //   name       cfg path (dot-paths allowed, e.g. 'colorScheme.on.group')
@@ -314,9 +306,8 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         return out;
     })();
 
-    // Stable function identity. Functions get a monotonic id on
-    // first sight; two references to the same function return the
-    // same id, two different closures never collide.
+    // Stable function identity. Same function → same id;
+    // different closures never collide.
     XoneK3._funcIdCounter = 0;
     XoneK3._funcIdMap = new WeakMap();
     XoneK3._funcId = function(fn) {

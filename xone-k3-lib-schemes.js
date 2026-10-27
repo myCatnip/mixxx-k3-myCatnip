@@ -3,12 +3,8 @@
 // sample pipeline.
 //
 // Loaded by every preset, before any preset's binding config.
-// Preset-specific schemes, THEME, and QFX_CHAIN_LIST live in the
-// preset files — see xone-k3-cat.js.
-//
-// Runtime entry points: resolveColorEntry, resolveScheme,
-// compileScheme, sampleSegs, sampleT, markerHit, scaleTarget,
-// coMatchSample, mapMixxxColor.
+// Preset-specific schemes, THEME, and QFX_CHAIN_LIST live in
+// the preset files — see xone-k3-cat.js.
 
 'use strict';
 
@@ -140,9 +136,6 @@
     //   'mixxx'            type:'mixxx', rgb deferred to the pad
     //   numeric, len >= 3  explicit R,G,B [brightness [off]]
     //   anything else      named-palette lookup
-    //
-    // Brightness arguments default to DEFAULT_RGB_BRIGHTNESS and
-    // clamp to 0..127.
 
     function _normalizeColorParts(entry) {
         if (typeof entry === 'string') {
@@ -475,9 +468,7 @@
     };
 
     // Snap sample: pick the segment whose span contains t (end-
-    // inclusive, last-segment fallback). Same as the previous
-    // non-interp branch, isolated for readability and to let the
-    // dispatcher get out of the way.
+    // inclusive, last-segment fallback).
     //
     // `mixxx`-typed stops have null rgb — they only work on the
     // static single-colour path (`_renderStatic` → `_sendColor`,
@@ -569,12 +560,10 @@
     // Shared by Binding._renderCoMatch and LabController._renderCoMatch.
     // When a deviation LED's physical knob position disagrees with
     // its bound CO by more than CO_MATCH_EPSILON, the LED shows the
-    // matching gradient (typically blue → green) so the user can
-    // nudge until they line up. Called with the current physical
-    // position and the on/off state; returns the ramp to sample
-    // plus the t-point along it, or null when the knob and CO
-    // already agree (or when the scheme has no co-ramp, or the
-    // group / key are missing).
+    // matching gradient so the user can nudge until they line up.
+    // Returns the ramp to sample plus the t-point along it, or
+    // null when the knob and CO already agree (or when the scheme
+    // has no co-ramp, or the group / key are missing).
     //
     //   compiled  the outer compiled scheme (needs .co)
     //   group     CO group to read the target position from
@@ -601,7 +590,8 @@
     // ============================================================
     // ENGINE DEFAULT — co-steering ramp
     // ============================================================
-    // Blue → Green with a flat middle. Referenced by
+    // Default co-steering ramp — shown when a deviation LED's
+    // knob disagrees with its bound CO. Referenced by
     // SCHEME_DEFAULTS.coScheme. Override per-scheme with
     // coScheme: 'name' or coScheme: null to disable.
     XoneK3.SCHEMES.coMatch = {

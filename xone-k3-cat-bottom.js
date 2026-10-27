@@ -1,9 +1,7 @@
 // xone-k3-cat-bottom.js — Cat's cue / loop layers, their shift
-// companions, and the two layer-scoped overlays (hotcue 9-16 on
-// cue, odd loops on loop).
+// companions, and the two layer-scoped overlays.
 //
 // CUE and LOOP are siblings — no inheritance between them.
-//
 // Loads after cat-schemes.js (needs countdownScheme, slipScheme,
 // PLAY_LED_SCHEME).
 

@@ -1,13 +1,9 @@
 // xone-k3-cat-overlays.js — Cat's two routing overlays and the
 // chord.
 //
-// Both overlays declare _host on every top-half base patch, so
-// they're reachable from any mode. Their shift companions are
-// shallow clones of the base (so their grid cells don't get
-// shadowed by cueShift / loopShift when shift is held).
-//
-// The chord sits on top of everything, including shift
-// companions — see _buildStack in lib-controller.js.
+// Shift companions are shallow clones of their base, so grid
+// cells don't get shadowed by cueShift / loopShift when shift
+// is held. Chord sits on top of everything — see _buildStack.
 
 'use strict';
 

@@ -1,13 +1,9 @@
 // xone-k3-lib-controller-colour.js — colour-scheme parser for
 // K3Controller: on: shapes, base scheme resolution, schemeFromState
-// closures, and the whole _setupColorScheme entry point.
+// closures, and the _setupColorScheme entry point.
 //
-// Loaded after lib-controller.js and before lib-controller-beat.js.
-// Extends K3Controller.prototype. The render-time half of scheme
-// compilation (_resolveSchemeRef) stays in lib-controller.js;
-// this file is the parse half, run once per bind.
-//
-// Every function here is called from _applyBinding.
+// Loaded after lib-controller.js, before lib-controller-beat.js.
+// Extends K3Controller.prototype. Called from _applyBinding.
 
 'use strict';
 
@@ -23,8 +19,8 @@
 
     // Fields recognised inside colorScheme.on's conditional form.
     // Anything else in the object warns once per binding and is
-    // ignored. Keeping the list at module scope makes it obvious
-    // that adding a new on: field means editing exactly this.
+    // ignored — keeping the list at module scope makes "adding a
+    // new on: field means editing exactly this" obvious.
     var KNOWN_ON = ['patchActive', 'state', 'equals', 'contains', 'co', 'group'];
 
     // ============================================================
@@ -32,8 +28,6 @@
     // ============================================================
     XoneK3.K3Controller.prototype._parseCsOn = function(b, cs) {
         if (cs.on === undefined || cs.on === null) return;
-        // on is true, false, or a conditional object. true / false
-        // are the unconditional forms; the object carries a condition.
         if (cs.on === true)  { b._csOn = true;  return; }
         if (cs.on === false) { b._csOn = false; return; }
         if (typeof cs.on !== 'object' || Array.isArray(cs.on)) {
@@ -121,8 +115,6 @@
     // ============================================================
     // BASE SCHEME
     // ============================================================
-    // Parse the base-scheme half of a colorScheme. Sets b._csScheme
-    // and/or b._csSchemeFn. Called from _parseCsScheme.
     XoneK3.K3Controller.prototype._parseSchemeValue = function(b, cs) {
         var hasBase = cs.scheme !== undefined && cs.scheme !== null;
         var schemeIsFn = (typeof cs.scheme === 'function');
@@ -145,8 +137,6 @@
     // ============================================================
     // schemeFromState
     // ============================================================
-    // Parse schemeFromState. Sets b._csSchemeFn when a closure is
-    // built. Called from _parseCsScheme.
     XoneK3.K3Controller.prototype._parseSchemeFromState = function(b, cs, schemeIsFn) {
         var sf = cs.schemeFromState;
         if (!sf || typeof sf !== 'object' || Array.isArray(sf)) return false;

@@ -1,31 +1,14 @@
 // xone-k3-colorlab.js — Xone K3 colorLab. Mixxx 2.5.
 //
 // Two modes, switched by the layer button:
-//
-//   EDIT (patch colorLab)
-//     Segment / marker / ratio / beat editing.
-//     Strip shows edit, or the previewed scheme while previewing.
-//     shift+R commits the preview into edit without leaving.
-//
-//   SLOTS (patch slots)
-//     Grid previews a slot.
-//     Grid press         = preview that slot
-//     R (press)          = arm save
-//     Grid press, armed  = save preview into slot, load it into
-//                          edit, enter edit mode
-//     L (press)          = editReturn — exit to edit, edit unchanged
-//     shift+R            = load preview into edit, enter edit
-//     shift+encoderL     = scroll registry (stays in current mode)
+//   EDIT  (patch 'colorLab')     segment / marker / ratio / beat edits
+//   SLOTS (patch 'slots')        grid previews & saves; edits are no-ops
 //
 // Overlays declare _host — they only apply while their host patch
 // is active. The flag persists in activePatches across switches.
 //
-// 'colorLabTuning' — shift+press3. Stepped via its _shift companion.
-// 'colorLabBeat'   — grid2_3. Hosted by 'colorLab'.
-//
 // Chord: shift + layer held, then press3 held 2s → shutdown.
-// Releasing shift, layer, or press3 kills the timer. First chord
-// binding this preset has ever had.
+// Releasing shift, layer, or press3 kills the timer.
 
 'use strict';
 
@@ -192,8 +175,7 @@
     // BOTTOM — editor, shifted
     // ============================================================
     // pressR loads the current preview into edit without leaving
-    // the mode. If nothing is being previewed, this is a no-op.
-    // Shutdown lives on the chord (shift+layer+press3, held 2s).
+    // the mode. Shutdown lives on the chord (shift+layer+press3).
     var COLORLAB_BOTTOM_SHIFT = {
         encoderL: { func: F.labSchemeScroll },
         pressR:   { func: F.labLoadPreview }
@@ -226,8 +208,8 @@
     // ============================================================
     // CHORD
     // ============================================================
-    // Entered via shift+layer. press3 held 2s → shutdown.
-    // Releasing shift, layer, or press3 kills the timer.
+    // press3 held 2s → shutdown. Releasing shift, layer, or
+    // press3 kills the timer.
     var CHORD = {
         press3: { func: F.shutdownHold }
     };

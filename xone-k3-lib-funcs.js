@@ -1,17 +1,9 @@
 // xone-k3-lib-funcs.js — builders + XoneK3.FUNCS.
 //
 // Loaded by every preset, after lib-core and lib-schemes.
-//
-// QFX enable buttons are written inline in each preset's config,
-// not built here. They need `loaded_chain_preset` (0-based) as
-// their schemeFromState source, and the chain list from
-// XoneK3.QFX_CHAIN_LIST.
-//
-// Beatjump gating is handled by _beatjumpAllowed (lib-controller-
-// render.js), called from beatjumpButton and encBeatjump. Loop-
-// touching funcs (encLoopMove, pressSetValue on
-// beatloop_size, beatloopActivateResetAnchor, reloopToggleResetAnchor)
-// stamp _touchLoop so a subsequent beatjump waits BEATJUMP_GAP_MS.
+// Beatjump gating and the loop-touch stamping convention are
+// documented at `_beatjumpAllowed` / `_touchLoop` (render) and
+// INTERNALS §21.
 
 'use strict';
 
@@ -28,23 +20,16 @@
     // ============================================================
     // MODULE HELPERS
     // ============================================================
-    // Shared by multiple funcs; not exposed on XoneK3.FUNCS because
-    // none of them are bound directly to a control.
-
-    // The "pressR held = load onto channel" branch that k3Select /
-    // k3SelectActive / setActiveDeckTo all share. Returns true if
-    // the load fired (caller should bail); false if loadState is
-    // not pressed (caller falls through to its own select logic).
+    // The "pressR held = load onto channel" branch shared by
+    // k3Select / k3SelectActive / setActiveDeckTo.
     function _loadSelectedOntoChannel(ctrl, channel) {
         if (!ctrl.loadState.pressed) return false;
         engine.setValue('[Channel' + channel + ']', 'LoadSelectedTrack', 1);
         return true;
     }
 
-    // The batch-edit that toggleOverlay runs when activating an
-    // overlay for the first time: strip every named sibling, then
-    // append. Caller has already established the overlay is not
-    // active.
+    // The batch-edit toggleOverlay runs when activating an overlay
+    // for the first time: strip every named sibling, then append.
     function _addOverlayWithSiblingClear(ctrl, name, siblings) {
         ctrl._batchPatches(function(patches) {
             if (siblings.length > 0) {
@@ -116,15 +101,10 @@
                 };
             }
 
-            // Memoize the composed result per inner reference.
-            // When the inner fn is itself memoized (fxScheme, THEME
-            // reads, etc.), the same inner object comes back every
-            // call, so we return the same composed object — no
-            // fresh-scheme warning, no per-render recompile. When
-            // the inner fn returns a fresh literal (the case
-            // _warnIfFreshScheme exists to catch), inner !==
-            // lastInner each call and we fall back to composing
-            // fresh — warning still fires, behaviour unchanged.
+            // Memoize the composed result per inner reference. Only
+            // hits when the inner fn is itself memoized (fxScheme,
+            // THEME reads) — so the fresh-scheme warning still fires
+            // on a fresh literal (inner !== lastInner every call).
             var lastInner = null, lastComposed = null;
             return function() {
                 var inner = capturedRef.call(this);
@@ -401,13 +381,9 @@
             }
         },
 
-        // Press: activates hotcue N. If the hotcue was unset, also
-        // writes the first PHRASE_MARKER_COLORS entry as its colour.
-        // Release: writes 0, matching the default push handler.
-        //
-        // Order matters — hotcue_X_activate creates the hotcue;
-        // hotcue_X_color sets its colour. Writing colour first is
-        // ignored by Mixxx when the hotcue doesn't exist yet.
+        // Activate hotcue N on press; if unset, also write
+        // PHRASE_MARKER_COLORS[0] as its colour. Order matters —
+        // hotcue_X_color is ignored when the hotcue doesn't exist.
         hotcueSetPhraseColor: function(args, ch, c, v, s) {
             var n = parseInt(args[0], 10);
             if (isNaN(n) || n < 1) return;
@@ -451,9 +427,8 @@
         },
 
         // Slip toggle, unless the track-load arm is held — then
-        // the press loads the selected track onto the active
-        // deck's pinned channel. Mirrors k3Select's armed-load
-        // pattern: action fires on press, release is a no-op.
+        // the press loads onto the active deck's pinned channel.
+        // Action fires on press, release is a no-op.
         slipOrLoad: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             var ctrl = this._ctrl;

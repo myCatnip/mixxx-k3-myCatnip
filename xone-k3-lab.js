@@ -2,7 +2,7 @@
 //
 // Editor + slot browser for building LED colour schemes.
 //
-// Model:
+// State (`_lab`):
 //   edit           — working buffer. Starts as { colors: [[0,0,0]] }.
 //   slots[0..15]   — saved schemes. 0/1/2/3 are on/off/co/co-off.
 //   previewSource  — 'edit' | 0..15 | registry-name string.
@@ -10,19 +10,14 @@
 //                    on the strip instead of the edit buffer.
 //   saveArmed      — next slot press writes preview into that slot.
 //
-// LED source (`_labLEDScheme`):
-//   edit mode  → edit, or previewSource while previewing
-//   slots mode → whatever previewSource points at (grid shows slots)
+// Renderers discover which cells they own by scanning the applied
+// bindings for known func names — no hardcoded grid-to-meaning
+// map. Rebinding a cell in config moves the painter with it.
+// See `_findCellsByFunc`.
 //
-// Renderers discover which cells they own by scanning the
-// currently-resolved bindings for known func names. There is no
-// hardcoded grid-to-meaning map — rebinding a cell in config
-// moves the painter with it. See `_findCellsByFunc`.
-//
-// Beat edit overlay: 'colorLabBeat'. _host = 'colorLab'.
-// Preview LED pulses through the cascade when the beat is
-// playing; shows the selected target's colour solid when it
-// isn't, so edits are visible either way.
+// Beat edit overlay: 'colorLabBeat'. _host = 'colorLab'. Preview
+// LED pulses through the cascade when the beat is playing; shows
+// the selected target's colour solid otherwise.
 
 'use strict';
 
@@ -169,18 +164,11 @@
 
     // ── colorSet helpers ───────────────────────────────────────
     // `scheme.colorSet` is a parallel boolean array to
-    // `scheme.colors`. Every cell has an entry.
+    // `scheme.colors`: true = real stop, false = gap.
     //
-    // true   — real stop the user set: pressed, or non-black
-    //          (auto-set by _editSegmentTarget), or came from a
-    //          saved / baked / loaded scheme (no colorSet array →
-    //          all true via _csArray).
-    // false  — gap: extension cell the user hasn't pressed.
-    //
-    // Lab editing state, not persisted. _cloneScheme strips it, so
-    // saving to a slot, baking, loading, and dumping all naturally
-    // drop it — reloaded schemes are all-true (correct: they were
-    // saved as fully-realised stops).
+    // Lab editing state, not persisted — _cloneScheme strips it,
+    // so save / bake / load / dump drop it. Reloaded schemes
+    // are all-true (correct: saved as fully-realised stops).
     //
     // Cascade delete and fill both read this flag. Only black
     // cells can be false; non-black implies true.
@@ -312,10 +300,9 @@
     // ============================================================
     // BINDING DISCOVERY
     // ============================================================
-    // Reverse index: func id -> { cell: args }. Built lazily and
-    // keyed by _applied identity, which is reassigned on every
-    // recompute — so it invalidates automatically when bindings
-    // change and survives every render between recomputes.
+    // Reverse index: func id -> { cell: args }. Built lazily,
+    // invalidated by _applied identity (reassigned on every
+    // recompute).
     //
     // Keys are XoneK3._funcId(fn), NOT `fn` itself. Using `fn` as an
     // object key coerces through Function.prototype.toString(), and
@@ -870,10 +857,7 @@
     };
 
     // Resolve one segment cell's paint decision. Returns
-    // { rgb, br } to paint, or null for black. Pulled out of
-    // _renderSegmentGrid so the two "paint black" guards collapse
-    // into one return, and the shift-highlight sits in a pure
-    // resolver rather than inside the iteration loop.
+    // { rgb, br } to paint, or null for black.
     XoneK3.LabController.prototype._segmentCellPaint = function(name, i, compiled, onColorLab) {
         var applied = this._applied[name];
         if (applied == null || Object.keys(applied).length === 0) return null;
@@ -1595,13 +1579,9 @@
     // DUMP HELPERS
     // ============================================================
     // Emit format is valid JavaScript, ready to paste into
-    // cat-schemes.js. Only fields that differ from their defaults
-    // appear — a scheme with just `colors` produces a minimal
-    // three-line block. Nesting (offScheme, coScheme, beat
-    // sub-objects) is inline where it's compact, multi-line where
-    // it grows. Trailing commas: none on the last array element,
-    // trailing comma on scalar/single-value lines (safe in JS,
-    // matches the codebase style).
+    // cat-schemes.js. Only non-default fields appear. Trailing
+    // commas on scalar lines, none on the last array element —
+    // valid JS, matches the codebase style.
     function _fmtDumpValue(v) {
         if (v === null || v === undefined) return 'null';
         if (Array.isArray(v)) return '[' + v.join(', ') + ']';

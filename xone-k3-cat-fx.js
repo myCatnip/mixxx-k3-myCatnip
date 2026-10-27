@@ -1,14 +1,9 @@
 // xone-k3-cat-fx.js — Cat's FX cell layout tables and a single
 // unified emitter.
 //
-// Three tables, one per top-half mode:
-//   FX_LAYOUTS                 focus, 15 cells per unit
+//   FX_LAYOUTS                 focus, 16 cells per unit
 //   TWO_DECK_FX_LAYOUTS        twoDeck, 4 cells per column
 //   TWO_DECK_MINI_FX_LAYOUTS   mini, 8 cells per unit
-//
-// emitFxCell resolves one table entry into a binding. The three
-// per-mode emitters then just list their cells, unit, and (for
-// buttons) which adjacent knob their LED samples.
 
 'use strict';
 
@@ -38,11 +33,9 @@
             return null;
         }
         if (spec.displayOnly) {
-            // Display-only cell: no input bind, LED samples a knob ramp.
-            // Tracks the adjacent knob (knobRef) by default. `ledTracks`
-            // overrides for a non-adjacent knob. Abstract slot names
-            // resolve through slotMap when present (twoDeck column
-            // layout); literal cell names pass through unchanged.
+            // `ledTracks` overrides the tracked knob; abstract slot
+            // names resolve through slotMap (twoDeck column layout).
+            // Non-slotMap literal names pass through unchanged.
             var want = spec.ledTracks !== undefined ? spec.ledTracks : knobRef;
             var target = (slotMap && slotMap[want] !== undefined)
                 ? slotMap[want]
@@ -240,10 +233,6 @@
     //     3  4       knob2_0 / button2_0  = slot 1
     //                knob1_1 / button1_1  = slot 2
     //                knob2_1 / button2_1  = slot 3
-    //
-    // TWO_DECK_MINI_FX_LAYOUTS[unit] picks the layout a given FX
-    // unit uses. Adding a layout here makes it available to
-    // every unit; two units sharing a name share the layout.
     var MINI_LAYOUTS = {
         // Two effects, split across the four positions. Each
         // effect gets one parameter + one button on the top row,

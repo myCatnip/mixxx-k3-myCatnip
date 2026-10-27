@@ -34,14 +34,9 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
     };
 
     // Per-index dedupe + throttle queue for RGB sysex frames.
-    // Cache is checked first; if the value is unchanged the frame
-    // is dropped. Otherwise the frame is either sent inline (when
-    // the throttle is disabled) or enqueued.
-    //
-    // Cache key is a packed 28-bit int: (r<<21 | g<<14 | b<<7 | hw),
-    // each 7 bits, 0..127 range. Same equality semantics as the
-    // previous 'r:g:b:hw' string, no per-render string allocation.
-    // Decode via XoneK3._decodeLedCacheValue when debugging.
+    // Cache key is a packed 28-bit int (r<<21 | g<<14 | b<<7 | hw) —
+    // same equality as the old 'r:g:b:hw' string, no per-render
+    // allocation. Decode via XoneK3._decodeLedCacheValue when debugging.
     XoneK3.K3Controller.prototype._sendSysExLED = function(idx, r, g, b, hw) {
         var val = (((r & 0x7F) << 21) | ((g & 0x7F) << 14) |
                    ((b & 0x7F) << 7) | (hw & 0x7F)) >>> 0;

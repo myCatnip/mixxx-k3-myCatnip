@@ -7,21 +7,7 @@
 //   TOP_SHIFT         shared shift companion for all three
 //
 // Layout patches (fxLayout<n> etc.) come from cat-fx.js. This
-// file only defines the shared top-half scaffolding: encoders,
-// press row, EQ columns, QFX, faders.
-//
-// The unshifted encoder + press row is identical across every
-// mode (via topRowBase). Only the middle FX cells differ:
-//
-//   focus       fxLayout<n>       one focused FX unit
-//   twoDeck     fxLayoutA<n>      FX-A column (left), pinned
-//               fxLayoutB<n>      FX-B column (right), pinned
-//   twoDeckMini fxMini<n>         one focused FX unit (like focus)
-//
-// Cat/Kitten override two encoder cells back to their historical
-// behaviour: QFX cycle follows the ACTIVE deck, and the second
-// QFX cell (deck B pinned) stays off. oneK3/oneK3 mini use the
-// row as-is, with QFX cycle on both pinned A and B.
+// file only defines the shared top-half scaffolding.
 //
 // Loads after cat-schemes.js (needs fxSchemeFor, FX_COLOR_MAP,
 // countdownScheme).

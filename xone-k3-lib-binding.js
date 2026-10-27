@@ -2,13 +2,12 @@
 // render path, and the snapshot field list that describes which
 // binding state survives a rebind.
 //
-// Loaded after lib-core and lib-schemes. Loaded before
-// lib-controller, which constructs Bindings in _buildHardware.
+// Loaded after lib-core and lib-schemes, before lib-controller
+// (which constructs Bindings in _buildHardware).
 //
-// Session-scoped fields — _normalized, _accelEvents,
-// _loopAccelEvents, pressHeld, turnHappened, _ledObservers,
-// _held — live outside XoneK3._bindingDefaults on purpose. All
-// are set in the constructor; none are reset by _reset.
+// Session-scoped fields (_normalized, pressHeld, turnHappened,
+// _ledObservers, _held) are set in the constructor after
+// _bindingDefaults() — _reset doesn't touch them.
 //
 // _SNAPSHOT_FIELDS / _SNAPSHOT_IGNORED are derived from
 // XoneK3._BINDING_FIELDS in lib-core.js. The transform names

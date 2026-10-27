@@ -1,20 +1,10 @@
-// xone-k3-cat.js — Cat preset assembler.
-//
-// Loads LAST of the cat-* files. Does two things:
-//   1. Assembles XoneK3.CAT_LAYERS from the pieces built by the
-//      earlier cat files (schemes, fx layouts, top, bottom,
-//      overlays).
-//   2. Defines XoneK3.bootCat() and the default init / shutdown
-//      entry points.
+// xone-k3-cat.js — Cat preset assembler. Loads LAST of the
+// cat-* files (needs their exports).
 //
 // Kitten / oneK3 / oneK3 miniFX load this file last and override
 // XoneK3.init with their own bootCat() call. colorLab loads this
 // file, then lab.js, then colorlab.js — colorlab.js overrides
 // init.
-//
-// Top-half modes (focus / twoDeck / twoDeckMini) share one layer
-// tree. The mode itself is inferred from activePatches — see
-// XoneK3.TOP_MODES in lib-controller.js.
 
 'use strict';
 

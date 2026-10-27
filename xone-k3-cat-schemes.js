@@ -3,8 +3,7 @@
 // helpers that the top / bottom / overlay files consume.
 //
 // Loads after lib-funcs.js. Registers on XoneK3.CAT so later cat
-// files pull helpers by name. XoneK3.CAT is created here if it
-// doesn't exist; every later cat file extends it.
+// files pull helpers by name.
 
 'use strict';
 
@@ -24,9 +23,8 @@
     // ============================================================
     // THEME — deck and FX number colours.
     //
-    // Every config read of THEME is deferred via a function
-    // scheme. Mutating THEME.deck[n] / THEME.fx[n] at runtime
-    // propagates on the next repaint of any affected LED.
+    // Emitters read THEME via deferred function schemes, so a
+    // THEME mutation at runtime propagates on the next repaint.
     // ============================================================
     XoneK3.THEME = {
         deck: { 1: 'green, 127', 2: 'red, 93', 3: [24, 24, 127, 127], 4: [127, 127, 32, 110] },
@@ -45,32 +43,21 @@
     ];
 
     // ============================================================
-    // PHRASE_MARKER_COLORS — hotcue colours that define phrase-
-    // start positions on the track. Any hotcue whose stored
-    // colour is in this list acts as a phrase boundary; the
-    // active phrase origin at any playhead position is the
-    // beat of the last such marker at or before that position.
-    // Before the first marker, origin derives from the *next*
-    // marker ahead — playing before beat 1 shows a negative
-    // count that reaches zero at the marker. This is why
-    // _beatF has no `pos < 0` guard. Empty list = feature off.
+    // PHRASE_MARKER_COLORS — hotcue colours that mark phrase starts.
     //
-    // Position-derived, not press-only: playing across a marker,
-    // scrubbing past one, pressing its pad, forward beatjump, and
-    // loading a track past one all re-anchor the origin via the
-    // same code path. Frozen during an active loop; re-derived on
-    // the first tick after the loop stops.
+    // Origin derives positionally: the last marker at or before
+    // the playhead, or — before the first marker — the next one
+    // ahead (negative count reaching zero, which is why _beatF
+    // has no pos<0 guard). Frozen during an active loop; re-derived
+    // on the first tick after it stops.
     //
-    // Place markers on beat boundaries. A marker mid-beat floors
-    // to the start of its beat (floor, not round), so a marker at
-    // beat 3.8 anchors origin to beat 3.
+    // Place markers on beat boundaries — a marker mid-beat floors
+    // to the start of its beat.
     //
-    // Up to XoneK3.HOTCUE_MAX hotcues are scanned. Default is
-    // 16 (Mixxx supports up to 36). Raise HOTCUE_MAX before boot
-    // if you place markers past hotcue 16 — see CUSTOMISE §1.8.
-    //
-    // Values are integer RGB hexes, exactly what Mixxx stores on
-    // [ChannelN],hotcue_X_color.
+    // Scans up to XoneK3.HOTCUE_MAX (default 16 — set before boot
+    // if markers sit past 16; see CUSTOMISE §1.8). Values are the
+    // integer RGB hexes Mixxx stores on [ChannelN],hotcue_X_color.
+    // Empty list = feature off.
     // ============================================================
     XoneK3.PHRASE_MARKER_COLORS = [0xF2F2FF];
 
@@ -113,9 +100,8 @@
             markerColor: [127, 0, 0, 93],
             markerWidth: 2
         },
-//QFX COLORS TO AVOID: CYAN MAGENTA YELLOW ORANGE
-//-green red blue echo reverb smooth
-//-white? purple? off green? moog autopan
+// QFX scheme colours — avoid cyan / magenta / yellow / orange
+// (reserved for other UI).
         filterNone:        { colors: ['off'], coScheme: null },
         filterReverb:       { 
                             colors: [
@@ -261,8 +247,6 @@
 
     // Live scheme function for a track-end countdown. Re-invoked on
     // every render of the bound LED, including every beat edge.
-    // Returns the phase scheme name matching bars remaining at
-    // the current tempo.
     //
     // The A/B suffix is derived from the binding's declared group
     // token. `$DECK_A$` in group → countdownA*, `$DECK_B$` →

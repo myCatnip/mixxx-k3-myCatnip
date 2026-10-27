@@ -1,8 +1,5 @@
 // xone-k3-lib-inspect.js — read-only runtime probes for K3Controller.
-//
-// Loaded after lib-controller and lib-funcs. Extends the
-// K3Controller prototype with `inspect` and the `_inspect*`
-// family. Stateless, read-only.
+// Loaded after lib-controller and lib-funcs. No mutation.
 
 'use strict';
 
@@ -270,8 +267,8 @@
     // ============================================================
     // WHY — walk the pipeline for one binding
     // ============================================================
-    // Prints where in the render pipeline the binding stopped.
-    // Read-only, no state mutation.
+    // Read-only. Prints where in the render pipeline the binding
+    // stopped.
     //
     //   XoneK3.controllers[0].inspect('why', 'layer')
     XoneK3.K3Controller.prototype._inspectWhy = function(name) {

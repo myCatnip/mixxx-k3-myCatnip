@@ -2,20 +2,8 @@
 // patch resolution, focus, top-half mode table, chord, binding
 // application.
 //
-// Split across five files, all extending K3Controller.prototype:
-//
-//   lib-controller.js          this file — constructor, patches,
-//                              focus, top modes, chord, binding
-//                              application
-//   lib-controller-colour.js   colour-scheme parser
-//   lib-controller-beat.js     timeline, loop clock, display-
-//                              source resolution, beat pipeline,
-//                              beat clock connections
-//   lib-controller-render.js   LED writes, sysex, calibration,
-//                              ramp sampling, beatjump gate
-//   lib-controller-boot.js     init/shutdown, boot, halt
-//
-// Load order: controller → colour → beat → render → boot.
+// Loaded after lib-controller-colour.js, lib-controller-beat.js,
+// lib-controller-render.js, lib-controller-boot.js (boot last).
 // Inspection probes live in lib-inspect.js.
 
 'use strict';
@@ -1064,14 +1052,9 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // FOCUS
     // ============================================================
-    // Shared tail for the three focus setters:
-    //   1. _refreshActiveAlt  — recompute derived fields.
-    //   2. _reapplyByTokens   — rebind token-carrying bindings
-    //                           whose resolved target moved.
-    //   3. _syncFxLayout      — swap focused FX layout patch if
-    //                           needed; its recompute refreshes.
-    //   4. _refreshAllLeds    — only when step 3 didn't swap.
-    // Exactly one repaint per focus change on every path.
+    // Shared tail for the three focus setters. _syncFxLayout's own
+    // recompute refreshes; only call _refreshAllLeds when it didn't
+    // swap. Exactly one repaint per focus change on every path.
     XoneK3.K3Controller.prototype._afterFocusChanged = function(tokens, reason) {
         this._refreshActiveAlt();
         this._reapplyByTokens(tokens, { skipRefresh: true });
