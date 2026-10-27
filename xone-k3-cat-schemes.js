@@ -303,7 +303,15 @@
             var bounds = ctrl._getContentBounds(ch);
             if (!bounds) return 'countdownIdle';
 
-            var pp = engine.getValue(grp, 'playposition');
+            // st.lastPlayPos is set on every playposition fire (before
+            // the throttle gate), so it's accurate to the most recent
+            // tick — 30ms granularity against a bar-scale countdown.
+            // Fall back to a live read only before the first tick after
+            // load / reset, when lastPlayPos is still undefined.
+            var st = ctrl._decks[ch];
+            var pp = (st && st.lastPlayPos !== undefined)
+                ? st.lastPlayPos
+                : engine.getValue(grp, 'playposition');
             var remainingNorm = bounds.end - pp;
             if (remainingNorm < 0) remainingNorm = 0;
 

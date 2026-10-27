@@ -635,7 +635,7 @@
         },
 
         // ----------------------------------------------------------
-        // BPM tap
+        // BPM change
         // ----------------------------------------------------------
         bpmPress: function(args, ch, c, v, s) {
             var enc = args[0] && this._ctrl.bindings[args[0]];
@@ -643,12 +643,16 @@
             if (this._ctrl._isPress(v, s)) {
                 enc.pressHeld = true;
                 enc.turnHappened = false;
+                this._ctrl._bpmHeldEncoder = enc;
+                this._ctrl._bpmHeldOwner   = this;
             } else {
                 if (this._ctrl.isShifted && !enc.turnHappened) {
                     var cur = engine.getValue('[Master]', 'headSplit');
                     engine.setValue('[Master]', 'headSplit', cur ? 0 : 1);
                 }
                 enc.pressHeld = false;
+                this._ctrl._bpmHeldEncoder = null;
+                this._ctrl._bpmHeldOwner   = null;
             }
         },
 
