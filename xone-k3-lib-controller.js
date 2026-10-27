@@ -34,6 +34,12 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 (function() {
     var PN = XoneK3.PATCH_NAMES;
 
+    // Shared empty-args array passed to _safeBinding from the
+    // refresh paths. Never mutated — callers that need real args
+    // pass their own array. Exists so the hot-path
+    // _refreshAllLeds loop stays allocation-free per binding.
+    var EMPTY_ARGS = [];
+
     // ============================================================
     // TOP-HALF MODE TABLE
     // ============================================================
@@ -435,13 +441,27 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     XoneK3.K3Controller.prototype._onInput = function(b) {};
     XoneK3.K3Controller.prototype._onPatchChange = function(from, to) {};
 
-    // One throwing binding must not stop the pass. Caller
-    // captures loop variables into `args` at the call site.
-    XoneK3.K3Controller.prototype._safeBinding = function(fn, thisArg, args, warnKey, warnPrefix) {
+    // One throwing binding must not stop the pass.
+    //
+    // Signature split from the original (fn, thisArg, args,
+    // warnKey, warnPrefix) so the hot path stays allocation-free:
+    // the two strings and the empty-args array used to be built
+    // per binding per call, before the try. Now the caller passes
+    // the binding's already-stored _name plus two string literals
+    // and a shared EMPTY_ARGS reference; key and message are only
+    // assembled inside the catch, which fires ~never.
+    //
+    // name       binding name (already a stored string on the Binding)
+    // keyPrefix  warn-once key prefix, e.g. 'refreshAllThrow:'
+    // msgPrefix  warn-once message prefix, e.g. '_refreshAllLeds: '
+    XoneK3.K3Controller.prototype._safeBinding = function(
+            fn, thisArg, args, name, keyPrefix, msgPrefix) {
         try {
             fn.apply(thisArg, args);
         } catch (e) {
-            XoneK3._warnOnce(warnKey, warnPrefix + (e && e.message ? e.message : e));
+            XoneK3._warnOnce(
+                keyPrefix + name,
+                msgPrefix + name + ' threw: ' + (e && e.message ? e.message : e));
         }
     };
 
@@ -454,9 +474,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     XoneK3.K3Controller.prototype._refreshBinding = function(name) {
         var b = this.bindings[name];
         if (!b) return;
-        this._safeBinding(b._refresh, b, [],
-            'refreshBindingThrow:' + b._name,
-            '_refreshBinding: ' + b._name + ' threw: ');
+        this._safeBinding(b._refresh, b, EMPTY_ARGS, b._name,
+            'refreshBindingThrow:', '_refreshBinding: ');
     };
 
     // ============================================================
@@ -787,8 +806,24 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         if (this._batchPatchesActive) {
             throw new Error('_batchPatches cannot nest');
         }
-        var before = this.activePatches.slice();
-        var copy = before.slice();
+
+        // Single-slice: `copy` is the defensive snapshot handed to
+        // the mutator. `before` is a live reference to the pre-call
+        // activePatches — safe because:
+        //   (a) the mutator only ever sees `copy`, never `before`;
+        //   (b) `_diffPatches(before, result)` reads `before`
+        //       synchronously and extracts added/removed into new
+        //       arrays — no retained reference;
+        //   (c) nothing reads `before` after the diff call, and
+        //       `this.activePatches` isn't mutated until after it.
+        // The old double-slice defended against a mutator that
+        // reached into `ctrl.activePatches` directly — which is
+        // already a contract violation (`_batchPatchesActive` blocks
+        // it via addPatch / removePatch / replacePatch, and direct
+        // array mutation is undefined behaviour).
+        var copy = this.activePatches.slice();
+        var before = this.activePatches;
+
         var returned;
         this._batchPatchesActive = true;
         try {
@@ -983,10 +1018,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
                 if (!this.bindings.hasOwnProperty(k)) continue;
                 var b = this.bindings[k];
                 if (b.idx < 0) continue;
-                this._safeBinding(
-                    b._refresh, b, [],
-                    'refreshAllThrow:' + b._name,
-                    '_refreshAllLeds: ' + b._name + ' threw: ');
+                this._safeBinding(b._refresh, b, EMPTY_ARGS, b._name,
+                    'refreshAllThrow:', '_refreshAllLeds: ');
             }
         } finally {
             this._refreshAllLedsDepth--;
