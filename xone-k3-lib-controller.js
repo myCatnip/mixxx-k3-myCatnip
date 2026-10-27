@@ -142,6 +142,9 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this.isShifted = false;
         this._chordActive = false;
 
+        this._bpmHeldEncoder = null;
+        this._bpmHeldOwner   = null;
+
         // Per-channel timestamp of the last loop-touching event
         // (beatjump, loop-boundary edit, loop size/state change).
         // Consumed by the beatjump gate in lib-controller-render.js.
@@ -541,11 +544,39 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // _reset — which _applyBinding calls before this — leaves it
     // intact.
     XoneK3.K3Controller.prototype._releaseHeldWrite = function(b, prev) {
+        // bpmPress pairs a press binding (pressL) with an encoder
+        // (encoderL). pressHeld is session-scoped, so if pressL
+        // rebinds to something other than bpmPress (or to a
+        // different encoder), the release branch fires against
+        // the new binding and encoderL stays in head-mix mode
+        // forever. Clear only when the pairing is genuinely
+        // broken — if the new cfg still pairs bpmPress with the
+        // same encoder, leave the state alone (physical release
+        // will handle it normally).
+        if (this._bpmHeldOwner === b && this._bpmHeldEncoder) {
+            var newCfg = b._rawCfg;      // new cfg on rebind, null on unbind
+            var stillPairs =
+                newCfg &&
+                newCfg.func === XoneK3.FUNCS.bpmPress &&
+                newCfg.args &&
+                newCfg.args[0] === this._bpmHeldEncoder._name;
+            if (!stillPairs) {
+                this._bpmHeldEncoder.pressHeld    = false;
+                // true suppresses the release-side headSplit toggle:
+                // the user's press was orphaned by a layer change, so
+                // the eventual release must not fire the side effect.
+                // Next press of bpmPress resets it to false.
+                this._bpmHeldEncoder.turnHappened = true;
+                this._bpmHeldEncoder = null;
+                this._bpmHeldOwner   = null;
+            }
+        }
+
         if (!b._held) return;
         if (!prev.wasBound || !prev.group || !prev.inKey) return;
         var samePushTarget = (b.group === prev.group &&
-                              b.inKey === prev.inKey &&
-                              b.buttonMode === 'push');
+                            b.inKey === prev.inKey &&
+                            b.buttonMode === 'push');
         if (samePushTarget) return;
         engine.setValue(prev.group, prev.inKey, 0);
     };

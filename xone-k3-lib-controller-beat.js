@@ -226,13 +226,10 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // start is always 0 (file start) — intro_start is never read.
     // end is outro_end_position / samples, or 1 when unset.
     XoneK3.K3Controller.prototype._getContentBounds = function(ch) {
-        var samples = this._trackMeta(ch).samples;
-        if (!(samples > 0)) return null;
-
-        var grp = '[Channel' + ch + ']';
-        var outroS = engine.getValue(grp, 'outro_end_position');
-
-        var endN = (outroS > 0 && outroS <= samples) ? (outroS / samples) : 1;
+        var meta = this._trackMeta(ch);
+        if (!(meta.samples > 0)) return null;
+        var endN = (meta.outroEnd > 0 && meta.outroEnd <= meta.samples)
+            ? (meta.outroEnd / meta.samples) : 1;
         return { start: 0, end: endN };
     };
 
@@ -254,14 +251,14 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var grp = '[Channel' + ch + ']';
         var dur = engine.getValue(grp, 'duration');
         var samples = engine.getValue(grp, 'track_samples');
+        var outroS = engine.getValue(grp, 'outro_end_position');
         var meta = {
             duration: (dur > 0) ? dur : 0,
             fileBpm:  this._readFileBpm(ch),
-            samples:  (samples > 0) ? samples : 0
+            samples:  (samples > 0) ? samples : 0,
+            outroEnd: (outroS > 0) ? outroS : 0
         };
-        if (meta.duration > 0) {
-            this._trackMetaCache[ch] = meta;
-        }
+        if (meta.duration > 0) this._trackMetaCache[ch] = meta;
         return meta;
     };
 
@@ -544,7 +541,17 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             self._deriveOriginFromPosition(ch, pos);
             self._syncBeatCount(ch);
         });
-
+        
+        // outro_end_position changes when the user drags the outro
+        // marker. Invalidate the meta cache so countdownScheme
+        // picks up the new end on the next beat edge. No explicit
+        // refresh — a drag fires this CO at UI rate, and refreshing
+        // per fire would re-read all four metadata COs 30-100x/sec
+        // for a number that changes by one bar phase at most.
+        wire(this._playConns, 'outro_end_position', function() {
+            self._trackMetaCache[ch] = undefined;
+        });
+        
         if (Array.isArray(XoneK3.PHRASE_MARKER_COLORS) &&
             XoneK3.PHRASE_MARKER_COLORS.length > 0) {
             this._wireHotcueObservers(ch, grp);
@@ -729,7 +736,18 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     };
 
     XoneK3.K3Controller.prototype._onTrackLoaded = function(ch, v) {
-        if (v !== 1) return;
+        if (v !== 1) {
+            // Track unloaded. Without this the previous track's
+            // hasBeat / count survive, and beat LEDs bound to this
+            // channel keep painting the last cascade until reload.
+            // countdownScheme happens to hide it (returns
+            // countdownIdle when duration is 0), but every other
+            // beat LED on that deck would render stale.
+            this._trackMetaCache[ch] = undefined;
+            this._lastLoopTouchMs[ch] = 0;
+            this._resetBeat(ch);
+            return;
+        }
         var grp = '[Channel' + ch + ']';
         this._trackMetaCache[ch] = undefined;
         this._resetBeat(ch);
