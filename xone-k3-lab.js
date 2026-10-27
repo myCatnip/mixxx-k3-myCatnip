@@ -723,7 +723,23 @@
                 function() { self._labRenderPreview(); });
         }
 
+        // Fires on every beat_active transition for every open
+        // channel. Only the compiled preview's own beat deck can
+        // change what the preview LED shows — the previewPos,
+        // marker, and markerBand are single-channel scalars. A
+        // beat on channel 3 with a preview scheme bound to
+        // channel 1 repaints an identical frame. Runtime
+        // _onBeatActive already syncs the count via _repaintBeat
+        // on every rising edge (throttle only trips above ~2000
+        // BPM), so skipping the lab-side sync for non-preview
+        // channels leaves deck state correct. beatCh === null
+        // (unresolvable deck ref) falls through and does the
+        // work — same as before.
         this._onBeat = function(ch) {
+            var compiled = self._compiledPreview().compiled;
+            if (!compiled || !compiled.beat) return;
+            var beatCh = self._resolveDeckRef(compiled.beat.deck);
+            if (beatCh && ch !== beatCh) return;
             self._syncBeatCount(ch);
             self._renderPreviewLED();
         };
