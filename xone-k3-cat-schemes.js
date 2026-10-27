@@ -210,13 +210,19 @@
     var _fxSchemeKey = {};
 
     function fxScheme(n) {
-        var key = XoneK3.THEME.fx[n];
+        // Key on array *contents*, not reference. THEME.fx[n] may
+        // be a string or an array; reference equality misses an
+        // in-place array mutation (THEME.fx[3][0] = 100) and would
+        // return the stale composed scheme. String entries pass
+        // through unchanged — join('|') is only paid on arrays.
+        var entry = XoneK3.THEME.fx[n];
+        var key = Array.isArray(entry) ? entry.join('|') : entry;
         if (_fxSchemeKey[n] === key && _fxSchemeCache[n]) {
             return _fxSchemeCache[n];
         }
         var composed = B.composeScheme({
             scheme: 'catFX',
-            markerColor: key
+            markerColor: entry
         });
         _fxSchemeCache[n] = composed;
         _fxSchemeKey[n] = key;
