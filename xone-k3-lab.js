@@ -829,10 +829,6 @@
         }
     };
 
-    XoneK3.LabController.prototype._paintCellsBlack = function(cells) {
-        for (var cell in cells) this._paintRGB(cell, 0, 0, 0, 0);
-    };
-
     // ============================================================
     // GRID / SLOT / STATE RENDER
     // ============================================================
