@@ -172,9 +172,8 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
 
         var now = Date.now();
         if (this._virtualTempoTrack()) {
-            var grp = '[Channel' + ch + ']';
             var delta = newPos - clock.lastTrackPos;
-            var reversing = engine.getValue(grp, 'reverse') > 0;
+            var reversing = this._reverseCache[ch] > 0;
             delta = applyLoopWrapAdjust(st, clock, delta, newPos, reversing);
             clock.pos += delta;
         } else {
@@ -275,9 +274,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var meta = this._trackMeta(ch);
         if (!(meta.duration > 0)) return null;
         if (!meta.fileBpm) return null;
-        var bounds = this._getContentBounds(ch);
-        if (!bounds) return null;
-        return (pos - bounds.start) * meta.duration * meta.fileBpm / 60;
+        if (!(meta.samples > 0)) return null;
+        // bounds.start is always 0 (file start); bounds.end feeds
+        // only the track-end countdown, not beat math. Skipping
+        // _getContentBounds eliminates one outro_end_position CO
+        // read per call — two per throttled playposition tick in
+        // the common path.
+        return pos * meta.duration * meta.fileBpm / 60;
     };
 
     XoneK3.K3Controller.prototype._trackBeatF = function(ch) {
@@ -313,9 +316,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         return Math.floor(beatF) - this._phraseOrigin[ch] + 1;
     };
 
-    XoneK3.K3Controller.prototype._syncBeatCount = function(ch) {
+    XoneK3.K3Controller.prototype._syncBeatCount = function(ch, pos) {
         var st = this._decks[ch];
-        var beatF = this._trackBeatF(ch);
+        var beatF = (pos !== undefined)
+            ? this._beatF(ch, pos)
+            : this._trackBeatF(ch);
         if (beatF === null) return false;
         var count = this._cascadeCount(ch, beatF);
         var wasHasBeat = st.hasBeat;
@@ -401,7 +406,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
 
         if (this._phraseOrigin[ch] !== newOrigin) {
             this._phraseOrigin[ch] = newOrigin;
-            this._syncBeatCount(ch);
+            this._syncBeatCount(ch, pos);
         }
     };
 
@@ -505,6 +510,12 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // throttled playposition tick.
         wire(this._playConns, 'rate_ratio', function(v) {
             self._rateCache[ch] = v;
+        });
+        // reverse changes only on user action (reverse toggle).
+        // Cached so the beat-edge guard and _advanceVirtualClock
+        // don't read the CO per throttled playposition tick.
+        wire(this._playConns, 'reverse', function(v) {
+            self._reverseCache[ch] = v > 0 ? 1 : 0;
         });
 
         // Track identity changed. `track_loaded` fires 0→1 on the
@@ -614,6 +625,8 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // _openChannelBeatClocks keeps it current from here on.
         this._rateCache[ch] =
             engine.getValue('[Channel' + ch + ']', 'rate_ratio');
+        this._reverseCache[ch] =
+            engine.getValue('[Channel' + ch + ']', 'reverse') > 0 ? 1 : 0;
         this._readLoopState(ch);
         this._syncVirtualClock(ch);
         this._syncBeatCount(ch);
@@ -670,8 +683,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
 
         this._deriveOriginFromPosition(ch, newPos);
 
-        var playing   = engine.getValue(grp, 'play_indicator') > 0;
-        var reversing = engine.getValue(grp, 'reverse') > 0;
+        // st.playing is kept current by the play_indicator CO
+        // listener; _reverseCache by the reverse CO listener. If
+        // either transitions in the same engine frame as this
+        // tick, the corresponding handler catches up in the same
+        // event-loop batch and repaints — no missed paint.
+        var playing   = st.playing;
+        var reversing = this._reverseCache[ch] > 0;
         // `beat_active` fires reliably forward but irregularly on
         // backward jog. With the guard active, st.active (pulse
         // phase) is left frozen for up to 1.5 s while count keeps
@@ -679,7 +697,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // Force the position repaint on backward movement so both
         // st.count and st.active update from the same source.
         if (playing && !reversing && !movingBackward && (now - st.lastBeatEdge < 1500)) {
-            this._syncBeatCount(ch);
+            this._syncBeatCount(ch, newPos);
             return;
         }
 
@@ -725,6 +743,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // catches this if rate_ratio changes, but the track-loaded
         // path is the natural point to be sure.
         this._rateCache[ch] = engine.getValue(grp, 'rate_ratio');
+        this._reverseCache[ch] = engine.getValue(grp, 'reverse') > 0 ? 1 : 0;
         this._readLoopState(ch);
         // _resetBeat also wiped hotcueState. Re-seed before
         // _deriveOriginFromPosition below — if the clocks were
@@ -807,12 +826,26 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             var b = this._beatLeds[i];
             try {
                 if (ch === undefined) { b._refresh(); continue; }
-                var deckCh;
-                if (b._csScheme && b._csScheme.beat) {
-                    deckCh = this._resolveDeckRef(b._csScheme.beat.deck);
-                } else if (b._csCompiledMemo && b._csCompiledMemo.beat) {
-                    deckCh = this._resolveDeckRef(b._csCompiledMemo.beat.deck);
+                // A function scheme can change shape at runtime —
+                // countdownScheme returns 'countdownIdle' (no beat)
+                // before a track loads and 'countdownA1..4' (beat)
+                // afterwards. Probe the current evaluation: if no
+                // beat block is present, this binding has no
+                // business repainting on every beat edge. Every FX
+                // layout cell goes through this path (its scheme is
+                // a composed closure over fxScheme(n), which has no
+                // beat), so this is what stops the per-beat churn.
+                // _evaluateScheme is memoized — a stable ref just
+                // hits the cache.
+                var beat = (b._csScheme && b._csScheme.beat)
+                        || (b._csCompiledMemo && b._csCompiledMemo.beat)
+                        || null;
+                if (!beat && b._csSchemeFn) {
+                    var probe = b._evaluateScheme();
+                    beat = (probe && probe.beat) || null;
                 }
+                if (!beat) continue;
+                var deckCh = this._resolveDeckRef(beat.deck);
                 if (deckCh === undefined || deckCh === null) { b._refresh(); continue; }
                 if (deckCh === ch) b._refresh();
             } catch (e) {

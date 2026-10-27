@@ -268,10 +268,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         }
         var cache = this._flatCache;
         var entry = cache[segs._cacheId];
-        if (entry && entry.key === this._calibFingerprint()) return entry.value;
+        var fingerprint = this._calibFingerprint();
+        if (entry && entry.key === fingerprint) return entry.value;
 
         var value = this._minSegmentEmit(segs);
-        cache[segs._cacheId] = { key: this._calibFingerprint(), value: value };
+        cache[segs._cacheId] = { key: fingerprint, value: value };
         return value;
     };
 

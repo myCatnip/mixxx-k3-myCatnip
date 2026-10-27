@@ -120,6 +120,11 @@ Beyond the binding map and `activePatches`, the controller carries:
   Populated by `_catchUpChannel` and `_onTrackLoaded`, kept
   current by the `rate_ratio` CO listener. `_channelRate` reads
   this first; falls back to a live CO read on a cold cache.
+- `_reverseCache[1..4]` — per-channel reverse flag (1/0).
+  Populated by `_catchUpChannel` and `_onTrackLoaded`, kept
+  current by the `reverse` CO listener. Read by
+  `_advanceVirtualClock` (trackTempo mode) and by the beat-edge
+  guard in `_onPlayposition`.
 - `_flatCache{}` — per-controller `_flatTarget` cache, keyed by
   `segs._cacheId` then `_calibFingerprint()` (§12)
 - `_calibCurveName` — the calibration curve name from boot config
@@ -406,7 +411,7 @@ only on track *change*, not on preset reload.
 _channelRate(ch)     prefers rate_ratio, falls back to 1 + rate
 _readFileBpm(ch)     reads file_bpm, falls back to bpm / rate
 _trackMeta(ch)       cached wrapper. Only cached when duration > 0.
-_beatF(ch, pos)      (pos - bounds.start) * duration * fileBpm / 60
+_beatF(ch, pos)      pos * duration * fileBpm / 60 (beat 0 = file start)
 _trackBeatF(ch)      _beatF(ch, playposition)
 ```
 
@@ -824,6 +829,7 @@ Eight per channel:
 | `_playConns` | `slip_enabled` | Count resync. |
 | `_playConns` | `track_samples` | Track identity changed — clears `_trackMetaCache[ch]`, re-seeds `st.hotcueState`, re-derives phrase origin, resyncs count. `track_loaded` isn't reliable for load-over-current or pre-settle races. |
 | `_playConns` | `rate_ratio` | Updates `_rateCache[ch]` for `_channelRate`. |
+| `_playConns` | `reverse` | Updates `_reverseCache[ch]`. |
 
 Plus hotcue colour/position observers when
 `PHRASE_MARKER_COLORS` is non-empty (2 × `XoneK3.HOTCUE_MAX`
@@ -1572,17 +1578,34 @@ XoneK3` in `lib-core.js` carries an inline disable.
 - **`_advanceVirtualClock` clamps `dt` to zero.** Date.now() is
   not monotonic; a backward NTP step would shift the loop-mode
   count backward.
-- **`_advanceVirtualClock` runs inside the 30 ms throttle, and
-  reads zero COs.** Real-seconds mode uses `st.playing` (kept
-  current by `_onPlayIndicator`) and `_channelRate` (reads
-  `_rateCache`, kept current by the `rate_ratio` listener).
-  Accumulation is identical — `dt` grows from ~7 ms to ~30 ms
-  per step.
+- **`_advanceVirtualClock` reads zero COs.** Real-seconds mode
+  uses `st.playing` (kept current by `_onPlayIndicator`),
+  `_channelRate` (reads `_rateCache`), and `_reverseCache` for
+  wrap direction. Track-tempo mode uses `_reverseCache` and
+  the `playposition` delta the caller passes in. Accumulation
+  is identical between modes — `dt` grows from ~7 ms to ~30 ms
+  per step in real-seconds.
+- **`_onPlayposition` reads one CO per fire — `playposition`**,
+  above the throttle gate so the pre-gate direction check has
+  a fresh value. Once past the throttle the body does zero
+  additional CO reads: `st.playing` and `_reverseCache[ch]` are
+  cached, `_syncBeatCount` and `_repaintFromPosition` accept
+  `pos` from the caller.
+- **`_beatF` reads zero COs.** It uses cached track metadata
+  only. `_getContentBounds` is called from `countdownScheme`
+  (which needs `bounds.end`) but not from `_beatF` — the
+  function's only use of the bounds was `bounds.start`, which is
+  always `0`.
 - **`_repaintFromPosition(ch, pos)` accepts `pos`.** When called
   from `_onPlayposition`, the caller just read `playposition`
   for `_advanceVirtualClock` — passing it in saves one redundant
   CO read per throttled tick. Called with `pos === undefined`
   (default), it falls back to `_trackBeatF(ch)`.
+- **`_syncBeatCount(ch, pos)` accepts `pos`.** Same convention
+  as `_repaintFromPosition`. The guard branch in
+  `_onPlayposition` passes `newPos`, avoiding a redundant
+  `playposition` re-read. Every other caller omits `pos` and
+  gets the live-read fallback.
 - **The loop clock scales by `_channelRate(ch)`, not
   `[ChannelN],rate`.** Mixxx's `rate` CO is the slider position
   (~−0.08..+0.08). A `<= 0` guard on it silently turns the
@@ -1646,6 +1669,13 @@ XoneK3` in `lib-core.js` carries an inline disable.
   clock-open. `_channelRate` reads this first; falls back to a
   live CO read on a cold cache. Removes one CO read per
   throttled playposition tick from `_advanceVirtualClock`.
+- **`_reverseCache[1..4]`** — per-channel reverse flag (1/0).
+  Populated by `_catchUpChannel` and `_onTrackLoaded`, kept
+  current by the `reverse` CO listener wired at clock-open.
+  Read by `_advanceVirtualClock` (trackTempo mode) and by the
+  beat-edge guard in `_onPlayposition`. Removes two CO reads
+  per throttled playposition tick from the guard path
+  (`play_indicator` via `st.playing`, `reverse` via the cache).
 - **`_flatCache`** — keyed by `segs._cacheId` then
   `_calibFingerprint()`. Two controllers with different
   fingerprints don't share entries. See §12 for why the

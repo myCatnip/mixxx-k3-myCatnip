@@ -128,6 +128,16 @@
                 };
             }
 
+            // Memoize the composed result per inner reference.
+            // When the inner fn is itself memoized (fxScheme, THEME
+            // reads, etc.), the same inner object comes back every
+            // call, so we return the same composed object — no
+            // fresh-scheme warning, no per-render recompile. When
+            // the inner fn returns a fresh literal (the case
+            // _warnIfFreshScheme exists to catch), inner !==
+            // lastInner each call and we fall back to composing
+            // fresh — warning still fires, behaviour unchanged.
+            var lastInner = null, lastComposed = null;
             return function() {
                 var inner = capturedRef.call(this);
                 if (inner === undefined || inner === null) {
@@ -140,9 +150,12 @@
                     }
                     return null;
                 }
-                return XoneK3.builders.composeScheme(
+                if (inner === lastInner) return lastComposed;
+                lastInner = inner;
+                lastComposed = XoneK3.builders.composeScheme(
                     Object.assign({}, capturedOpts, { scheme: inner }),
                     capturedBase);
+                return lastComposed;
             };
         }
 

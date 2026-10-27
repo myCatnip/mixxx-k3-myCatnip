@@ -192,6 +192,12 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         // it falls back to a live CO read on a cold cache.
         // Eliminates a per-tick CO read from _advanceVirtualClock.
         this._rateCache = { 1: null, 2: null, 3: null, 4: null };
+        // Per-channel reverse flag. Populated by _catchUpChannel
+        // and _onTrackLoaded, kept current by the reverse CO
+        // listener. Removes two CO reads per throttled playposition
+        // tick (the beat-edge guard and _advanceVirtualClock's
+        // trackTempo:true branch).
+        this._reverseCache = { 1: 0, 2: 0, 3: 0, 4: 0 };
         this._refreshActiveAlt();
 
         this._beatLeds = [];

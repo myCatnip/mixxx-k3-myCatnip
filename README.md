@@ -492,49 +492,6 @@ reload and pick the chain from the preset menu. Paths:
 `~/.mixxx/` on Linux, `~/Library/Application Support/Mixxx/`
 on macOS, `%LOCALAPPDATA%\Mixxx\` on Windows.
 
-### Shipped FX presets
-
-`fx-presets/` ships Mixxx effect-chain XMLs that line up with
-the layouts here:
-
-**Full-size chains** — pairs with the focus-mode `fxLayout<n>`
-layout. Also works with oneK3 twoDeck columns as-is (they only
-touch each effect's meta + enable, so any of the four is fine):
-
-| File | Layout |
-|---|---|
-| `1-EchoMoog.xml` | Moog → Echo → Moog |
-| `2-EchoBit.xml` | Bitcrusher → Echo → Moog |
-| `3-FlangerMoog.xml` | Moog → Flanger → Moog |
-| `4-TremeloAutopan.xml` | Autopan → Tremolo → Moog |
-
-**Mini chains** — pairs with the mini `echo` layout (units 2–4):
-
-| File | Layout |
-|---|---|
-| `1.miniEcho.xml` | Echo — time / feedback / ping-pong / send + quantize / triplets |
-
-**Quick Effect chains** — pairs with `QFX_CHAIN_LIST` in
-`xone-k3-cat-schemes.js`, in order:
-
-| File | `QFX_CHAIN_LIST` index |
-|---|---|
-| `qfx1-Reverb.xml` | 1 `filterReverb` |
-| `qfx2-Smooth Growl.xml` | 2 `filterSmoothGrowl` |
-| `qfx3-Echo.xml` | 3 `filterEcho` |
-| `qfx4-Flanger.xml` | 4 `filterFlanger` |
-| `qfx5-Moog.xml` | 5 `filterMoog` |
-| `qfx6-Balance.xml` | 6 `filterBalance` |
-
-(`filterNone` is Mixxx's built-in empty chain, index 0 — no
-preset file.)
-
-**Import:** copy the XML into Mixxx's user folder — `effects/`
-for full-size chains, `quickeffectchains/` for QFX — then
-reload and pick the chain from the preset menu. Paths:
-`~/.mixxx/` on Linux, `~/Library/Application Support/Mixxx/`
-on macOS, `%LOCALAPPDATA%\Mixxx\` on Windows.
-
 ### Making a single-effect layout (oneK3 + mini)
 
 Shipped defaults drive two effects per FX unit. To drive one
@@ -600,10 +557,6 @@ var TWO_DECK_MINI_FX_LAYOUTS = {
     4: twoDeckMiniFxTable('myEcho')
 };
 ```
-
-The shipped `echo` layout is already wired to units 2–4 and
-pairs with `1.miniEcho.xml` — load that preset on each unit
-the layout drives.
 
 The shipped `echo` layout is already wired to units 2–4 and
 pairs with `1.miniEcho.xml` — load that preset on each unit

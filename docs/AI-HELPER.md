@@ -348,9 +348,6 @@ Derived:
   selectedFxCurrent    — unit selectedFxA/B resolves to
   selectedFxAlt        — the other one
 
-(The runtime also carries selectedDeckC/D and selectedFxC/D as
-spare slots. No shipped patch uses them.)
-
 Setters:
 
   setSelectedFor('deck', 'A', 3)   — pin channel 3 into slot A

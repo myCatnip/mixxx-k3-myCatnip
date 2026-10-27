@@ -31,7 +31,7 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // TUNABLES
     // ============================================================
     XoneK3.SYSEX_THROTTLE_MS = 10;
-    XoneK3.PULSE_CO_MS = 50;
+    XoneK3.PULSE_CO_MS = 30;
 
     XoneK3.DEFAULT_RGB_BRIGHTNESS     = 110;
     XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF = 12;
