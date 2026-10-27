@@ -146,7 +146,7 @@ twoDeck:      fxLayoutA<n>      FX-A column, left  (pinned)
 twoDeckMini:  fxMini<n>         one focused FX unit (same shape as focus)
 
 Low-EQ route cells (button0_2 / button3_2)
-focus:        button0_2         FX-alt → active deck  (LED follows selectedFxAlt)
+focus:        button0_2         active FX → active deck  (LED follows selectedFxCurrent)
 twoDeck/mini: button0_2         FX-A → deck A        (LED follows selectedFxA)
               button3_2         FX-B → deck B        (LED follows selectedFxB)
 
@@ -155,7 +155,7 @@ only twoDeck / mini have button3_2 as a route.
 
 QFX enable cells (button1_2 / button2_2)
 focus:        button1_2         QFX-A enable + chain LED
-              button2_2         fxRoute (focused FX → active deck)
+              button2_2         display-only (echoes knob2_2)
 twoDeck/mini: button1_2         QFX-A enable + chain LED
               button2_2         QFX-B enable + chain LED
 ```
@@ -383,12 +383,12 @@ differs from unit 1.
 |---|---|---|---|---|
 | `knob2_2` | FX3.p2 | FX3.p2 | FX3.p2 | FX3.p2 |
 | `knob3_2` | FX3.meta | FX3.meta | FX3.meta | FX3.meta |
-| `button2_2` | fxRoute | fxRoute | fxRoute | fxRoute |
+| `button2_2` | LED→`knob2_2` | LED→`knob2_2` | LED→`knob2_2` | LED→`knob2_2` |
 | `button3_2` | FX3.enable | FX3.enable | FX3.enable | FX3.enable |
 
-`button0_2` (alt FX route) comes from `TOP_SHARED`, not this
-table. `button2_2` is `fxRoute: true` on every unit — it routes
-the focused FX unit into the active deck.
+`button0_2` (active FX route) comes from `TOP_SHARED`, not this
+table — it routes the focused FX unit into the active deck.
+`button2_2` is display-only on every unit — echoes `knob2_2`.
 
 ### twoDeck — `TWO_DECK_FX_LAYOUTS`
 
