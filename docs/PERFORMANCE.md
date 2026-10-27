@@ -109,7 +109,7 @@ cached and updated by a listener. Reads elsewhere hit the cache.
 | `_rateCache[ch]` | `rate_ratio` | listener |
 | `_reverseCache[ch]` | `reverse` | listener |
 | `_decks[ch].playing` | `play_indicator` | listener |
-| `_trackMetaCache[ch]` | `duration`, `file_bpm`, `track_samples` | `track_loaded`, `track_samples` change |
+| `_trackMetaCache[ch]` | `duration`, `file_bpm`, `track_samples`, `outro_end_position` | `track_loaded`, `track_samples` change, `outro_end_position` change |
 | `_decks[ch].hotcueState` | `hotcue_N_{color,pos}` × 16 | per-slot listeners; re-seeded on `track_samples` |
 
 `_trackMetaCache` skips caching when `duration == 0` — at boot
@@ -209,8 +209,11 @@ same composed object — no recompile, no fresh-scheme warning.
 ### Notable CO eliminations
 
 `_beatF` skips `_getContentBounds` because its only use was
-`bounds.start`, which is always `0`. Saves the
-`outro_end_position` CO read per call.
+`bounds.start`, which is always `0`. `_getContentBounds` now
+reads from `_trackMeta`'s cache rather than a live
+`outro_end_position`, so this only saves a function call — but
+the separation still matters: `_beatF` is on the per-tick path
+and `_getContentBounds` isn't.
 
 `_onPlayposition` uses `st.playing` and `_reverseCache[ch]`
 instead of reading those COs, saving two CO reads per fire.
@@ -220,6 +223,13 @@ saving a redundant `playposition` re-read.
 
 `_advanceVirtualClock` (trackTempo mode) reads
 `_reverseCache[ch]` instead of the CO.
+
+`countdownScheme` is CO-free in steady state: `_trackMeta` hits
+the cache, and `st.lastPlayPos` is written on every
+`playposition` fire before the throttle gate. The cold path
+(post-load, post-outro-drag) re-reads once, then caches.
+Drag-time `outro_end_position` invalidation does not refresh —
+the next beat edge renders with the new bounds.
 
 Every entry above hits the `playposition` path, which fires
 repeatedly during playback. That's the CO-mutex headroom that
@@ -255,15 +265,15 @@ transition is why the probe runs at refresh, not bind.
 
 ### Empty-deck `_trackMeta` cold miss
 
-`_trackMeta(ch)` fires three CO reads on a cold miss
-(`duration`, `track_samples`, `file_bpm`) and only caches when
-`duration > 0`. A beat LED pointed at a channel with no track
-re-misses every beat edge that touches that channel. In
-shipped presets this rarely bites — the layer/shift countdown
-bindings target decks the presets load. A fix needs a
-separate "settled empty" flag invalidated on `track_loaded`;
-skipped because the state machine gets harder and the case
-doesn't ship.
+`_trackMeta(ch)` fires four CO reads on a cold miss
+(`duration`, `track_samples`, `file_bpm`, `outro_end_position`)
+and only caches when `duration > 0`. A beat LED pointed at a
+channel with no track re-misses every beat edge that touches
+that channel. In shipped presets this rarely bites — the
+layer/shift countdown bindings target decks the presets load.
+A fix needs a separate "settled empty" flag invalidated on
+`track_loaded`; skipped because the state machine gets harder
+and the case doesn't ship.
 
 ### `_applyResolved` token-fingerprint per binding
 
@@ -292,9 +302,9 @@ paid for in cost or in mistakes.
   read per tick is free performance with zero behavioural
   change.
 - **Invalidate at the change, not on a timer.**
-  `_trackMetaCache` clears on `track_loaded` and
-  `track_samples`. A TTL either serves stale data or wastes
-  reads.
+  `_trackMetaCache` clears on `track_loaded`, `track_samples`,
+  and `outro_end_position`. A TTL either serves stale data or
+  wastes reads.
 - **Don't cache "not loaded yet".** `_trackMeta` skips caching
   when `duration == 0` because at boot the CO tree may not
   have settled — caching the zero would pin it for the

@@ -103,8 +103,9 @@ Beyond the binding map and `activePatches`:
 - `_lastLoopTouchMs[1..4]` — beatjump gate timestamps
 - `_decks[1..4]` — per-channel timeline and beat state (see `_freshDeckState`)
 - `_phraseOrigin[1..4]` — beat where "count 1" sits
-- `_trackMetaCache{}` — `{duration, fileBpm, samples}`, cleared on
-  `track_loaded` / `track_samples`. Incomplete reads not cached (§6).
+- `_trackMetaCache{}` — `{duration, fileBpm, samples, outroEnd}`,
+  cleared on `track_loaded` / `track_samples` /
+  `outro_end_position`. Incomplete reads not cached (§6).
 - `_rateCache[1..4]` — `rate_ratio` snapshot, listener-fed
 - `_reverseCache[1..4]` — reverse flag, listener-fed
 - `_flatCache{}` — `_flatTarget` cache, keyed on segments id + `_calibFingerprint()` (§12)
@@ -247,8 +248,9 @@ mode. `_resetBeat` is the only hard reset. No manual setter.
 
 ## Beat maths
 
-Metadata cached per channel (`duration`, `fileBpm`, `samples`) —
-fixed for a loaded track. Content bounds read fresh.
+Metadata cached per channel (`duration`, `fileBpm`, `samples`,
+`outroEnd`). Content bounds now read from the cache; the
+`outro_end_position` listener invalidates on drag.
 
 **Incomplete reads aren't cached.** `_trackMeta` writes only when
 `duration > 0` — the CO tree may not have settled at first read.
@@ -1033,11 +1035,12 @@ carries an inline disable.
   Observers read `_decks[ch]` fresh on every fire (`_resetBeat`
   replaces the object). `_deriveOriginFromPosition` reads only
   this — zero COs per tick.
-- **`_trackMetaCache`** — reset on `track_loaded` and
-  `track_samples`. Incomplete reads (duration 0) not cached. The
-  `track_samples` listener is the reliable invalidation point;
-  `track_loaded` doesn't re-fire on load-over-current and can
-  arrive pre-settle. Un-invalidated cache symptom: beats advance
+- **`_trackMetaCache`** — reset on `track_loaded`, `track_samples`,
+  and `outro_end_position`. Incomplete reads (duration 0) not
+  cached. `track_samples` is the reliable load-invalidation
+  point; `outro_end_position` invalidates mid-track on drag
+  without a repaint — the next beat edge renders with the new
+  bounds. Un-invalidated cache symptom: beats advance
   at wrong rate for every track after the first, clears on restart.
 - **`_rateCache[1..4]`** — `rate_ratio` snapshot. Listener-fed,
   seeded by `_catchUpChannel`. Removes a CO read from
