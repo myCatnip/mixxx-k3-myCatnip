@@ -233,25 +233,70 @@
     // ============================================================
     // MINI — TWO_DECK_MINI_FX_LAYOUTS
     // ============================================================
-    function twoDeckMiniFxTable(overrides) {
-        return Object.assign({
+    // Named layouts keyed by cell slot (0..3), mapping to the
+    // physical positions:
+    //
+    //     1  2       knob1_0 / button1_0  = slot 0
+    //     3  4       knob2_0 / button2_0  = slot 1
+    //                knob1_1 / button1_1  = slot 2
+    //                knob2_1 / button2_1  = slot 3
+    //
+    // TWO_DECK_MINI_FX_LAYOUTS[unit] picks the layout a given FX
+    // unit uses. Adding a layout here makes it available to
+    // every unit; two units sharing a name share the layout.
+    var MINI_LAYOUTS = {
+        // Two effects, split across the four positions. Each
+        // effect gets one parameter + one button on the top row,
+        // meta + enable on the bottom. This is the generic
+        // default and what ships on unit 1.
+        split: {
             knob0:   { effect: 1, param: 1 },
             knob2:   { effect: 1, param: 'meta' },
             button0: { effect: 1, buttonParam: 1, marker: 'low' },
             button2: { effect: 1, enabled: true, marker: 'low' },
-            
+
             knob1:   { effect: 2, param: 1 },
             knob3:   { effect: 2, param: 'meta' },
             button1: { effect: 2, buttonParam: 1, marker: 'low' },
             button3: { effect: 2, enabled: true, marker: 'low' }
-        }, overrides);
+        },
+
+        // Single-effect Echo driven from all 8 cells. Pairs with
+        // `1.miniEcho.xml` in fx-presets/ — load that on each
+        // FX unit this layout drives.
+        //
+        //   pos 1  time      + quantize
+        //   pos 2  pingpong  + triplets
+        //   pos 3  feedback  + (display only)
+        //   pos 4  send      + enable
+        echo: {
+            knob0:   { effect: 1, param: 1 },
+            button0: { effect: 1, buttonParam: 1 },
+            knob1:   { effect: 1, param: 3 },
+            button1: { effect: 1, buttonParam: 2 },
+            knob2:   { effect: 1, param: 2 },
+            button2: { displayOnly: true, on: true },
+            knob3:   { effect: 1, param: 4 },
+            button3: { effect: 1, enabled: true }
+        }
+    };
+
+    function twoDeckMiniFxTable(layoutName) {
+        var layout = MINI_LAYOUTS[layoutName];
+        if (!layout) {
+            XoneK3._warnOnce('miniLayoutMissing:' + layoutName,
+                'twoDeckMiniFxTable: unknown layout "' + layoutName +
+                '" — falling back to "split"');
+            layout = MINI_LAYOUTS.split;
+        }
+        return Object.assign({}, layout);
     }
 
     var TWO_DECK_MINI_FX_LAYOUTS = {
-        1: twoDeckMiniFxTable(),
-        2: twoDeckMiniFxTable(),
-        3: twoDeckMiniFxTable(),
-        4: twoDeckMiniFxTable()
+        1: twoDeckMiniFxTable('split'),
+        2: twoDeckMiniFxTable('echo'),
+        3: twoDeckMiniFxTable('echo'),
+        4: twoDeckMiniFxTable('echo')
     };
 
     function twoDeckMiniFxCells(n) {
@@ -281,4 +326,5 @@
     CAT.fxLayout = fxLayout;
     CAT.twoDeckFxLayout = twoDeckFxLayout;
     CAT.twoDeckMiniFxLayout = twoDeckMiniFxLayout;
+    CAT.MINI_LAYOUTS = MINI_LAYOUTS;
 })();

@@ -441,6 +441,182 @@ difference between oneK3 and oneK3 mini is this middle layout.
 Change the table entry in `xone-k3-cat-fx.js`. See CUSTOMISE §1.9
 for the field vocabulary and worked examples.
 
+### QFX chain presets
+
+`QFX_CHAIN_LIST` in `xone-k3-cat-schemes.js` must match
+Preferences → Effects → Quick Effect Chains. Only the chains
+listed there light up correctly on the QFX buttons. To add a new
+chain: create it in Mixxx, then add its name to the list. See
+CUSTOMISE §2.9.
+
+### Shipped FX presets
+
+`fx-presets/` ships Mixxx effect-chain XMLs that line up with
+the layouts here:
+
+**Full-size chains** — pairs with the focus-mode `fxLayout<n>`
+layout. Also works with oneK3 twoDeck columns as-is (they only
+touch each effect's meta + enable, so any of the four is fine):
+
+| File | Layout |
+|---|---|
+| `1-EchoMoog.xml` | Moog → Echo → Moog |
+| `2-EchoBit.xml` | Bitcrusher → Echo → Moog |
+| `3-FlangerMoog.xml` | Moog → Flanger → Moog |
+| `4-TremeloAutopan.xml` | Autopan → Tremolo → Moog |
+
+**Mini chains** — pairs with the mini `echo` layout (units 2–4):
+
+| File | Layout |
+|---|---|
+| `1.miniEcho.xml` | Echo — time / feedback / ping-pong / send + quantize / triplets |
+
+**Quick Effect chains** — pairs with `QFX_CHAIN_LIST` in
+`xone-k3-cat-schemes.js`, in order:
+
+| File | `QFX_CHAIN_LIST` index |
+|---|---|
+| `qfx1-Reverb.xml` | 1 `filterReverb` |
+| `qfx2-Smooth Growl.xml` | 2 `filterSmoothGrowl` |
+| `qfx3-Echo.xml` | 3 `filterEcho` |
+| `qfx4-Flanger.xml` | 4 `filterFlanger` |
+| `qfx5-Moog.xml` | 5 `filterMoog` |
+| `qfx6-Balance.xml` | 6 `filterBalance` |
+
+(`filterNone` is Mixxx's built-in empty chain, index 0 — no
+preset file.)
+
+**Import:** copy the XML into Mixxx's user folder — `effects/`
+for full-size chains, `quickeffectchains/` for QFX — then
+reload and pick the chain from the preset menu. Paths:
+`~/.mixxx/` on Linux, `~/Library/Application Support/Mixxx/`
+on macOS, `%LOCALAPPDATA%\Mixxx\` on Windows.
+
+### Shipped FX presets
+
+`fx-presets/` ships Mixxx effect-chain XMLs that line up with
+the layouts here:
+
+**Full-size chains** — pairs with the focus-mode `fxLayout<n>`
+layout. Also works with oneK3 twoDeck columns as-is (they only
+touch each effect's meta + enable, so any of the four is fine):
+
+| File | Layout |
+|---|---|
+| `1-EchoMoog.xml` | Moog → Echo → Moog |
+| `2-EchoBit.xml` | Bitcrusher → Echo → Moog |
+| `3-FlangerMoog.xml` | Moog → Flanger → Moog |
+| `4-TremeloAutopan.xml` | Autopan → Tremolo → Moog |
+
+**Mini chains** — pairs with the mini `echo` layout (units 2–4):
+
+| File | Layout |
+|---|---|
+| `1.miniEcho.xml` | Echo — time / feedback / ping-pong / send + quantize / triplets |
+
+**Quick Effect chains** — pairs with `QFX_CHAIN_LIST` in
+`xone-k3-cat-schemes.js`, in order:
+
+| File | `QFX_CHAIN_LIST` index |
+|---|---|
+| `qfx1-Reverb.xml` | 1 `filterReverb` |
+| `qfx2-Smooth Growl.xml` | 2 `filterSmoothGrowl` |
+| `qfx3-Echo.xml` | 3 `filterEcho` |
+| `qfx4-Flanger.xml` | 4 `filterFlanger` |
+| `qfx5-Moog.xml` | 5 `filterMoog` |
+| `qfx6-Balance.xml` | 6 `filterBalance` |
+
+(`filterNone` is Mixxx's built-in empty chain, index 0 — no
+preset file.)
+
+**Import:** copy the XML into Mixxx's user folder — `effects/`
+for full-size chains, `quickeffectchains/` for QFX — then
+reload and pick the chain from the preset menu. Paths:
+`~/.mixxx/` on Linux, `~/Library/Application Support/Mixxx/`
+on macOS, `%LOCALAPPDATA%\Mixxx\` on Windows.
+
+### Making a single-effect layout (oneK3 + mini)
+
+Shipped defaults drive two effects per FX unit. To drive one
+effect from all the controls instead (e.g. an Echo with time /
+feedback / ping-pong / send on knobs plus quantize / triplets /
+enable on buttons), override the layout table.
+
+**Find the parameter number:** hover over the knob or button in
+Mixxx — the status bar shows the CO name (`parameter2`,
+`button_parameter1`). That's the `param:` / `buttonParam:` value.
+
+**oneK3 — column A on effect 1:**
+
+```js
+// in xone-k3-cat-fx.js
+var TWO_DECK_FX_LAYOUTS = {
+    1: twoDeckFxTable({
+        knob0:   { effect: 1, param: 1 },             // knob1_0
+        knob1:   { effect: 1, param: 2 },             // knob1_1
+        button0: { effect: 1, buttonParam: 1 },       // button1_0
+        button1: { effect: 1, enabled: true }         // button1_1
+    }),
+    2: twoDeckFxTable(), 3: twoDeckFxTable(), 4: twoDeckFxTable()
+};
+```
+
+Column B keeps its default. Column A gives you 2 knobs + 2
+buttons for effect 1.
+
+**mini — full Echo on effect 1.** Positions `1 2 / 3 4` (knob
+above, button below in each):
+
+| | Knob | Button |
+|---|---|---|
+| 1 | time | quantize |
+| 2 | ping-pong | triplets |
+| 3 | feedback | display only |
+| 4 | send | enable |
+
+Add a new named layout to `MINI_LAYOUTS` (in `xone-k3-cat-fx.js`):
+
+```js
+// MINI_LAYOUTS:
+myEcho: {
+    knob0:   { effect: 1, param: 1 },           // pos 1  time
+    button0: { effect: 1, buttonParam: 1 },     //        quantize
+    knob1:   { effect: 1, param: 3 },           // pos 2  pingpong
+    button1: { effect: 1, buttonParam: 2 },     //        triplets
+    knob2:   { effect: 1, param: 2 },           // pos 3  feedback
+    button2: { displayOnly: true, on: true },   //        display only
+    knob3:   { effect: 1, param: 4 },           // pos 4  send
+    button3: { effect: 1, enabled: true }       //        enable
+}
+```
+
+Then pick it per unit:
+
+```js
+var TWO_DECK_MINI_FX_LAYOUTS = {
+    1: twoDeckMiniFxTable('split'),    // two-effect default
+    2: twoDeckMiniFxTable('myEcho'),
+    3: twoDeckMiniFxTable('myEcho'),
+    4: twoDeckMiniFxTable('myEcho')
+};
+```
+
+The shipped `echo` layout is already wired to units 2–4 and
+pairs with `1.miniEcho.xml` — load that preset on each unit
+the layout drives.
+
+The shipped `echo` layout is already wired to units 2–4 and
+pairs with `1.miniEcho.xml` — load that preset on each unit
+the layout drives.
+
+No Mixxx effect chain presets are shipped for the mini layout —
+its shape assumes a different per-effect arrangement, so build
+your own. Same for oneK3: its default is just meta knobs on
+effect 1 and 2 with their enables.
+
+The same shape works for focus mode (`FX_LAYOUTS`), with different
+cell names. Full field vocabulary: CUSTOMISE §1.9.
+
 ---
 
 ## LAB layout and behaviour
