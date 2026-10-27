@@ -565,6 +565,14 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
 
         function onColor(n) {
             var st = self._decks[ch];
+            // _onTrackLoaded and _onLoopEnabled wipe hotcueState
+            // (via _resetBeat) before re-seeding it a few CO reads
+            // later. Mixxx clearing the outgoing track's hotcues
+            // fires these observers inside that window, when the
+            // slot is still undefined. Create it on demand —
+            // _deriveOriginFromPosition treats half-populated
+            // entries as inert until both fields arrive.
+            if (!st.hotcueState[n]) st.hotcueState[n] = {};
             st.hotcueState[n].color =
                 engine.getValue(grp, 'hotcue_' + n + '_color');
             var pos = engine.getValue(grp, 'playposition');
@@ -572,6 +580,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         }
         function onPosition(n) {
             var st = self._decks[ch];
+            if (!st.hotcueState[n]) st.hotcueState[n] = {};
             st.hotcueState[n].pos =
                 engine.getValue(grp, 'hotcue_' + n + '_position');
             var pos = engine.getValue(grp, 'playposition');
