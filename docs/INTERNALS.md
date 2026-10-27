@@ -325,7 +325,7 @@ Returns `true` when state changed.
 | Caller | Uses return? |
 |---|---|
 | `_onLoopEnabled` | No — `_resolveDisplaySource` repaints |
-| `_onPlayIndicator` | Yes — no-op branch needs explicit `_refreshBeatLeds` |
+| `_onPlayIndicator` | No — always calls `_refreshBeatLeds` after |
 | `_catchUpChannel` | No |
 | `_onTrackLoaded` | No |
 
