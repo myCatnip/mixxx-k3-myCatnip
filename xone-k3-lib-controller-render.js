@@ -37,8 +37,14 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
     // Cache is checked first; if the value is unchanged the frame
     // is dropped. Otherwise the frame is either sent inline (when
     // the throttle is disabled) or enqueued.
+    //
+    // Cache key is a packed 28-bit int: (r<<21 | g<<14 | b<<7 | hw),
+    // each 7 bits, 0..127 range. Same equality semantics as the
+    // previous 'r:g:b:hw' string, no per-render string allocation.
+    // Decode via XoneK3._decodeLedCacheValue when debugging.
     XoneK3.K3Controller.prototype._sendSysExLED = function(idx, r, g, b, hw) {
-        var val = r + ':' + g + ':' + b + ':' + hw;
+        var val = (((r & 0x7F) << 21) | ((g & 0x7F) << 14) |
+                   ((b & 0x7F) << 7) | (hw & 0x7F)) >>> 0;
         if (this._ledCache[idx] === val) return;
         this._ledCache[idx] = val;
 
@@ -49,19 +55,38 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         this._startSysExDrain();
     };
 
-    // Replace-in-queue-or-append. When the same index is already
-    // queued, update its msg in place (same index, fresher value).
-    // Cap at 128 — an overrun drops the oldest entries.
+    // Reverse the packed-int encoding used by _sendSysExLED, for
+    // inspect('why', name) output. Pass-through for anything that
+    // isn't a number (defensive — nothing writes strings any more).
+    XoneK3._decodeLedCacheValue = function(v) {
+        if (typeof v !== 'number') return String(v);
+        var r  = (v >>> 21) & 0x7F;
+        var g  = (v >>> 14) & 0x7F;
+        var b  = (v >>> 7)  & 0x7F;
+        var hw =  v          & 0x7F;
+        return r + ':' + g + ':' + b + ':' + hw;
+    };
+
+    // Replace-or-append in the queue, O(1). _sysexQueue holds
+    // idxes in drain order; _sysexQueueMap holds idx -> msg for
+    // the same entries. When the same idx is already queued,
+    // update its msg in place (order preserved, fresher value).
+    // Cap at 128 — an overrun drops the oldest entry, invalidates
+    // its _ledCache slot (the frame was never sent; without the
+    // invalidation, a future render with the same frame would be
+    // a cache hit and the LED would never receive that value),
+    // and removes it from the map.
     XoneK3.K3Controller.prototype._enqueueSysEx = function(idx, msg) {
-        for (var i = 0; i < this._sysexQueue.length; i++) {
-            if (this._sysexQueue[i].idx === idx) {
-                this._sysexQueue[i].msg = msg;
-                return;
-            }
+        if (this._sysexQueueMap[idx] !== undefined) {
+            this._sysexQueueMap[idx] = msg;
+            return;
         }
-        this._sysexQueue.push({ idx: idx, msg: msg });
+        this._sysexQueue.push(idx);
+        this._sysexQueueMap[idx] = msg;
         if (this._sysexQueue.length > 128) {
-            this._sysexQueue.splice(0, this._sysexQueue.length - 128);
+            var dropped = this._sysexQueue.shift();
+            delete this._sysexQueueMap[dropped];
+            delete this._ledCache[dropped];
         }
     };
 
@@ -83,8 +108,10 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
             this._stopSysExDrain();
             return;
         }
-        var m = this._sysexQueue.shift();
-        midi.sendSysexMsg(m.msg, m.msg.length);
+        var idx = this._sysexQueue.shift();
+        var msg = this._sysexQueueMap[idx];
+        delete this._sysexQueueMap[idx];
+        if (msg) midi.sendSysexMsg(msg, msg.length);
         if (this._sysexQueue.length === 0) {
             this._stopSysExDrain();
         }
@@ -116,6 +143,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
     XoneK3.K3Controller.prototype._blankLeds = function() {
         this._stopSysExDrain();
         this._sysexQueue = [];
+        this._sysexQueueMap = {};
         this._ledCache = {};
 
         this._blankShortMsgSweep();
@@ -194,19 +222,32 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         return (mx - mn) / mx;
     }
 
+    // Monotonic [hw, lum] lookup. table is sorted by hw and has
+    // no guaranteed spacing; the old code scanned linearly.
+    // Binary search matches the previous first-match-wins semantics
+    // exactly, including duplicate hw entries (first match wins,
+    // via lower-bound on the [1..last] sub-slice — the original
+    // loop's `hw <= table[i+1][0]` predicate).
     function _sampleTransfer(table, hw) {
         if (hw <= table[0][0]) return table[0][1];
         var last = table.length - 1;
         if (hw >= table[last][0]) return table[last][1];
-        for (var i = 0; i < last; i++) {
-            if (hw <= table[i + 1][0]) {
-                var span = table[i + 1][0] - table[i][0];
-                if (span <= 0) return table[i][1];
-                var t = (hw - table[i][0]) / span;
-                return table[i][1] * (1 - t) + table[i + 1][1] * t;
-            }
+
+        // Find first j in [1, last] with table[j][0] >= hw. That's
+        // the j the original `for i; hw <= table[i+1][0]` loop
+        // landed on. i = j - 1 is the interval's left endpoint.
+        var lo = 1, hi = last;
+        while (lo < hi) {
+            var mid = (lo + hi) >> 1;
+            if (table[mid][0] >= hw) hi = mid;
+            else lo = mid + 1;
         }
-        return table[last][1];
+        var j = lo;
+        var i = j - 1;
+        var span = table[j][0] - table[i][0];
+        if (span <= 0) return table[i][1];
+        var t = (hw - table[i][0]) / span;
+        return table[i][1] * (1 - t) + table[j][1] * t;
     }
 
     XoneK3.K3Controller.prototype._channelEmit = function(rgb, hw) {
@@ -279,10 +320,17 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
     // The flat-target solve's minimum-luminance scan. Skips
     // black stops (0,0,0) — they can't be the flat target's
     // reference point.
+    //
+    // Null-rgb (mixxx) stops are skipped too — they have no
+    // emission to measure. The caller (_flatTarget) is only
+    // reached from _solveHw for full schemes (calibration: true);
+    // _compileSingleColor sets calibration: false, so a single-
+    // colour mixxx never hits this path, but a mixed ramp can.
     XoneK3.K3Controller.prototype._minSegmentEmit = function(segs) {
         var minEmit = Infinity;
         for (var i = 0; i < segs.length; i++) {
             var c = segs[i].color;
+            if (!c || !c.rgb) continue;
             if (c.rgb[0] === 0 && c.rgb[1] === 0 && c.rgb[2] === 0) continue;
             var e = this._emitAt(c.rgb, c.brightness);
             if (e < minEmit) minEmit = e;

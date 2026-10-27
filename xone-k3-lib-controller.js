@@ -210,6 +210,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         this._ledCache = {};
         this._sysexQueue = [];
+        this._sysexQueueMap = {};
         this._sysexTimer = null;
 
         this._transfer = null;

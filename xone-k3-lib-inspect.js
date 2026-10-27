@@ -397,7 +397,8 @@
         if (b.idx < 0) {
             row('  idx:', 'no LED mapped');
         } else if (this._ledCache[b.idx] !== undefined) {
-            row('  idx ' + b.idx + ':', this._ledCache[b.idx] + '  (r:g:b:hw)');
+            row('  idx ' + b.idx + ':',
+                XoneK3._decodeLedCacheValue(this._ledCache[b.idx]) + '  (r:g:b:hw)');
         } else {
             row('  idx ' + b.idx + ':', 'nothing written yet');
         }

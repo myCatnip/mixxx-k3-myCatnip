@@ -69,6 +69,20 @@
             return;
         }
 
+        // equals / contains without a state / co / patchActive
+        // source: _evalCsOn passes `undefined` to _matchOnValue,
+        // which never matches. LED would silently stay off.
+        var hasSource = (o.patchActive !== undefined ||
+                         o.state       !== undefined ||
+                         o.co          !== undefined);
+        if (!hasSource) {
+            var orphan = (o.equals !== undefined) ? 'equals' : 'contains';
+            XoneK3._warnOnce('csOnNoSource:' + b._name,
+                'colorScheme.on on ' + b._name + ' has `' + orphan + '` ' +
+                'but no `state`, `co`, or `patchActive` to compare against ' +
+                '— the LED will stay off.');
+        }
+
         // Connection is created before b._csOn is assigned. Mixxx
         // defers the CO callback to the next event-loop iteration,
         // so _refresh() won't fire until b._csOn === o. If that
@@ -154,6 +168,20 @@
                 " — pass scheme: 'name' or a colour spec, or schemeFromState");
             b._csFailed = true;
             return;
+        }
+
+        // schemeFromState present but not an object — silently
+        // dropped by the previous code when a base scheme was
+        // also set (the "missing scheme" branch above only fires
+        // when BOTH are missing). Warn so the user sees why their
+        // conditional scheme isn't taking effect.
+        if (cs.schemeFromState !== undefined && cs.schemeFromState !== null &&
+            !hasFromState) {
+            XoneK3._warnOnce('csFromStateShape:' + b._name,
+                'colorScheme.schemeFromState on ' + b._name +
+                ' must be an object — got ' +
+                (Array.isArray(fromState) ? 'array' : typeof fromState) +
+                '. Ignoring it; using the base scheme only.');
         }
 
         b._csDeviation = (cs.knob !== undefined);

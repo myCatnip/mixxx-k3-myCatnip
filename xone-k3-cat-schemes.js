@@ -315,8 +315,18 @@
             var remainingNorm = bounds.end - pp;
             if (remainingNorm < 0) remainingNorm = 0;
 
+            // Bar length comes from TIME_SIG when set (same priority
+            // _resolveSig uses for the beat cascade), else the
+            // countdown schemes' baked 4. Without this, a 3/4 or
+            // 7/8 time signature puts the cascade and the countdown
+            // out of sync — the cascade counts in 3-beat bars while
+            // the countdown still treats 4 beats as a bar.
+            var barBeats = (XoneK3.TIME_SIG && XoneK3.TIME_SIG.barBeats > 0)
+                ? XoneK3.TIME_SIG.barBeats
+                : 4;
+
             var beatsLeft = remainingNorm * dur * bpmFile / 60;
-            var barsLeft  = beatsLeft / 4;
+            var barsLeft  = beatsLeft / barBeats;
 
             if (barsLeft <= 16) return 'countdown' + suffix + '4';
             if (barsLeft <= 32) return 'countdown' + suffix + '3';

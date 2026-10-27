@@ -478,15 +478,35 @@
     // inclusive, last-segment fallback). Same as the previous
     // non-interp branch, isolated for readability and to let the
     // dispatcher get out of the way.
+    //
+    // `mixxx`-typed stops have null rgb — they only work on the
+    // static single-colour path (`_renderStatic` → `_sendColor`,
+    // which resolves rgb from the pad's hotcue colour CO at
+    // render time). Sampling can't use them, so they're skipped;
+    // the previous valid stop's colour is used instead (or null /
+    // black LED when there is none). Warn once so the user can
+    // see why a stop is being ignored.
     function _sampleSnap(segs, t) {
+        var lastValid = null;
         for (var i = 0; i < segs.length; i++) {
+            var c = segs[i].color;
+            if (!c || c.rgb === null) {
+                XoneK3._warnOnce('sampleSegsMixxx',
+                    'sampling a scheme containing a `mixxx` colour stop — ' +
+                    '`mixxx` is only supported on static single-colour LEDs. ' +
+                    'The stop is skipped during sampling.');
+                if (t <= segs[i].end || i === segs.length - 1) {
+                    return lastValid;
+                }
+                continue;
+            }
+            lastValid = {
+                rgb: [c.rgb[0], c.rgb[1], c.rgb[2]],
+                brightness: c.brightness,
+                type: c.type
+            };
             if (t <= segs[i].end || i === segs.length - 1) {
-                var c = segs[i].color;
-                return {
-                    rgb: [c.rgb[0], c.rgb[1], c.rgb[2]],
-                    brightness: c.brightness,
-                    type: c.type
-                };
+                return lastValid;
             }
         }
         return null;
@@ -499,12 +519,22 @@
     // behaviour preserved exactly — including the "before falls
     // through to after" and "return before if after is null" edge
     // cases at t<firstCentre and t>lastCentre.
+    //
+    // Null-rgb (mixxx) stops are skipped — see _sampleSnap.
     function _sampleBlend(segs, t) {
         var before = null, after = null;
         for (var j = 0; j < segs.length; j++) {
+            var c = segs[j].color;
+            if (!c || c.rgb === null) {
+                XoneK3._warnOnce('sampleSegsMixxx',
+                    'sampling a scheme containing a `mixxx` colour stop — ' +
+                    '`mixxx` is only supported on static single-colour LEDs. ' +
+                    'The stop is skipped during sampling.');
+                continue;
+            }
             var centre = (segs[j].start + segs[j].end) / 2;
-            if (centre <= t) before = { t: centre, color: segs[j].color };
-            if (centre >= t && !after) after = { t: centre, color: segs[j].color };
+            if (centre <= t) before = { t: centre, color: c };
+            if (centre >= t && !after) after = { t: centre, color: c };
         }
         if (!before) before = after;
         if (!after)  after  = before;
