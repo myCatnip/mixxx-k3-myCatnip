@@ -37,7 +37,8 @@
     if (typeof XoneK3._requireLoad !== 'function') {
         throw new Error('Xone K3: xone-k3-colorlab.js — xone-k3-lib-core.js must load first');
     }
-    XoneK3._requireLoad('xone-k3-colorlab.js', ['FUNCS', 'bootLab']);
+    XoneK3._requireLoad('xone-k3-colorlab.js',
+    ['FUNCS', 'bootLab', 'LabController']);
 
     var F = XoneK3.FUNCS;
 

@@ -283,6 +283,11 @@
         var isOn = 0, onThrew = null;
         try { isOn = b._isOn(); } catch (e) { onThrew = e.message; }
 
+        // compileScheme(ref) is safe here only because scheme
+        // functions return raw refs (string names, plain scheme
+        // objects), never a compiled scheme. A compiled object
+        // would be re-resolved as a raw scheme and fail — debug-
+        // only, so the assumption is acceptable.
         var ref = null, refThrew = null, refCompiled = null;
         if (b._csSchemeFn) {
             try {

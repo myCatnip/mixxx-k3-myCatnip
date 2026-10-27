@@ -327,11 +327,12 @@ function paintGame(ctrl) {
             if (patches.indexOf('snake') === -1) patches.push('snake');
         });
 
-        // Blank all LEDs, reset _ledCache, clear the sysex queue.
-        // Then wait 1s for the drain to catch up before painting —
-        // at 20ms/frame the drain takes ~680ms to flush a full
-        // sweep. The 1s window makes the game paint appear all at
-        // once instead of rolling in behind the blank.
+        // Blank all LEDs, reset _ledCache, clear the sysex queue,
+        // then wait before painting so the blank sweep flushes first.
+        // The paint itself still goes through the sysex drain
+        // (one frame per SYSEX_THROTTLE_MS), so the game board rolls
+        // in over a few hundred ms rather than popping atomically —
+        // the delay just keeps it from trailing behind the blank.
         ctrl._blankLeds();
 
         ctrl._snake.paintTimer = engine.beginTimer(1000, function() {
