@@ -89,11 +89,12 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         this.turnHappened = false;
         this._ledObservers = [];
         // Push-button held state. Set on physical press, cleared
-        // on release. Read by K3Controller._releaseHeldWrite when
-        // a rebind fires between press and release — the held CO
-        // must be written back to 0 explicitly, because physical
-        // release will fire against the NEW binding and never
-        // touch the old one.
+        // by physical release OR by K3Controller._releaseHeldWrite
+        // when a rebind fires between press and release. The clear
+        // in _releaseHeldWrite is essential — without it, a push
+        // binding swapped to a toggle and back leaves _held true,
+        // and the next rebind writes 0 to a CO the user set under
+        // the toggle leg.
         this._held = false;
     };
 

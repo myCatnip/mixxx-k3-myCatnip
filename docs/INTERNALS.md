@@ -1117,9 +1117,14 @@ carries an inline disable.
   `CO_MATCH_EPSILON = 1/127` — LED "matched" implies control
   live.
 - **First bind also rearms soft takeover.**
-- **Held push buttons are released on rebind.** Without it, a
-  held hotcue pad swapped by patch change stays at 1, Mixxx stays
-  in preview mode.
+- **Held push buttons are released and cleared on rebind.**
+  Without the release, a held hotcue pad swapped by patch change
+  stays at 1 — Mixxx stays in preview mode. Without the clear,
+  `_held` survives a push → toggle → push cycle (toggle's
+  `input()` never touches it) and the next rebind fires a
+  second, spurious release — writing 0 to a CO the user
+  legitimately set (`beatloop_size` after a layer swap,
+  `group_<channel>_enable` after an overlay exit).
 - **`valueCurve` doesn't touch `_normalized`.**
 - **LED on/off state comes from `colorScheme.on`, `outKey`, or
   nothing.**

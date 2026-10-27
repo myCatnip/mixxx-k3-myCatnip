@@ -598,11 +598,18 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         }
 
         if (!b._held) return;
-        if (!prev.wasBound || !prev.group || !prev.inKey) return;
         var samePushTarget = (b.group === prev.group &&
                             b.inKey === prev.inKey &&
                             b.buttonMode === 'push');
         if (samePushTarget) return;
+        // Close the transaction before the write. Without this,
+        // _held survives a push → toggle → push cycle (toggle's
+        // input() never touches it), and the next rebind fires a
+        // second, spurious release — writing 0 to a CO the user
+        // legitimately set (beatloop_size after a layer swap;
+        // group_<channel>_enable after an overlay exit).
+        b._held = false;
+        if (!prev.wasBound || !prev.group || !prev.inKey) return;
         engine.setValue(prev.group, prev.inKey, 0);
     };
 
