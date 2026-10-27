@@ -195,10 +195,17 @@
                 'colorScheme.schemeFromState on ' + b._name +
                 ' has both state and co — using state, ignoring co');
         }
-        if (sf.state) sd.state = sf.state;
-        else if (sf.co) {
+        if (sf.state) {
+            sd.state = sf.state;
+        } else if (sf.co) {
             sd.co = XoneK3.resolve(sf.co, this);
             sd.group = sf.group ? XoneK3.resolve(sf.group, this) : b.group;
+            if (!sd.group) {
+                XoneK3._warnOnce('csFsCoNoGroup:' + b._name,
+                    'colorScheme.schemeFromState.co on ' + b._name +
+                    ' has no group and the binding has no group either — LED will stay dark.');
+                return null;
+            }
         }
         if (sf.map) sd.map = sf.map;
         else if (sf.list) sd.list = sf.list.slice();

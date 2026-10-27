@@ -23,7 +23,7 @@ if (typeof XoneK3._requireLoad !== 'function') {
     throw new Error('Xone K3: xone-k3-lib-binding.js — xone-k3-lib-core.js must load first');
 }
 XoneK3._requireLoad('xone-k3-lib-binding.js',
-    ['_funcId', '_parseAccel', 'resolve', 'readPath',
+    ['_funcId', 'resolve', 'readPath',
      '_tokenFields', 'CO_MATCH_EPSILON', 'BEAT_HOLD', 'applyBeat',
      '_BINDING_FIELDS', '_SNAPSHOT_FIELDS', '_SNAPSHOT_IGNORED']);
 
@@ -37,21 +37,17 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     // or ignored) so the boot-time audit stays clean.
     XoneK3._bindingDefaults = function() {
         return {
-            // Binding target
             group:       undefined,
             inKey:       undefined,
             outKey:      undefined,
             buttonMode:  'toggle',
             softTakeover: false,
-            // Func
             _func:       undefined,
             _funcArgs:   [],
             _usedTokens: [],
             _rawCfg:     null,
-            // LED output flags
             _noLED:      false,
             _k2:         undefined,
-            // Color scheme
             _csActive:          false,
             _csFailed:          false,
             _csDeviation:       false,
@@ -62,13 +58,9 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             _csKnob:            null,
             _csFromStateConn:   null,
             _csOn:              null,
-            // Connections
             _valueConn:  null,
             _conns:      [],
-            // Input mods
-            _accel:      null,
             _valueCurve: 1,
-            // Timers
             _shutdownHoldTimer: null
         };
     };
@@ -94,8 +86,6 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
 
         // Session-scoped — survive _reset.
         this._normalized = undefined;
-        this._accelEvents = [];
-        this._loopAccelEvents = [];
         this.pressHeld = false;
         this.turnHappened = false;
         this._ledObservers = [];
@@ -114,34 +104,18 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     };
 
     XoneK3.Binding.prototype.input = function(ch, cc, v, s) {
-        // Fires for every binding including noLED cells and idx < 0
-        // controls. Hook tracks controller state, not per-LED output.
         if (this._ctrl._onInput) this._ctrl._onInput(this);
 
         if (this.type === 'knob' || this.type === 'fader') {
             this._normalized = this._scaleValue(v);
         }
-        // Push buttons latch a CO at 1 for the hold duration.
-        // Track that here so a rebind between press and release
-        // can release the held CO explicitly — see
-        // _releaseHeldWrite in lib-controller.js.
         if (this.type === 'button' && this.buttonMode === 'push') {
             this._held = v > 0;
         }
 
-        var now = Date.now();
-        var reps = this._applyInputMods(now);
-
-        if (reps > 0) {
-            var fn = this._func;
-            if (fn) {
-                for (var r = 0; r < reps; r++) {
-                    fn.call(this, this._funcArgs, ch, cc, v, s);
-                }
-            } else {
-                this._defaultInput(v, s);
-            }
-        }
+        var fn = this._func;
+        if (fn) fn.call(this, this._funcArgs, ch, cc, v, s);
+        else    this._defaultInput(v, s);
 
         this._refreshObservers();
     };
@@ -159,22 +133,6 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             engine.setParameter(this.group, this.inKey,
                 this._applyValueCurve(this._normalized));
         }
-    };
-
-    XoneK3.Binding.prototype._applyInputMods = function(now) {
-        if (this._accel) {
-            var w = this._accel.window;
-            var ev = this._accelEvents;
-            ev.push(now);
-            while (ev.length > 0 && ev[0] < now - w) ev.shift();
-
-            var rate = ev.length * 1000 / w;
-            var t = Math.min(1, rate / this._accel.fullAt);
-            t = Math.pow(t, this._accel.curve);
-            var reps = 1 + (this._accel.amount - 1) * t;
-            return Math.max(1, Math.round(reps));
-        }
-        return 1;
     };
 
     XoneK3.Binding.prototype._applyValueCurve = function(n) {
@@ -491,7 +449,15 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
 
         var logicalOn = this._isOn();
         var scheme = this._evaluateScheme();
-        if (!scheme) { this._send(0, 0, 0, 0); return; }
+        if (!scheme) {
+            if (this._csSchemeFn) {
+                XoneK3._warnOnce('csDarkFromFn:' + this._name,
+                    'colorScheme scheme function on ' + this._name +
+                    ' returned null/undefined and no base scheme is set — LED stays dark.');
+            }
+            this._send(0, 0, 0, 0);
+            return;
+        }
 
         var beatOffPhase = this._isBeatOffPhase(scheme);
         if (beatOffPhase && !logicalOn) { this._send(0, 0, 0, 0); return; }
