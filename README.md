@@ -254,10 +254,15 @@ BOTTOM — encoderL / pressL / encoderR / pressR
 ════════════════════════════════════════════════════════════
 
 CUE  (base)
+CUE  (base)
 encL:  BPM ±0.1                +shift: master gain
        pressL held → head mix
 pressL: hold: encL = head mix
        +shift release (no turn): toggle headSplit
+       +shift with turn: headSplit STILL toggles — encoderL
+       under shift is master gain, not head mix, and doesn't
+       clear the "no turn" flag. Avoid shift + pressL +
+       encoderL unless the toggle is intended.
 encR:  playlist prev/next       +shift: headphone volume
 pressR: hold: arm track load
        while held: TOP press0/3, selectAB cells, and grid2_1 (slip)

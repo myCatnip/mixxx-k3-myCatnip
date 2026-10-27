@@ -1198,3 +1198,11 @@ or Patches and bindings.
   colour, a blend sample interpolates between the nearest valid
   stops, and the whole ramp renders black if no valid stops
   exist.
+
+- **Shift + pressL + encoderL + release toggles headSplit.**
+  encoderL under shift routes to `encStepParam` (master gain),
+  which doesn't set `turnHappened` — only `encBpmPressedHeadMix`
+  does. `bpmPress`'s release branch reads `turnHappened === false`
+  and toggles headSplit. Not a bug per se, but surprising when
+  the user's intent was "adjust master gain while holding pressL".
+  See README's CUE bottom row.
