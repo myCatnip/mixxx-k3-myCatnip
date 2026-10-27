@@ -102,9 +102,9 @@
         button0_1: B.fxHeadphone('$FX_ACTIVE_N$',
                                  { knob: 'knob0_1', scheme: 'myCatnip', markerColor: 'orange' }),
         knob0_2: B.eqKnob('$DECK_ACTIVE$', 'low'),
-        button0_2: B.fxGroupEnable('$FX_ALT_N$', '$DECK_ACTIVE$',
+        button0_2: B.fxGroupEnable('$FX_ACTIVE_N$', '$DECK_ACTIVE$',
                                    Object.assign({ knob: 'knob0_2' },
-                                                 CAT.fxSchemeFor('selectedFxAlt'))),
+                                                 CAT.fxSchemeFor('selectedFxCurrent'))),
 
         knob1_2: { group: QFX, inKey: 'super1' },
         button1_2: {

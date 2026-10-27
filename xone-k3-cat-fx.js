@@ -99,7 +99,9 @@
             //moog
             knob2_2:   { effect: 3, param: 2 },
             knob3_2:   { effect: 3, param: 'meta' },
-            button2_2: { fxRoute: true }, // ALWAYS ROUTE FX HERE
+            // Display-only echo of knob2_2 (FX3.p2). Routing for
+            // the focused FX moved to button0_2 (TOP_SHARED).
+            button2_2: { displayOnly: true, on: false },
             button3_2: { effect: 3, enabled: true },
         }, overrides);
     }

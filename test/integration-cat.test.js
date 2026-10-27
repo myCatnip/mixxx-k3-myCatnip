@@ -216,19 +216,39 @@ test('fader1 writes FX mix', function(t) {
 
 // ── FX route cells ─────────────────────────────────────────
 
-test('button2_2 routes focused FX into active deck', function(t) {
+test('button2_2 is display-only, does not route', function(t) {
     var c = H.bootCat();
     engine._set('[EffectRack1_EffectUnit1]', 'group_[Channel1]_enable', 0);
+    engine._set('[EffectRack1_EffectUnit2]', 'group_[Channel1]_enable', 0);
     H.press(c, 'button2_2');
-    t.eq(engine.getValue('[EffectRack1_EffectUnit1]', 'group_[Channel1]_enable'), 1);
+    // Display-only binding has no group / inKey / func — press
+    // reaches Binding.input, falls through default, writes nothing.
+    t.eq(engine.getValue('[EffectRack1_EffectUnit1]', 'group_[Channel1]_enable'), 0);
+    t.eq(engine.getValue('[EffectRack1_EffectUnit2]', 'group_[Channel1]_enable'), 0);
 });
 
-test('button0_2 routes alt FX into active deck', function(t) {
-    // Force initialFxB=2 so alt (2) differs from active (1).
+test('button0_2 routes focused FX into active deck', function(t) {
+    // initialFxB=2 so alt (2) differs from focused (1); focus
+    // boots on A → selectedFxCurrent = selectedFxA = 1.
     var c = H.bootCat({initialFxB: 2});
+    t.eq(c.selectedFxCurrent, 1);
+    engine._set('[EffectRack1_EffectUnit1]', 'group_[Channel1]_enable', 0);
     engine._set('[EffectRack1_EffectUnit2]', 'group_[Channel1]_enable', 0);
     H.press(c, 'button0_2');
-    t.eq(engine.getValue('[EffectRack1_EffectUnit2]', 'group_[Channel1]_enable'), 1);
+    t.eq(engine.getValue('[EffectRack1_EffectUnit1]', 'group_[Channel1]_enable'), 1);
+    t.eq(engine.getValue('[EffectRack1_EffectUnit2]', 'group_[Channel1]_enable'), 0,
+         'alt FX must not be routed');
+});
+
+test('button0_2 follows FX focus', function(t) {
+    var c = H.bootCat();
+    c.setActiveFx('B');
+    var unit = c.selectedFxCurrent;
+    engine._set('[EffectRack1_EffectUnit' + unit + ']',
+                'group_[Channel1]_enable', 0);
+    H.press(c, 'button0_2');
+    t.eq(engine.getValue('[EffectRack1_EffectUnit' + unit + ']',
+                         'group_[Channel1]_enable'), 1);
 });
 
 // ── FX headphone ───────────────────────────────────────────
