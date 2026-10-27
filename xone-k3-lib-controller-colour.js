@@ -82,6 +82,13 @@
                 'but no `state`, `co`, or `patchActive` to compare against ' +
                 '— the LED will stay off.');
         }
+        if (o.patchActive !== undefined &&
+            (o.equals !== undefined || o.contains !== undefined)) {
+            XoneK3._warnOnce('csOnPatchActiveCmp:' + b._name,
+                'colorScheme.on on ' + b._name +
+                ' has `equals`/`contains` alongside `patchActive` — ' +
+                'comparators are ignored when patchActive is the source');
+        }
 
         // Connection is created before b._csOn is assigned. Mixxx
         // defers the CO callback to the next event-loop iteration,
