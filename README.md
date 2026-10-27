@@ -670,13 +670,12 @@ Entered from EDIT by pressing layer. Top section stays bound but
 every edit func is a no-op — the preview LED and preview sweep
 still work.
 
-layer:   cycle back to EDIT                   LED: dim purple
+layer:   cycle back to EDIT                   LED: purple (bright when armed)
 encL:    unbound                              +shift: scroll registry
 pressL:  exit to EDIT, buffer unchanged       +shift: inherit
 encR:    unbound                              +shift: unbound
 pressR:  arm save                             +shift: load preview into
-         LED: bright white when armed,                edit, exit to EDIT
-              dim white otherwise
+                                              edit, exit to EDIT
 
 Grid cells: 16 slots, row-major.
 

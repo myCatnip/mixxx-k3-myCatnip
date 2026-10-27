@@ -466,6 +466,7 @@
                 XoneK3.modePrint('arm = OFF');
                 XoneK3.debugPrint('labSlotPress', { i: idx });
                 this._setPreview(idx, 'slot' + idx);
+                this._refreshBinding('layer');
                 return;
             }
             if (this._lab.previewSource !== idx) this._emitOverwriteBackup(idx);
@@ -489,6 +490,7 @@
         this._lab.saveArmed = !this._lab.saveArmed;
         XoneK3.modePrint('arm = ' + (this._lab.saveArmed ? 'ON' : 'OFF'));
         this._labRenderGrid();
+        this._refreshBinding('layer');
     };
 
     XoneK3.LabController.prototype._editReturn = function() {
@@ -760,6 +762,7 @@
             this._lab.previewing = false;
             this._lab.saveArmed = false;
             this._applyAutoBake();
+            this._refreshBinding('layer');
         }
         if (to === 'slots') {
             XoneK3.modePrint('mode = SLOTS (preview=' + this._previewLabel() + ')');

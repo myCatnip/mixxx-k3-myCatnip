@@ -206,10 +206,10 @@
     function slotBtn(idx) { return { func: F.labSlotPress, args: [idx], noLED: true }; }
 
     var SLOTS = {
-        layer: { func: F.layerButton, args: ['slots', 'colorLab'], colorScheme: { scheme: 'purple', on: false } },
+        layer: { func: F.layerButton, args: ['slots', 'colorLab'],
+                 colorScheme: { scheme: 'purple', on: { state: '_lab.saveArmed' } } },
         pressL: { func: F.labEditReturn },
-        pressR: { func: F.labArmSave,
-                  colorScheme: { scheme: 'white, 60, 0', on: { state: '_lab.saveArmed' } } },
+        pressR: { func: F.labArmSave },
 
         grid0_0: slotBtn(0),  grid0_1: slotBtn(1),  grid0_2: slotBtn(2),  grid0_3: slotBtn(3),
         grid1_0: slotBtn(4),  grid1_1: slotBtn(5),  grid1_2: slotBtn(6),  grid1_3: slotBtn(7),
