@@ -285,6 +285,19 @@ binding when called without a shared one. `_reapplyByTokens`
 passes a shared fingerprint; `_applyResolved` doesn't. Bounded
 by recompute frequency (patch changes), not steady state.
 
+### Lab grid re-solve per input event
+
+`_renderSegmentGrid` iterates up to 23 segment cells and calls
+`_solveHw` on each. `_onInput` bumps `_lab._version` unconditionally,
+which invalidates both the preview compile cache and the flat-target
+cache (fresh `segs` object → new `_cacheId`). A spinning knob at
+60 Hz therefore runs ~23 × 12 bisects per frame in edit mode.
+
+This is bounded and lab-only — no playback preset hits it. If lab
+editing ever feels sluggish on slow hardware, throttling
+`_labRenderPreview` from `_onInput` to ~30 Hz is the fix, but no
+evidence it's needed on modern machines.
+
 ### `composeScheme` calls `capturedRef` per render
 
 The memo returns the same composed object on identity match,
