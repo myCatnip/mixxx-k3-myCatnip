@@ -290,3 +290,40 @@ test('_openBeatClocks re-reads play_indicator', function(t) {
     t.eq(c._decks[1].playing, true,
          '_openBeatClocks must sync st.playing from the CO');
 });
+
+test('_onPlayIndicator: refreshes beat LEDs on every transition', function(t) {
+    XoneK3.PHRASE_MARKER_COLORS = [];
+    H.bootCat();
+    var c = XoneK3.controllers[0];
+
+    // Bind a beat LED on channel 1 with a real outKey.
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl', outKey: 'pfl',
+        colorScheme: { scheme: { colors: [[127,0,0]], beat: { color: 'green' } } }
+    });
+    H.setCO('[Channel1]', 'duration',            240);
+    H.setCO('[Channel1]', 'file_bpm',            128);
+    H.setCO('[Channel1]', 'track_samples',       1000000);
+    H.setCO('[Channel1]', 'outro_end_position',  1000000);
+    H.setCO('[Channel1]', 'playposition',        0.5);
+    H.setCO('[Channel1]', 'pfl',                 1);
+    H.fireCO('[Channel1]', 'track_loaded', 1);
+
+    // Force the "was playing" precondition without going through
+    // the play handler — this test asserts the *transition*, not
+    // how st.playing got there. Firing play_indicator: 1 would
+    // also work, but would leave an extra _refreshBeatLeds call
+    // between the setup and the counter, adding noise to the
+    // assertion.
+    c._decks[1].playing = true;
+
+    // Count _refreshBeatLeds calls during the pause transition.
+    var calls = 0;
+    var orig = c._refreshBeatLeds;
+    c._refreshBeatLeds = function(ch) { calls++; return orig.call(this, ch); };
+
+    H.setCO('[Channel1]', 'play_indicator', 0);
+    H.fireCO('[Channel1]', 'play_indicator', 0);
+
+    t.ok(calls >= 1, '_refreshBeatLeds must fire on pause transition');
+});

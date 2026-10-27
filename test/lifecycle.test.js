@@ -138,3 +138,28 @@ test('input: func args passed through', function(t) {
     H.press(c, 'press0');
     t.eq(captured, ['a', 'b']);
 });
+
+test('_refreshBinding: throwing _refresh does not propagate', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl',
+        colorScheme: { scheme: 'red', on: true }
+    });
+    // Shadow _refresh on the instance so it throws when called.
+    // Real callers only reach _refreshBinding via the layer-arm
+    // refresh path; a binding is free to throw here.
+    c.bindings.button0_0._refresh = function() { throw new Error('boom'); };
+
+    XoneK3._warned = {};
+    _printLog.length = 0;
+    var threw = false;
+    try { c._refreshBinding('button0_0'); }
+    catch (e) { threw = true; }
+    t.notOk(threw, '_refreshBinding must not propagate');
+    t.contains(_printLog.join('\n'), '_refreshBinding: button0_0 threw: boom');
+});
+
+test('_refreshBinding: unknown binding no-op', function(t) {
+    var c = H.ctrl();
+    c._refreshBinding('noSuchBinding');
+});

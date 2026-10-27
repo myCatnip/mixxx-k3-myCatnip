@@ -261,3 +261,35 @@ test('_auditSnapshotFields: clean state produces no warnings', function(t) {
     t.eq(audit.length, 0);
     XoneK3._debugPrintsOn = false;
 });
+
+test('on: patchActive + equals warns', function(t) {
+    var c = H.ctrl({patches: {cue: {}}});
+    _printLog.length = 0;
+    c._applyBinding('press0', {
+        colorScheme: { scheme: 'red',
+                       on: { patchActive: 'cue', equals: 1 } }
+    });
+    t.contains(_printLog.join('\n'),
+        'comparators are ignored when patchActive is the source');
+});
+
+test('on: patchActive + contains warns', function(t) {
+    var c = H.ctrl({patches: {cue: {}}});
+    _printLog.length = 0;
+    c._applyBinding('press0', {
+        colorScheme: { scheme: 'red',
+                       on: { patchActive: 'cue', contains: 'x' } }
+    });
+    t.contains(_printLog.join('\n'),
+        'comparators are ignored when patchActive is the source');
+});
+
+test('on: patchActive alone does not warn', function(t) {
+    var c = H.ctrl({patches: {cue: {}}});
+    _printLog.length = 0;
+    c._applyBinding('press0', {
+        colorScheme: { scheme: 'red', on: { patchActive: 'cue' } }
+    });
+    t.notOk(_printLog.join('\n')
+        .indexOf('comparators are ignored') !== -1);
+});

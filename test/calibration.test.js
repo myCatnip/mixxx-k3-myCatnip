@@ -184,3 +184,25 @@ test('_wbRGB: clamps at 127', function(t) {
     var out = c._wbRGB(127, 127, 127);
     t.eq(out[0], 127);
 });
+
+test('_flatTarget: cache capped at 1024', function(t) {
+    var c = H.ctrl({ calibrationMode: 'rms' });
+    for (var i = 0; i < 1100; i++) {
+        var segs = XoneK3._buildSegments(
+            [[127, 0, i % 128], [0, 127, i % 128]], null, 127);
+        c._flatTarget(segs);
+    }
+    t.ok(c._flatCacheSize <= 1024,
+         'cache must not grow beyond 1024, got ' + c._flatCacheSize);
+});
+
+test('_flatTarget: cache id assigned per segs array', function(t) {
+    var c = H.ctrl({ calibrationMode: 'rms' });
+    var segs1 = XoneK3._buildSegments([[127,0,0]], null, 127);
+    var segs2 = XoneK3._buildSegments([[0,127,0]], null, 127);
+    c._flatTarget(segs1);
+    c._flatTarget(segs2);
+    t.ok(segs1._cacheId !== undefined);
+    t.ok(segs2._cacheId !== undefined);
+    t.neq(segs1._cacheId, segs2._cacheId);
+});

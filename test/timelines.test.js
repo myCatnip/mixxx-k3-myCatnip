@@ -482,7 +482,7 @@ test('_syncBeatClocks: opens clocks when beat LED attached', function(t) {
     var c = H.ctrl();
     c._applyBinding('button0_0', {
         group: '[Channel1]', inKey: 'pfl',
-        colorScheme: {scheme: 'tBeat', on: {always: true}}
+        colorScheme: {scheme: 'tBeat', on: true}
     });
     c._syncBeatClocks();
     t.ok(c._beatConns.length > 0);
@@ -494,7 +494,7 @@ test('_syncBeatClocks: closes clocks when beat LED removed', function(t) {
     var c = H.ctrl();
     c._applyBinding('button0_0', {
         group: '[Channel1]', inKey: 'pfl',
-        colorScheme: {scheme: 'tBeat', on: {always: true}}
+        colorScheme: {scheme: 'tBeat', on: true}
     });
     c._syncBeatClocks();
     c._applyBinding('button0_0', null);

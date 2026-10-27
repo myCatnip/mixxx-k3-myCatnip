@@ -656,3 +656,27 @@ test('_isBeatEdit: false otherwise', function(t) {
     var c = setupLab();
     t.notOk(c._isBeatEdit());
 });
+
+test('_toggleSaveArm: refreshes layer LED', function(t) {
+    var c = setupLab();
+    H.clearLeds(c);
+    c._lab.saveArmed = false;
+    var b = c.bindings['layer'];
+
+    // Layer is not bound in this fixture; bind it inline.
+    H.bind(c, 'layer', {
+        func: XoneK3.FUNCS.layerButton, args: ['colorLab', 'slots'],
+        colorScheme: { scheme: 'purple', on: { state: '_lab.saveArmed' } }
+    });
+    H.clearLeds(c);
+
+    c._toggleSaveArm();
+    var armed = H.led(c, 'layer');
+    t.ok(armed && armed.hw > XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF,
+         'armed state should be brighter than unarmed');
+
+    c._toggleSaveArm();
+    var unarmed = H.led(c, 'layer');
+    t.ok(unarmed && unarmed.hw <= XoneK3.DEFAULT_RGB_BRIGHTNESS_OFF,
+         'unarmed state should be the off-brightness');
+});
