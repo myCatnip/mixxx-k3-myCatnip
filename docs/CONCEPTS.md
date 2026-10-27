@@ -261,6 +261,10 @@ within the framework.
 - **A func driving its own LED on/off.** Store the state on the
   controller and read it via `on:`.
 - **Debounce.** Wrap the func with your own state.
+- **`mixxx` in a sampled ramp.** `mixxx` reads the pad's
+  hotcue colour at render time — only the static path has that
+  access. In a ramp (deviation LED, multi-stop scheme,
+  calibration solve), the stop is skipped with a warning.
 
 ---
 

@@ -849,6 +849,9 @@ Read-only.
 | `[k3] _syncFxLayout: fx-pattern patch … has no matching target` | An fx-family patch is in `activePatches` but missing from `patches:`. |
 | `[k3] colorScheme scheme function on X returns a fresh object each call` | Wrap with `composeScheme` or hoist the object. |
 | Play doesn't respond after a hotcue pad press; recovers after mouse-seek | Held hotcue press survived a rebind. `_releaseHeldWrite` in `_applyBinding` writes 0 on both unbind and rebind. If still seen, check `Binding._held` is set for push-mode buttons. |
+| `[k3] sampling a scheme containing a `mixxx` colour stop` | A `mixxx` stop sits in a sampled ramp. `mixxx` is static-only — see §22 Limits. LED falls back to the nearest valid stop's colour. |
+| `[k3] colorScheme.schemeFromState on X must be an object` | `schemeFromState` is a string, number, or array. It's dropped; the base scheme (if any) renders instead. |
+| `[k3] colorScheme.on on X has equals but no state/co/patchActive` | `on:` has a comparator but no source to compare. LED stays off. Add `state: '...'`, `co: '...'`, or `patchActive: '...'`. |
 
 Full behaviour-driven symptoms: CUSTOMISE §3.
 
@@ -1033,7 +1036,14 @@ carries an inline disable.
 - **`_flatCache`** — keyed on `segs._cacheId` then
   `_calibFingerprint()`. See §12.
 - **`_hwCache`** — bounded at 1024.
-- **`_ledCache`, `_sysexQueue`** — per-controller.
+- **`_ledCache`** — per-controller. Packed int
+  `(r<<21 | g<<14 | b<<7 | hw)`. Reversed by
+  `XoneK3._decodeLedCacheValue` for inspect output.
+- **`_sysexQueue` / `_sysexQueueMap`** — per-controller. Queue
+  holds LED indices in drain order; map holds `idx → msg`.
+  Enqueue is O(1). Cap 128 — overflow drops the oldest queue
+  entry, deletes it from the map, and clears its `_ledCache`
+  slot so a future render with the same frame re-enqueues.
 - **`_blankLeds`** — stops drain, clears queue, sends black.
   Note-off sweep runs unconditionally (previous session may have
   left K2 notes lit).
@@ -1153,3 +1163,13 @@ or Patches and bindings.
 - **Controller split is load-order sensitive.**
 - **Loop-boundary encoders are ungated.** They stamp
   `_lastLoopTouchMs[ch]` but the gate only restricts beatjumps.
+  - **`mixxx` stops are static-only.** `mixxx` resolves its rgb
+  from the pad's hotcue colour at render time, and only
+  `_renderStatic` handles that path. In a sampled ramp — a
+  deviation LED's `knob:` scheme, a multi-stop scheme with a
+  `mixxx` entry, or a calibration solve — there is no rgb to
+  sample. The stop is skipped with a `sampleSegsMixxx`
+  warn-once; a snap sample returns the previous valid stop's
+  colour, a blend sample interpolates between the nearest valid
+  stops, and the whole ramp renders black if no valid stops
+  exist.

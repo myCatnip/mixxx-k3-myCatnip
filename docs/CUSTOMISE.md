@@ -57,6 +57,7 @@ Colour spec accepts:
 [127, 0, 0, 80]         + brightness
 [127, 0, 0, 80, 16]     + off-brightness
 'mixxx'                 reads the hotcue colour of the pad
+                        (static LEDs only — see §1.5)
 ```
 
 Brightness goes **after** the colour. `'red, 80'` ✓. `'80, red'` ✗.
@@ -154,6 +155,10 @@ button0_0: {
     colorScheme: { knob: 'knob0_0', scheme: 'myCatnip' }
 }
 ```
+A `mixxx` colour spec can't be used in a deviation ramp — the
+hotcue colour is resolved at render time, and the sampling
+path has no rgb to sample. A `mixxx` stop in a sampled ramp
+is skipped with a `sampleSegsMixxx` warn-once.
 
 The knob and the button are separate bindings. `knob:` references
 the knob by name.
@@ -723,6 +728,13 @@ XoneK3.TAKEOVER_EPSILON = 2 / 127;
 XoneK3.setTimeSig(4, 4);
 XoneK3.clearTimeSig();
 ```
+
+`setTimeSig` drives both the beat cascade (which cascade level
+a given beat count resolves to) and the layer / shift
+track-end countdown (which bar-length sets its phase
+boundaries). Both read `TIME_SIG.barBeats` with priority over
+their scheme's baked `barBeats`. If they disagree under a
+non-4/4 signature, the two go out of phase.
 
 `QFX_CHAIN_LIST` order must match Preferences → Effects → Quick
 Effect Chains. Only the chains listed there light up correctly on

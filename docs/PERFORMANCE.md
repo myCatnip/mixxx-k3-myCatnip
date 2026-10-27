@@ -150,11 +150,14 @@ computes one diff on return: N patch edits = one recompute.
 
 ### Coalesce before the wire
 
-Every LED write hits `_sendSysExLED`, which checks
-`_ledCache[idx]` for an unchanged `r:g:b:hw` first. Changed
-frames go through `_enqueueSysEx`, which replaces an in-flight
-frame for the same LED index. Queue caps at 128. The drain
-fires one frame per `SYSEX_THROTTLE_MS`.
+Every LED write hits `_sendSysExLED`, which packs `(r,g,b,hw)`
+into a single 28-bit int and checks `_ledCache[idx]` against it
+first — no per-render string allocation. Changed frames go
+through `_enqueueSysEx`, which replaces an in-flight frame for
+the same LED index in O(1) via `_sysexQueueMap`. Queue caps at
+128 — overflow drops the oldest entry and invalidates its cache
+slot so a future render with the same frame re-enqueues. The
+drain fires one frame per `SYSEX_THROTTLE_MS`.
 
 Net: at most one wire write per LED per drain interval, no
 matter how many times the render path fires.
