@@ -3,7 +3,7 @@
 var H = require('./helpers');
 
 // Binding primitive: input dispatch, _scaleValue, valueCurve,
-// accel, _isOn shapes, _defaultInput.
+// _isOn shapes, _defaultInput.
 
 // ── _scaleValue ──────────────────────────────────────────────
 
@@ -100,37 +100,6 @@ test('_defaultInput: no group/inKey → no-op', function(t) {
     var b = c.bindings.button0_0;
     b.group = undefined; b.inKey = undefined;
     b._defaultInput(127, 0x90);
-});
-
-// ── _applyInputMods (accel) ──────────────────────────────────
-
-test('_applyInputMods: no accel → 1', function(t) {
-    var c = H.ctrl();
-    var b = c.bindings.knob0_0;
-    b._accel = null;
-    t.eq(b._applyInputMods(Date.now()), 1);
-});
-
-test('_applyInputMods: accel fast turn > 1', function(t) {
-    var c = H.ctrl();
-    var b = c.bindings.knob0_0;
-    b._accel = {amount: 4, curve: 1, window: 200, fullAt: 60};
-    var now = 1000;
-    b._accelEvents = [];
-    for (var i = 0; i < 20; i++) b._accelEvents.push(now);
-    var reps = b._applyInputMods(now);
-    t.ok(reps >= 1);
-    t.ok(reps <= 4);
-});
-
-test('_applyInputMods: accel window trims old events', function(t) {
-    var c = H.ctrl();
-    var b = c.bindings.knob0_0;
-    b._accel = {amount: 4, curve: 1, window: 100, fullAt: 60};
-    b._accelEvents = [1, 2, 3];
-    var reps = b._applyInputMods(100000);
-    t.eq(b._accelEvents.length, 1);
-    t.eq(reps, 2);
 });
 
 // ── _isOn shapes ─────────────────────────────────────────────
@@ -350,10 +319,8 @@ test('_reset: wipes reset-able fields, preserves session fields', function(t) {
     b.group = '[Channel1]';
     b.inKey = 'volume';
     b._normalized = 0.7;
-    b._accelEvents = [1, 2, 3];
     b._reset();
     t.eq(b.group, undefined);
     t.eq(b.inKey, undefined);
     t.eq(b._normalized, 0.7);
-    t.eq(b._accelEvents, [1, 2, 3]);
 });

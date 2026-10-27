@@ -231,17 +231,6 @@ test('encLoopMove: stamps _lastLoopTouchMs', function(t) {
     t.ok(c._lastLoopTouchMs[1] > 0);
 });
 
-test('encLoopMoveAccel: stamps _lastLoopTouchMs', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encLoopMoveAccel, args: ['in', 0.01],
-        group: '[Channel1]', inKey: 'beatloop_size'
-    });
-    c._lastLoopTouchMs[1] = 0;
-    H.send(c, 'encoderL', 1);
-    t.ok(c._lastLoopTouchMs[1] > 0);
-});
-
 test('pressSetValue on beatloop_size: stamps _lastLoopTouchMs', function(t) {
     var c = H.ctrl();
     c._applyBinding('grid0_2', {

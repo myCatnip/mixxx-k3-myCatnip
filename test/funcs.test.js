@@ -303,66 +303,6 @@ test('encLoopMove: writes loop_anchor 0 for out', function(t) {
     t.eq(engine.getValue('[Channel1]', 'loop_anchor'), 0);
 });
 
-// ── encLoopMoveAccel ───────────────────────────────────────
-
-test('encLoopMoveAccel: writes loop_anchor 1 for in', function(t) {
-    var c = H.ctrl();
-    engine._set('[Channel1]', 'loop_anchor', 0);
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encLoopMoveAccel, args: ['in', 0.01],
-        group: '[Channel1]', inKey: 'beatloop_size', rate: false
-    });
-    H.send(c, 'encoderL', 1);
-    t.eq(engine.getValue('[Channel1]', 'loop_anchor'), 1);
-});
-
-test('encLoopMoveAccel: writes loop_anchor 0 for out', function(t) {
-    var c = H.ctrl();
-    engine._set('[Channel1]', 'loop_anchor', 1);
-    c._applyBinding('encoderR', {
-        func: XoneK3.FUNCS.encLoopMoveAccel, args: ['out', 0.01],
-        group: '[Channel1]', inKey: 'beatloop_size', rate: false
-    });
-    H.send(c, 'encoderR', 1);
-    t.eq(engine.getValue('[Channel1]', 'loop_anchor'), 0);
-});
-
-test('encLoopMoveAccel: single event moves by base step', function(t) {
-    var c = H.ctrl();
-    engine._set('[Channel1]', 'beatloop_size', 1);
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encLoopMoveAccel, args: ['in', 0.01],
-        group: '[Channel1]', inKey: 'beatloop_size', rate: false
-    });
-    H.send(c, 'encoderL', 1);
-    t.approx(engine.getValue('[Channel1]', 'beatloop_size'), 0.99, 1e-9);
-});
-
-test('encLoopMoveAccel: cap arg (args[2]) limits multiplier', function(t) {
-    var c = H.ctrl();
-    engine._set('[Channel1]', 'beatloop_size', 1);
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encLoopMoveAccel, args: ['in', 0.01, 2, 12],
-        group: '[Channel1]', inKey: 'beatloop_size', rate: false
-    });
-    for (var i = 0; i < 40; i++) H.send(c, 'encoderL', 1);
-    var delta = 1 - engine.getValue('[Channel1]', 'beatloop_size');
-    t.ok(delta <= 0.81, 'delta=' + delta);
-    t.ok(delta > 0.1, 'delta=' + delta);
-});
-
-test('encLoopMoveAccel: higher cap allows faster climb', function(t) {
-    var c = H.ctrl();
-    engine._set('[Channel1]', 'beatloop_size', 5);
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encLoopMoveAccel, args: ['in', 0.01, 6, 12],
-        group: '[Channel1]', inKey: 'beatloop_size', rate: false
-    });
-    for (var i = 0; i < 40; i++) H.send(c, 'encoderL', 1);
-    var delta = 5 - engine.getValue('[Channel1]', 'beatloop_size');
-    t.ok(delta > 0.5, 'delta=' + delta);
-});
-
 // ── encBeatjump ────────────────────────────────────────────
 
 test('encBeatjump: CW → beatjump_forward pulse', function(t) {
