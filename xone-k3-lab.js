@@ -576,9 +576,16 @@
         var res = XoneK3._applyFieldEdit(rgb, source.brightness, field, mode, value);
         if (!res) return false;
 
-        scheme.colors[segIdx] = (res.br === defaultBr)
-            ? [rgb[0], rgb[1], rgb[2]]
-            : [rgb[0], rgb[1], rgb[2], res.br];
+        // Preserve existing off-brightness. Format is
+        // [r,g,b,on,off] — if off is set we must write on
+        // explicitly even when it equals the default, so the
+        // off value lands in position 4, not 3.
+        var offBr = (typeof source.brightnessOff === 'number')
+            ? source.brightnessOff : null;
+        var entry = [rgb[0], rgb[1], rgb[2]];
+        if (res.br !== defaultBr || offBr !== null) entry.push(res.br);
+        if (offBr !== null) entry.push(offBr);
+        scheme.colors[segIdx] = entry;
         // Invariant: non-black implies colorSet true.
         if (rgb[0] !== 0 || rgb[1] !== 0 || rgb[2] !== 0) {
             _setColorSet(scheme, segIdx, true);
@@ -602,7 +609,14 @@
 
             var cur = XoneK3.resolveColorEntry(tgt.color || 'off');
             var rgb = (cur && cur.rgb) ? cur.rgb.slice() : [0, 0, 0];
-            var br  = (typeof tgt.brightness === 'number') ? tgt.brightness : 127;
+            // Brightness may be embedded in the color spec
+            // ('green, 60') or stored alongside it (brightness: 60).
+            // The separate field wins when set; otherwise fall back
+            // to the embedded value so an RGB edit doesn't zero it
+            // to the default 127.
+            var br  = (typeof tgt.brightness === 'number')
+                ? tgt.brightness
+                : ((cur && typeof cur.brightness === 'number') ? cur.brightness : 127);
             var isAbs = (typeof absValue === 'number');
             var res = XoneK3._applyFieldEdit(rgb, br, field,
                                              isAbs ? 'abs' : 'step',
