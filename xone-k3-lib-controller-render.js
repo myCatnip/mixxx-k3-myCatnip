@@ -314,8 +314,14 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
 
         var value = this._minSegmentEmit(segs);
         if (this._flatCacheSize >= 1024) {
-            this._flatCache = {};
-            this._flatCacheSize = 0;
+            // Evict one entry instead of clearing the cache.
+            // Clear-all triggered a 1024-entry _minSegmentEmit
+            // recompute burst on the next render. One-entry
+            // eviction bounds the recompute to a single miss.
+            // _cacheId keys are integer-like, so V8 yields them
+            // in ascending order — this evicts the oldest entry.
+            for (var ek in cache) { delete cache[ek]; break; }
+            this._flatCacheSize--;
         }
         cache = this._flatCache;
         cache[segs._cacheId] = { key: fingerprint, value: value };
@@ -352,9 +358,16 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
 
         var value = this._bisectHw(rgb, targetLum);
 
+        // Evict one entry instead of clearing the whole cache.
+        // Clear-all triggered a 1024-entry recompute burst on the
+        // next render — 1024 × 12 bisects, enough to drop a frame.
+        // One-entry eviction bounds the recompute to a single miss.
+        // Key identity doesn't matter — any single eviction keeps
+        // the size bound. Cache key is unchanged; solved values are
+        // identical to before.
         if (this._hwCacheSize >= 1024) {
-            this._hwCache = {};
-            this._hwCacheSize = 0;
+            for (var ek in this._hwCache) { delete this._hwCache[ek]; break; }
+            this._hwCacheSize--;
         }
         this._hwCache[key] = value;
         this._hwCacheSize++;

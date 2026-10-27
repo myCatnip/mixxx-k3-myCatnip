@@ -451,13 +451,14 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         return str;
     };
 
+    var _TOKEN_RE = /\$[A-Z0-9_]+\$/g;
     XoneK3._findUnknownTokens = function(str) {
         if (typeof str !== 'string' || str.indexOf('$') === -1) return [];
         var out = [];
         var seen = {};
-        var re = /\$[A-Z0-9_]+\$/g;
+        _TOKEN_RE.lastIndex = 0;
         var m;
-        while ((m = re.exec(str)) !== null) {
+        while ((m = _TOKEN_RE.exec(str)) !== null) {
             var tok = m[0];
             if (_KNOWN_TOKEN_SET[tok]) continue;
             if (seen[tok]) continue;

@@ -362,8 +362,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
 
     // Position-derived origin from marker hotcues. Any hotcue
     // whose stored colour is in PHRASE_MARKER_COLORS defines a
-    // phrase-start position; origin is the beat of the last such
-    // marker at or before the playhead, or 0.
+    // phrase-start position. Origin is the beat of the last such
+    // marker at or before the playhead. Before the first marker,
+    // origin derives from the nearest marker AHEAD — pre-phrase
+    // playback shows a negative count rather than a stale "0"
+    // origin. With no markers at all, origin is 0.
     //
     // Frozen in loop mode: origin stays fixed for the loop's
     // duration. First playposition tick after the loop stops
@@ -384,10 +387,16 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var best = null;
         var bestAhead = null;
         var cache = st.hotcueState;
+        var maxCue = XoneK3.HOTCUE_MAX;
 
-        for (var n in cache) {
-            if (!cache.hasOwnProperty(n)) continue;
+        // Numeric index loop. for...in on a numeric-keyed object
+        // is dictionary iteration in V8, ~2× slower than an array
+        // walk. Only slots up to HOTCUE_MAX are ever seeded; slots
+        // beyond that (HOTCUE_MAX raised after boot) are undefined
+        // and skipped.
+        for (var n = 1; n <= maxCue; n++) {
             var h = cache[n];
+            if (!h) continue;
             if (markers.indexOf(h.color) === -1) continue;
             if (!(h.pos >= 0) || h.pos > meta.samples) continue;
             var markerPos = h.pos / meta.samples;
