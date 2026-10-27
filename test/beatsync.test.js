@@ -53,17 +53,18 @@ test('clocks closed on unbind of the last beat LED', function(t) {
     t.eq(c._beatConns.length, 0);
 });
 
-test('connection counts: 4 beat + 32 play', function(t) {
+test('connection counts: 4 beat + 36 play', function(t) {
     var c = setup();
     withBeat(c);
     // 1 beat_active per channel = 4
     t.eq(c._beatConns.length, 4);
-    // 8 base play connections per channel × 4 = 32:
+    // 9 base play connections per channel × 4 = 36:
     // playposition, play_indicator, track_loaded, loop_enabled,
-    // slip_enabled, track_samples, rate_ratio, reverse. Hotcue
-    // marker observers add 32 per channel when PHRASE_MARKER_COLORS
-    // is non-empty; setup() clears it.
-    t.eq(c._playConns.length, 32);
+    // slip_enabled, track_samples, rate_ratio, reverse,
+    // outro_end_position. Hotcue marker observers add 32 per
+    // channel when PHRASE_MARKER_COLORS is non-empty; setup()
+    // clears it.
+    t.eq(c._playConns.length, 36);
 });
 
 test('track_samples change invalidates _trackMetaCache', function(t) {
@@ -386,12 +387,14 @@ test('track_loaded leaves clock stopped when track loads paused', function(t) {
          'paused load must not start the clock');
 });
 
-test('track_loaded ignores v != 1', function(t) {
+test('track_loaded v=0 resets beat state on unload', function(t) {
     var c = setup();
     withBeat(c);
     c._decks[1].count = 42;
+    c._decks[1].hasBeat = true;
     engine._trigger('[Channel1]', 'track_loaded', 0);
-    t.eq(c._decks[1].count, 42);
+    t.eq(c._decks[1].count, 1, 'count reset to fresh default');
+    t.eq(c._decks[1].hasBeat, false, 'hasBeat cleared on unload');
 });
 
 // ── loop_enabled handler ───────────────────────────────────
