@@ -229,6 +229,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this._hwCache = {};
         this._hwCacheSize = 0;
         this._flatCache = {};
+        this._flatCacheSize = 0;
         this._calibCurveName = (typeof cfg.calibration === 'string')
             ? cfg.calibration : 'none';
 
@@ -452,7 +453,10 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // skipRefresh on the _applyBinding call or invoke this after.
     XoneK3.K3Controller.prototype._refreshBinding = function(name) {
         var b = this.bindings[name];
-        if (b) b._refresh();
+        if (!b) return;
+        this._safeBinding(b._refresh, b, [],
+            'refreshBindingThrow:' + b._name,
+            '_refreshBinding: ' + b._name + ' threw: ');
     };
 
     // ============================================================

@@ -326,8 +326,9 @@ paid for in cost or in mistakes.
   compiled shape can change at runtime (`countdownScheme`
   idle → beat). Freezing at bind time is faster but wrong
   for that case.
-- **Bound every cache.** `_hwCache` at 1024, `_sysexQueue`
-  at 128. An unbounded cache is a leak with extra steps.
+- **Bound every cache.** `_hwCache` and `_flatCache` at
+  1024, `_sysexQueue` at 128. An unbounded cache is a leak
+  with extra steps.
 - **Trace every performance claim to a code path.** A
   per-path before/after with each row traceable to a function
   is what you'll need when the win has to be defended. An

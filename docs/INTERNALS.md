@@ -108,7 +108,7 @@ Beyond the binding map and `activePatches`:
   `outro_end_position`. Incomplete reads not cached (§6).
 - `_rateCache[1..4]` — `rate_ratio` snapshot, listener-fed
 - `_reverseCache[1..4]` — reverse flag, listener-fed
-- `_flatCache{}` — `_flatTarget` cache, keyed on segments id + `_calibFingerprint()` (§12)
+- `_flatCache{}` — `_flatTarget` cache, keyed on segments id + `_calibFingerprint()`, bounded at 1024 entries (§12)
 - `_calibFingerprint()` — computed at call time. See PERFORMANCE for why.
 - `_resolvedTargetHashCache` — WeakMap<cfg, {fingerprint, value}> (§8)
 - `_resolvedPatchCache{}` — memoized patch merges
@@ -594,7 +594,13 @@ summed to Y, `pow(Y, lumGamma)`, boosted by `hkBoost × saturation`.
 
 `_flatTarget(segs)` scans stops for minimum perceived luminance.
 Cached per controller in `_flatCache`, keyed by `segs._cacheId`
-then `_calibFingerprint()`.
+then `_calibFingerprint()`, bounded at 1024 entries — overflow
+clears the whole cache, same discipline as `_hwCache`. The cap
+matters for colorLab: every input event allocates a fresh `segs`
+array (`_version++` invalidates the compile cache), so entries
+accumulate during a tuning session. Misses still recompute
+`_minSegmentEmit` — the cap only bounds memory, not per-render
+CPU.
 
 `_calibFingerprint()` is a method, not a stored string. Every
 `_emitAt` input is included — curve name, calibrationMode,
@@ -1034,7 +1040,7 @@ carries an inline disable.
 - **`_reverseCache[1..4]`** — reverse flag. Listener-fed.
   Removes two CO reads from the guard path.
 - **`_flatCache`** — keyed on `segs._cacheId` then
-  `_calibFingerprint()`. See §12.
+  `_calibFingerprint()`. Bounded at 1024. See §12.
 - **`_hwCache`** — bounded at 1024.
 - **`_ledCache`** — per-controller. Packed int
   `(r<<21 | g<<14 | b<<7 | hw)`. Reversed by

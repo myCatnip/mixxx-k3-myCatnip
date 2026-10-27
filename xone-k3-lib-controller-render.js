@@ -313,7 +313,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         if (entry && entry.key === fingerprint) return entry.value;
 
         var value = this._minSegmentEmit(segs);
+        if (this._flatCacheSize >= 1024) {
+            this._flatCache = {};
+            this._flatCacheSize = 0;
+        }
+        cache = this._flatCache;
         cache[segs._cacheId] = { key: fingerprint, value: value };
+        this._flatCacheSize++;
         return value;
     };
 
