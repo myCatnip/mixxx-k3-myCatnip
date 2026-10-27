@@ -217,6 +217,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         if (this.selectedDeckCurrent === ch) {
             this._refreshDisplayFlags();
             this._refreshAllLeds('display-source');
+        } else {
+            // Non-active channel: pause-in-loop changed the mode
+            // (playing → paused) but _syncBeatCount only refreshes
+            // on count change, and _refreshAllLeds only sweeps the
+            // active deck. Sweep this channel's beat LEDs here so
+            // BEAT_PAUSED_MODE lands immediately.
+            this._refreshBeatLeds(ch);
         }
     };
 
@@ -684,8 +691,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // mode used to read play_indicator + rate_ratio per call;
         // both are now cached (st.playing via _onPlayIndicator,
         // rate_ratio via the listener in _openChannelBeatClocks),
-        // so the only remaining CO read here is play_indicator —
-        // for the `playing` local below.
+        // so the throttled body reads zero COs.
         this._advanceVirtualClock(ch, newPos);
 
         this._deriveOriginFromPosition(ch, newPos);
@@ -718,17 +724,8 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var wasPlaying = st.playing;
         st.playing = v > 0;
         if (wasPlaying !== st.playing) {
-            // Play state gates the loop clock. Pause stops it
-            // (displaySource reverts to 'track'); resume re-seeds
-            // from the playhead, identical to entering the loop.
-            //
-            // When the clock starts or stops, the repaint comes
-            // for free via _resolveDisplaySource → _syncBeatCount
-            // → _refreshBeatLeds. Only the no-loop case has no
-            // such path, and _isBeatOffPhase still needs to pick
-            // up the new st.playing — hence the explicit refresh
-            // on the no-op branch.
-            if (!this._syncVirtualClock(ch)) this._refreshBeatLeds(ch);
+            this._syncVirtualClock(ch);
+            this._refreshBeatLeds(ch);
         }
         if (v === 1) {
             this._syncBeatCount(ch);
