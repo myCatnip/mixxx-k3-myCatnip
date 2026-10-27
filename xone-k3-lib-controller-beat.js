@@ -36,24 +36,12 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         return (n >= 1 && n <= 4) ? n : null;
     };
 
-    XoneK3.K3Controller.prototype._readLoopBounds = function(ch) {
-        var samples = this._trackMeta(ch).samples;
-        if (!(samples > 0)) return null;
-        var grp = '[Channel' + ch + ']';
-        var start = engine.getValue(grp, 'loop_start_position');
-        var end   = engine.getValue(grp, 'loop_end_position');
-        if (!(end > start)) return null;
-        return { start: start / samples, end: end / samples };
-    };
-
+    // loopActive is the only loop state _syncVirtualClock and
+    // _inspectBeat consume — the loop bounds were fed only to
+    // the removed trackTempo wrap heuristic.
     XoneK3.K3Controller.prototype._readLoopState = function(ch) {
-        var st = this._decks[ch];
-        var grp = '[Channel' + ch + ']';
-        st.loopActive = engine.getValue(grp, 'loop_enabled') > 0;
-        if (st.loopActive) {
-            var b = this._readLoopBounds(ch);
-            if (b) { st.loopStartN = b.start; st.loopEndN = b.end; }
-        }
+        this._decks[ch].loopActive =
+            engine.getValue('[Channel' + ch + ']', 'loop_enabled') > 0;
     };
 
     // ============================================================
@@ -605,6 +593,12 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // st.playing = false, rendering the paused beat mode on a
     // playing deck.
     XoneK3.K3Controller.prototype._catchUpChannel = function(ch) {
+        // track_loaded and track_samples listeners were disconnected
+        // for the whole closed-window. Any load during it left the
+        // cache stale — clear it so _syncBeatCount below reads
+        // fresh COs. No-op when clocks were never closed (cache
+        // was already empty or freshly populated by the same track).
+        this._trackMetaCache[ch] = undefined;
         // playing first — the clock only runs while playing, and
         // a reload during an active loop should leave the clock
         // stopped until the deck is actually playing.

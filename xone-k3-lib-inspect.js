@@ -196,10 +196,6 @@
             print('           loopClock=' +
                 (st.loopClock.running ? 'running' : 'stopped') +
                 ' pos=' + st.loopClock.pos.toFixed(4));
-            if (st.loopActive) {
-                print('           loop=[' + st.loopStartN.toFixed(4) +
-                    ',' + st.loopEndN.toFixed(4) + ']');
-            }
         }
         print('');
         if (this._beatLeds.length === 0) {

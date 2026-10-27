@@ -476,16 +476,11 @@ test('_syncBeatClocks: closes clocks when beat LED removed', function(t) {
 
 // ── _readLoopState ─────────────────────────────────────────
 
-test('_readLoopState: reads bounds when enabled', function(t) {
+test('_readLoopState: reads loop_enabled', function(t) {
     var c = H.ctrl();
-    engine._set('[Channel1]', 'track_samples', 1000);
-    engine._set('[Channel1]', 'loop_start_position', 100);
-    engine._set('[Channel1]', 'loop_end_position', 500);
     engine._set('[Channel1]', 'loop_enabled', 1);
     c._readLoopState(1);
     t.eq(c._decks[1].loopActive, true);
-    t.approx(c._decks[1].loopStartN, 0.1, 1e-9);
-    t.approx(c._decks[1].loopEndN,   0.5, 1e-9);
 });
 
 test('_readLoopState: clears when disabled', function(t) {

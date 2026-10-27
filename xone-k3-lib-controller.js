@@ -91,7 +91,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             playing: false,
             displaySource: 'track',
             loopClock: freshVirtualClock(),
-            loopStartN: 0, loopEndN: 0,
             lastBeatRepaint: 0, lastBeatEdge: 0, lastPositionSync: 0,
             // Previous playposition reading. Undefined until the
             // first tick. Used by _onPlayposition to detect
