@@ -93,7 +93,8 @@
         modifierStates: {
             shift:   { heldBy: ['shift'], recompute: true },
             chord:   { heldBy: ['shift', 'layer'], patchActivate: 'chord' },
-            loadArm: { heldBy: ['pressR'] }
+            loadArm: { heldBy: ['pressR'] },
+            bpmPressHeld: { heldBy: ['pressL'] }
         }
     };
 

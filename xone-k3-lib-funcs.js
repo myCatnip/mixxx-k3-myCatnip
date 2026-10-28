@@ -442,7 +442,67 @@
             var dir = (v === 1) ? 1 : -1;
             var step = XoneK3.parseNum(args[0]); if (isNaN(step)) step = 0.025;
             engine.setValue(this.group, this.inKey,
-                engine.getValue(this.group, this.inKey) + dir * step);
+                            engine.getValue(this.group, this.inKey) + dir * step);
+        },
+        // BPM step, or head-mix step while modifiers.bpmPressHeld is
+        // active (pressL held). The two-step behaviour is driven by
+        // the modifier state, not by a per-encoder flag — pressL's
+        // transaction is the single source of truth, so rebinds
+        // and patch changes mid-hold don't leave stale state.
+        // BPM step, or head-mix step while modifiers.bpmPressHeld is
+        // active (pressL held). The two-step behaviour is driven by
+        // the modifier state, not by a per-encoder flag — pressL's
+        // transaction is the single source of truth, so rebinds
+        // and patch changes mid-hold don't leave stale state.
+        //
+        // Sets _bpmHeldTurned so F.bpmPress can suppress the shift+
+        // release headSplit toggle when the user actually turned
+        // the encoder during the hold.
+        encBpmOrHeadMix: function(args, ch, c, v, s) {
+            var dir = (v === 1) ? 1 : -1;
+            var bpmStep = XoneK3.parseNum(args[0]); if (isNaN(bpmStep)) bpmStep = 0.1;
+            var mixStep = XoneK3.parseNum(args[1]); if (isNaN(mixStep)) mixStep = 0.05;
+            if (this._ctrl.modifiers.bpmPressHeld) {
+                this._ctrl._bpmHeldTurned = true;
+                engine.setValue('[Master]', 'headMix',
+                                engine.getValue('[Master]', 'headMix') + dir * mixStep);
+            } else {
+                engine.setValue(this.group, this.inKey,
+                                engine.getValue(this.group, this.inKey) + dir * bpmStep);
+            }
+        },
+
+        // pressL release handler for the pressL+encoderL pair.
+        //
+        // On press: arms the pairing by clearing the turn flag —
+        // head-mix behaviour comes from modifiers.bpmPressHeld,
+        // derived from pressL's transaction.
+        //
+        // On release: if shift is held AND the encoder was not
+        // turned during the hold, toggles [Master] headSplit.
+        // Skips the toggle when the transaction is orphaned — a
+        // rebind during the hold means the user's context has
+        // changed under them, so we don't fire a user-facing side
+        // effect from an abandoned press.
+        //
+        // The active-transaction guard rejects a stray note-off
+        // (release with no matching press). During
+        // _dispatchCapturedRelease the transaction is still
+        // active, so the guard correctly passes on real releases
+        // fired through the capture path.
+        bpmPress: function(args, ch, c, v, s) {
+            if (this._ctrl._isPress(v, s)) {
+                this._ctrl._bpmHeldTurned = false;
+                return;
+            }
+            if (!this._transaction || !this._transaction.active) return;
+            var turned = this._ctrl._bpmHeldTurned;
+            this._ctrl._bpmHeldTurned = false;
+            if (this._transaction.orphaned) return;
+            if (this._ctrl.modifiers.shift && !turned) {
+                var cur = engine.getValue('[Master]', 'headSplit');
+                engine.setValue('[Master]', 'headSplit', cur ? 0 : 1);
+            }
         },
         encPlaylistNav: function(args, ch, c, v, s) {
             engine.setValue('[Playlist]',

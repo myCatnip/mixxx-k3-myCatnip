@@ -145,6 +145,12 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         this._lastLoopTouchMs = { 1: 0, 2: 0, 3: 0, 4: 0 };
 
+        // Set true if encoderL is turned while modifiers.bpmPressHeld
+        // is active (pressL held). Read+cleared by F.bpmPress on
+        // release to suppress the shift+pressL headSplit toggle when
+        // the user actually turned the encoder during the hold.
+        this._bpmHeldTurned = false;
+
         this._shuttingDown = false;
 
         this._batchPatchesActive = false;

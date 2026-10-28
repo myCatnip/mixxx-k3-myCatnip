@@ -124,10 +124,12 @@
     // ============================================================
     var CUE = {
         layer: layerButton('cue', 'loop'),
-        // pressR — modifier-holder only. modifiers.loadArm derives
-        // from its transaction. F.k3Select / F.slipOrLoad /
-        // F.setActiveDeckTo read ctrl.modifiers.loadArm.
+        // pressR / pressL — modifier-holders only. modifiers.loadArm
+        // / modifiers.bpmPressHeld derive from their transactions.
         pressR:   { type: 'push' },
+        pressL:   { type: 'push', func: F.bpmPress },
+        encoderL: { func: F.encBpmOrHeadMix, args: [0.1, 0.05],
+                    group: '$DECK_ACTIVE$', inKey: 'bpm' },
         encoderR: { func: F.encPlaylistNav },
 
         grid0_0: beatjump1('backward'),

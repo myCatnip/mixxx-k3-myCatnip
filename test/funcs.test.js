@@ -327,6 +327,117 @@ test('encBeatjumpStepScale: CCW halves', function(t) {
     t.eq(engine.getValue('[Channel1]', 'beatjump_size_halve'), 1);
 });
 
+// ── encBpmOrHeadMix / bpmPress ─────────────────────────────
+
+function pairCtrl() {
+    return H.ctrl({
+        modifierStates: {
+            shift: { heldBy: ['shift'] },
+            bpmPressHeld: { heldBy: ['pressL'] }
+        },
+        patches: { base: {
+            shift: { type: 'push' },
+            pressL: { type: 'push', func: XoneK3.FUNCS.bpmPress }
+        } },
+        initialPatches: ['base']
+    });
+}
+
+test('encBpmOrHeadMix: unheld → BPM step', function(t) {
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'bpm', 120);
+    c._applyBinding('encoderL', {
+        func: XoneK3.FUNCS.encBpmOrHeadMix, args: [0.1, 0.05],
+        group: '[Channel1]', inKey: 'bpm'
+    });
+    H.send(c, 'encoderL', 1);
+    t.approx(engine.getValue('[Channel1]', 'bpm'), 120.1, 1e-9);
+});
+
+test('encBpmOrHeadMix: held → headMix step, sets turn flag', function(t) {
+    var c = H.ctrl();
+    c.modifiers.bpmPressHeld = true;
+    c._bpmHeldTurned = false;
+    engine._set('[Master]', 'headMix', 0.5);
+    c._applyBinding('encoderL', {
+        func: XoneK3.FUNCS.encBpmOrHeadMix, args: [0.1, 0.05],
+        group: '[Channel1]', inKey: 'bpm'
+    });
+    H.send(c, 'encoderL', 1);
+    t.approx(engine.getValue('[Master]', 'headMix'), 0.55, 1e-9);
+    t.eq(c._bpmHeldTurned, true);
+});
+
+test('bpmPress: press clears turn flag', function(t) {
+    var c = pairCtrl();
+    c._recompute();
+    c._bpmHeldTurned = true;
+    H.press(c, 'pressL');
+    t.eq(c._bpmHeldTurned, false);
+});
+
+test('bpmPress: shift+release without turn toggles headSplit', function(t) {
+    var c = pairCtrl();
+    c._recompute();
+    engine._set('[Master]', 'headSplit', 0);
+    H.press(c, 'shift');
+    H.press(c, 'pressL');
+    H.release(c, 'pressL');
+    t.eq(engine.getValue('[Master]', 'headSplit'), 1);
+});
+
+test('bpmPress: release without shift does not toggle', function(t) {
+    var c = pairCtrl();
+    c._recompute();
+    engine._set('[Master]', 'headSplit', 0);
+    H.press(c, 'pressL');
+    H.release(c, 'pressL');
+    t.eq(engine.getValue('[Master]', 'headSplit'), 0);
+});
+
+test('bpmPress: shift+turn+release does not toggle', function(t) {
+    var c = pairCtrl();
+    c._recompute();
+    engine._set('[Master]', 'headSplit', 0);
+    H.press(c, 'shift');
+    H.press(c, 'pressL');
+    c._bpmHeldTurned = true;
+    H.release(c, 'pressL');
+    t.eq(engine.getValue('[Master]', 'headSplit'), 0);
+});
+
+test('bpmPress: orphaned release skips toggle', function(t) {
+    var c = pairCtrl();
+    c._recompute();
+    engine._set('[Master]', 'headSplit', 0);
+    H.press(c, 'shift');
+    H.press(c, 'pressL');
+    // Rebind pressL mid-hold — orphans the transaction
+    c._applyBinding('pressL', { type: 'push', func: function() {} });
+    H.release(c, 'pressL');
+    t.eq(engine.getValue('[Master]', 'headSplit'), 0);
+});
+
+test('bpmPress: stray note-off (no press) does nothing', function(t) {
+    var c = pairCtrl();
+    c._recompute();
+    engine._set('[Master]', 'headSplit', 0);
+    H.press(c, 'shift');
+    H.release(c, 'pressL');   // release without press
+    t.eq(engine.getValue('[Master]', 'headSplit'), 0);
+});
+
+test('bpmPress: shift released before pressL → no toggle', function(t) {
+    var c = pairCtrl();
+    c._recompute();
+    engine._set('[Master]', 'headSplit', 0);
+    H.press(c, 'shift');
+    H.press(c, 'pressL');
+    H.release(c, 'shift');
+    H.release(c, 'pressL');
+    t.eq(engine.getValue('[Master]', 'headSplit'), 0);
+});
+
 // ── pressSetValue ──────────────────────────────────────────
 
 test('pressSetValue: writes value', function(t) {
