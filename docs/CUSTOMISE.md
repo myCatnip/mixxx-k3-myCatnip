@@ -124,7 +124,7 @@ order:
 
 ```js
 on: true
-on: { state: 'isShifted' }
+on: { state: 'modifiers.shift' }
 on: { state: 'selectedDeckCurrent', equals: 1 }
 on: { patchActive: 'selectAB' }
 ```
@@ -398,6 +398,12 @@ When the overlay exits, the original comes back.
 **The overlay must declare a `layer` binding** if you want the
 layer button to exit it. Otherwise the host's `layer` wins.
 
+`_noModifiers: true` on a patch disables the modifier system
+while that patch is active — shift companions, chord, and
+modifier `patchActivate` enforcement are all suppressed. Use it
+when an overlay needs the whole surface (a game, a modal editor).
+Only snake ships this today. See INTERNALS §2.5.
+
 ## 1.12 Custom funcs
 
 ```js
@@ -417,6 +423,15 @@ Bind it:
 ```js
 press0: { func: XoneK3.FUNCS.myFunc, args: ['arg1'] }
 ```
+
+**On a rebind-during-hold, a func's release fires against the
+press-time config (captured fields), not the current binding.**
+Read `this._transaction.orphaned` inside the func to branch when
+the press was orphaned by a rebind. Funcs must not mutate
+`this._transaction` — it's owned by the runtime. Session-scoped
+fields (`this._normalized`, `this._ctrl`) are live. To read a
+modifier state from a func: `this._ctrl.modifiers.<name>`. See
+INTERNALS §2.5 for the full transaction model.
 
 **If your func touches a loop** (moves a boundary, engages a
 loop, changes loop size), call `this._ctrl._touchLoop(this.group)`
@@ -552,13 +567,18 @@ selectedDeckCurrent       1..4
 selectedDeckAlt           1..4
 selectedFxCurrent         1..4
 selectedFxAlt             1..4
-isShifted                 true | false
 ```
 
 Without `equals` or `contains`, the LED is on when the resolved
 value is truthy. A numeric `on.state` with no comparator warns
 once per binding on first render (`_isOn`) — not at bind time,
 so a binding whose LED never renders never warns.
+
+**Modifier states are not in the derived fields list.** Read
+them via `on: { state: 'modifiers.<name>' }` — the dotted path
+resolves through `readPath`, so `modifiers.shift` returns the
+boolean. This is the pattern for LED feedback on modifier-holds.
+See §2.6.1 for declaring modifier states in boot config.
 
 ## 2.4 Tokens
 
@@ -656,6 +676,7 @@ beat`. Matrix:
 | `patches` | `XoneK3.CAT_LAYERS` | The patch tree. |
 | `sysex` | `true` | RGB sysex vs K2 MIDI palette. |
 | `timeSig` | `null` | `{ barBeats, phraseBars }` override. |
+| `modifierStates` | (see §2.6.1) | Named held-states derived from transaction activity. |
 
 To boot twoDeck:
 
@@ -667,6 +688,61 @@ To boot mini:
 
 ```js
 initialPatches: ['twoDeckMini', 'fxMini1', 'cue']
+```
+
+### 2.6.1 `modifierStates`
+
+```js
+modifierStates: {
+    <name>: {
+        heldBy: [bindingName, ...],       // required
+        recompute: true|false,             // optional
+        patchActivate: 'patchName',        // optional
+        onActivate: fn(ctrl),              // optional
+        onDeactivate: fn(ctrl)             // optional
+    }
+}
+```
+
+A modifier is active while **every** binding in `heldBy` has an
+active transaction (is physically held). State changes fire the
+hooks and drive patch activation. `patchActivate` idempotently
+enforces that the named patch is in `activePatches` on every
+press and release — a config func that removes it out of band
+gets corrected. `recompute` triggers a standalone recompute when
+the state changes. See INTERNALS §2.5 for mechanics.
+
+Cat's boot config declares `shift`, `chord`, and `loadArm`:
+
+```js
+modifierStates: {
+    shift:   { heldBy: ['shift'], recompute: true },
+    chord:   { heldBy: ['shift', 'layer'], patchActivate: 'chord' },
+    loadArm: { heldBy: ['pressR'] }
+}
+```
+
+- `shift` — active while the `shift` binding is held. `recompute`
+  flips shift companions into the stack.
+- `chord` — active while both `shift` and `layer` are held.
+  `patchActivate: 'chord'` adds the chord patch while active,
+  removes it on release. Order-independent: pressing layer-then-
+  shift or shift-then-layer both activate chord.
+- `loadArm` — active while `pressR` is held. Read by `k3Select`,
+  `setActiveDeckTo`, and `slipOrLoad` to change their action to
+  "load onto that channel" while held.
+
+`heldBy` bindings must be `type: 'push'` somewhere in the
+reachable stack — otherwise their transactions never activate and
+the modifier stays false.
+
+colorLab uses the same pattern:
+
+```js
+modifierStates: {
+    shift: { heldBy: ['shift'], recompute: true },
+    chord: { heldBy: ['shift', 'layer'], patchActivate: 'chord' }
+}
 ```
 
 ## 2.7 Hardware calibration
@@ -702,7 +778,8 @@ preset reload.
 of sysex.
 
 ```js
-shift: { func: F.shiftToggle, k2: true }
+press2: { group: '$DECK_ACTIVE$', inKey: 'hotcue_1_activate',
+          outKey: 'hotcue_1_status', k2: true }
 ```
 
 Alternative: list raw indices in the boot config:
@@ -730,7 +807,7 @@ XoneK3.BEAT_PAUSED_MODE  = 'solid';
 XoneK3.CO_MATCH_EPSILON = 1 / 127;
 XoneK3.TAKEOVER_EPSILON = 2 / 127;
 
-XoneK3.setTimeSig(4, 4);add `knob: '<name>'`. The LED sampl
+XoneK3.setTimeSig(4, 4);
 XoneK3.clearTimeSig();
 ```
 
@@ -812,12 +889,16 @@ Timelines:
 Patch / overlay / mode:
 
   layerButton        ['cue', 'loop']
+      No release branch. Early-returns on modifiers.chord — chord
+      takes over the layer press when active.
   toggleOverlay      ['name', ['sib']]
   toggleLayerOverlay ['cueName', 'loopName']
       Picks target by _patchActive('cue') / _patchActive('loop').
       Both overlays can sit in activePatches at once; _host gates
       visibility.
   layerExitOverlay   ['name']
+      Release is a no-op. Chord exit is handled by the captured
+      shift/layer release via the modifier system.
   toggleTopMode
   toggleMiniFx
 
@@ -838,7 +919,6 @@ Encoders:
       loop. Uses _pulseCo.
   encBeatjumpStepScale ['1/32', 16]
   encStepParam         ['[Master]', 'gain', 0.01]
-  encBpmPressedHeadMix
   encPlaylistNav
 
 Buttons:
@@ -855,8 +935,6 @@ Buttons:
   beatloopActivateResetAnchor
       Resets loop_anchor then pulses beatloop_activate. Stamps
       _lastLoopTouchMs.
-  bpmPress             ['encoderL']
-  loadSelectedTrack
   shutdownHold
   hotcueSetPhraseColor ['N']
       Activates hotcue N; if unset, also writes

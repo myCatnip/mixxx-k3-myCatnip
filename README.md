@@ -254,19 +254,15 @@ BOTTOM — encoderL / pressL / encoderR / pressR
 ════════════════════════════════════════════════════════════
 
 CUE  (base)
-CUE  (base)
-encL:  BPM ±0.1                +shift: master gain
-       pressL held → head mix
-pressL: hold: encL = head mix
-       +shift release (no turn): toggle headSplit
-       +shift with turn: headSplit STILL toggles — encoderL
-       under shift is master gain, not head mix, and doesn't
-       clear the "no turn" flag. Avoid shift + pressL +
-       encoderL unless the toggle is intended.
+encL:  unbound                  +shift: master gain
+pressL: unbound
 encR:  playlist prev/next       +shift: headphone volume
-pressR: hold: arm track load
+pressR: hold: arm modifiers.loadArm
        while held: TOP press0/3, selectAB cells, and grid2_1 (slip)
        load onto that channel instead of their normal action
+
+Note: CUE_SHIFT.encoderL = master gain (preserved). The
+shift+pressL headSplit gesture is removed.
 
 LOOP  (diffs from CUE)
 encL:  loop resize (IN point moves)    +shift: beatjump
@@ -282,8 +278,10 @@ ODD  (inherits LOOP, no diffs for these four)
 SHIFT BUTTON  (top right)
 ════════════════════════════════════════════════════════════
 
-press:   isShifted = true → shift layer joins the stack
-release: if _chordActive → _exitChord; then isShifted = false
+press:   shift transaction captured → modifiers.shift becomes true
+         → shift companions join the stack
+release: modifiers.shift becomes false; if chord was active it
+         exits first (via the chord modifier)
 LED:     track-end countdown on DECK B (same phases as layer button)
 
 The shift layer for the top row is a single shared patch (topShift)
@@ -298,6 +296,9 @@ CHORD  (shift + layer, both held)
 
 Enter:  hold shift, press layer, keep both held
 Exit:   release shift OR layer, OR trigger shutdown timer
+
+Chord activates when both shift and layer are held, regardless of
+press order.
 
 Overrides (CHORD patch declares just these):
 press0: toggle fxRouting overlay (clears selectAB)

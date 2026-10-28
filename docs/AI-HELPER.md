@@ -134,6 +134,9 @@ onek3-minifx, colorlab) carry 95% of requested edits. Runtime
   "beat LED out of sync on pitched"    → _channelRate reads
                                           rate_ratio, not rate
   "clear the main cue"                 → [ChannelN],cue_clear
+  "is the shift held" / "held button state"
+                                       → modifiers.<name>
+  "held across rebind / patch change"  → transaction
 
 ---
 
@@ -219,6 +222,16 @@ phrasings plus the closest workaround.
   "The beat LED drifts on a pitched deck, loop reading only."
   → Verify _channelRate reads rate_ratio, not rate. Reading
     rate with a `<= 0` guard silently disables scaling.
+
+  "Make a func see the *current* config on release after a rebind."
+  → It sees the captured config by design; that's what makes
+    rebind-during-hold safe. Read `this._transaction.orphaned`
+    to branch when the press was orphaned by a rebind.
+
+  "Track a held modifier in a func."
+  → Read `this._ctrl.modifiers.<name>` — the state is derived
+    from transaction activity on the declared `heldBy` bindings.
+    See INTERNALS §2.5.
 
 ---
 

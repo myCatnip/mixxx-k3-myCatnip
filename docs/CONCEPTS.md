@@ -118,6 +118,10 @@ Undeclared cells fall through to CUE. Companions inherit up the
 parent chain — the shift override of a patch: parent lands
 before the child's own.
 
+The shift companion applies while `modifiers.shift` is true — a
+modifier state derived from the shift binding's transaction. See
+INTERNALS §2.5 for held-state tracking.
+
 **Overlays.** A patch can declare `_host`. It only applies while
 one of its hosts is active:
 
@@ -130,6 +134,27 @@ var SELECT_AB = {
 ```
 
 An overlay can null a cell from the layer below with `{}`.
+
+---
+
+## 4.5 Held state
+
+A physical button press is a **transaction**: the binding's
+action is captured at press and fired at release. A rebind
+between press and release does not fire the release early — that
+is what makes rebinds, patch changes, and layer shifts safe to
+perform while a button is down. The captured release dispatches
+against the press-time config, not the current one.
+
+**Modifier states** are named held-states (`shift`, `chord`,
+`loadArm`) declared in config. A modifier is active while every
+binding in its `heldBy` list has an active transaction.
+Bindings, patches, and funcs read a modifier via
+`ctrl.modifiers.<name>` or, in a colour scheme,
+`on: { state: 'modifiers.<name>' }`. Modifiers drive patch
+activation (the chord patch appears while shift + layer are
+both held), stack composition (shift companions), and custom
+func branching (load-arm behaviour).
 
 ---
 

@@ -572,7 +572,8 @@ console. Silence with `XoneK3.LAB_DUMP_ON_SHUTDOWN = false`.
 
 Chord shutdown: shift + layer held, `press3` held 2 s. Releasing
 shift, layer, or `press3` cancels the timer. Works from EDIT and
-SLOTS.
+SLOTS. Chord is a modifier state (see INTERNALS §2.5); releasing
+shift or layer clears it immediately.
 
 ## Debug output
 

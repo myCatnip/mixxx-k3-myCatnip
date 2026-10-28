@@ -84,6 +84,8 @@ object across `<scriptfiles>`. Every other file opens with
    Binding.input()
         │
         ├─ _onInput(b)
+        ├─ push press? _captureTransaction → _onBindingPress
+        ├─ push release? _dispatchCapturedRelease → _onBindingRelease
         ├─ func / default write
         │
         ├─ _ledObservers[i]._refresh()
@@ -131,6 +133,95 @@ same call unless passed `{ skipRefresh: true }` (§8).
 
 One physical control is one `Binding`.
 
+## 2.5 Modifiers and transactions
+
+**Transaction lifecycle.** A physical push-mode press is captured
+by `_captureTransaction` before func dispatch — the binding's
+current `group`, `inKey`, `_func`, `_funcArgs`, `buttonMode`, and
+`type` are snapshot onto `b._transaction`. The captured config is
+dispatched at physical release via `_dispatchCapturedRelease`,
+which fires the press-time func (or default input) with the
+captured args. `_orphanTransaction` runs on every rebind and
+compares the captured signature against the current binding; a
+mismatch marks the transaction orphaned. The transaction is
+session-scoped: `_reset` doesn't wipe it, and it survives the
+binding's unbind/rebind cycles.
+
+**Signature.** Fields compared: `group`, `inKey`, `func`,
+`funcArgs`, `buttonMode`, `type`. Fields excluded (changes don't
+orphan): `colorScheme`, `outKey`, `noLED`, `k2`, `softTakeover`,
+`valueCurve` — none of these change what the release does at the
+CO. Args are compared by `===` on each element; a non-primitive
+arg always orphans (safe default — a rebind that passes the same
+object reference doesn't; a rebind that passes a structurally-
+equal-but-different object does, which is the intended
+conservative behaviour).
+
+**Orphaned is sticky.** Once set, `orphaned` is never cleared by
+a later matching rebind. Rationale: the release that eventually
+fires must dispatch the press-time config, not whatever the
+binding happens to be now. If a rebind swapped the func away and
+a subsequent rebind swapped it back, the release still fires
+against the originally-captured func — this is what makes
+rebind-during-hold safe regardless of how many rebinds happen
+between press and release.
+
+**Modifier states.** Declared in `cfg.modifierStates.<name>`.
+Each entry has:
+
+- `heldBy` — array of binding names. The modifier is active
+  while every one of them has an active transaction.
+- `patchActivate` — patch name (optional). The modifier
+  idempotently enforces that the patch is in `activePatches`
+  whenever the state is true, and removed whenever it's false.
+  Fired on every press and release, not just on state edges:
+  a config func that removes the patch out of band (snake does
+  this) gets corrected.
+- `recompute` — boolean (optional). State change triggers a
+  standalone `_recompute`. Needed when a func reads
+  `ctrl.modifiers.<name>` in its hot path.
+- `onActivate` / `onDeactivate` — hooks (optional). Called with
+  `ctrl` as `this` and argument.
+
+`_updateModifiers` runs from `_onBindingPress` / `_onBindingRelease`
+on every physical press and release. All patch changes from one
+pass batch into one `_batchPatches`. If a pass has state changes
+with `recompute: true` but no patch changes, a standalone
+`_recompute` runs at the end.
+
+**`_noModifiers` patch flag.** A patch can declare
+`_noModifiers: true`. While any active patch carries it,
+`_hasNoModifierPatch()` returns true and three things are
+suppressed: shift companions aren't appended by `_buildStack`,
+chord isn't appended, and `_updateModifiers` skips patchActivate
+enforcement entirely. Snake ships with this — the game owns the
+surface and must not have chord re-added mid-play.
+
+**Order independence.** Chord activates regardless of whether
+shift or layer went down first. The modifier is a set-membership
+check (`every heldBy has an active transaction`), not a state
+machine with an enter/exit edge. This is deliberate: users press
+shift-then-layer and layer-then-shift interchangeably, and any
+edge-based model leaks a stuck state when the second button's
+press arrives before the first is released.
+
+**Shadow dispatch.** `_dispatchCapturedRelease` temporarily
+installs the captured `group` / `inKey` / `_func` / `_funcArgs` /
+`buttonMode` onto `this`, calls the func or default input, then
+restores the current binding's fields in a `finally`. Funcs see
+the press-time surface — `this.group` inside the func is the CO
+the press was bound to, not whatever the binding now points at.
+`this._transaction.orphaned` is readable from inside the func to
+branch on the orphan case (suppress a user-facing side effect,
+skip a menu open, etc.).
+
+**Shutdown.** Captured releases are not dispatched on shutdown.
+`Binding.input` short-circuits on `_shuttingDown`, so a held
+button's release never reaches the dispatch path. Any CO a
+captured release would have written 0 to stays at its press-time
+value. Queued-software clean-up (a shutdown sweep that writes 0
+to these COs) is deferred to a future software-adapter pass.
+
 ---
 
 # 3. Boot and multi-device
@@ -157,10 +248,12 @@ array.
 
 `activePatches` is an ordered list of patch names. The stack is
 those (chord held aside, `_host` filtered), then shift
-companions, then chord last.
+companions, then chord last. `_noModifiers` patches suppress
+both the shift-companion append and the chord append (§2.5).
 
 - `_host` — overlay gate. Applies only while one of its hosts is active.
-- `layerButton, from, to` — swap. Intercepted when shift held: enters chord.
+- `layerButton, from, to` — swap. Press early-returns when
+  `modifiers.chord` is active; no release branch (§9).
 
 Three single mutations plus one batched:
 
@@ -416,37 +509,60 @@ refresh via `_syncFxLayout`'s recompute or their own trailing
 
 # 9. Chord
 
-Two states interact: `isShifted` and `_chordActive`.
+Chord is a modifier state, not a `layerButton` branch. It's
+declared in the boot config as `modifierStates.chord` with
+`heldBy: ['shift', 'layer']` and `patchActivate: 'chord'`. The
+modifier is active while both the shift binding and the layer
+binding have an active transaction — regardless of press order
+(see §2.5 for the transaction model).
 
-- `shift` press → `isShifted = true`
-- `layer` press while `isShifted` → `_enterChord()`
-- `layer` release while `_chordActive` → `_exitChord()`
-- `shift` release while `_chordActive` → `_exitChord()` then `unshift()`
-
-**Chord wins over shift companions.** `_buildStack` holds the
-`chord` entry aside and appends after shift companions.
-
-`layerButton`:
+`F.layerButton` runs on physical layer press. It early-returns
+when `modifiers.chord` is true, and swaps the layer patch
+otherwise:
 
 ```js
-if (pressed && ctrl.isShifted) { ctrl._enterChord(); return; }
-if (!pressed && ctrl._chordActive) { ctrl._exitChord(); return; }
-if (!pressed) return;
-ctrl.replacePatch(args[0], args[1]);
+if (!this._ctrl._isPress(v, s)) return;
+if (this._ctrl.modifiers.chord) return;
+this._ctrl.replacePatch(args[0], args[1]);
 ```
 
-`layerExitOverlay` (the `layer` binding on `selectAB` / `fxRouting`) replicates
-the release branch. Any binding that can occupy `layer` while chord is active
-must do the same, or layer release leaves chord running until shift is released.
+No release branch. The captured layer press's release dispatches
+through the transaction system (`_dispatchCapturedRelease`), which
+sees the same early-return on release — chord exit is handled by
+the modifier state going false when either shift or layer
+releases.
 
-The shipped chord declares `grid2_1` as
-`toggleLayerOverlay(['hotcue916', 'loopOdd'])` — the func picks
-target by `_patchActive('cue')` / `_patchActive('loop')`. Both
-overlays may sit in `activePatches` simultaneously; `_host` gates
-visibility.
+`F.layerExitOverlay` used to replicate the layer release branch
+for overlays that occupied the `layer` cell. That branch is gone.
+The func itself still exists: press removes the overlay, release
+is a no-op (the overlay isn't in `activePatches` anymore, and
+nothing in the release path re-adds it). Any overlay declaring
+`layer: { func: F.layerExitOverlay }` still works because the
+press path is unchanged; the release-path caveat — "any binding
+that can occupy `layer` must replicate the release branch" — is
+gone.
 
-`shutdownHold` is a 2 s hold; releasing shift, layer, or the
-binding cell cancels the timer via `Binding._reset`.
+**Chord wins over shift companions.** `_buildStack` holds the
+`chord` patch aside and appends it after shift companions, unless
+a `_noModifiers` patch is active (§2.5).
+
+The CHORD patch in `cat-overlays.js` declares no `layer` binding
+— layer's press is a no-op under chord. Its cells:
+
+- `press0` — toggle `fxRouting` overlay (clears `selectAB`)
+- `press1` — toggle `selectAB` overlay (clears `fxRouting`)
+- `press3` — `shutdownHold`
+- `pressR` — `toggleTopMode`
+- `pressL` — `toggleMiniFx`
+- `grid2_1` — `toggleLayerOverlay(['hotcue916', 'loopOdd'])`
+
+`grid2_1` picks target by `_patchActive('cue')` /
+`_patchActive('loop')`. Both overlays may sit in `activePatches`
+simultaneously; `_host` gates visibility.
+
+`shutdownHold` is a 2 s hold. Releasing shift, layer, or the
+binding cell cancels the timer via `Binding._reset` — the same
+path that fires any push-mode release.
 
 `_pulseCo(group, co)` fires a CO high, clears on `PULSE_CO_MS`.
 
@@ -696,8 +812,17 @@ able field means editing one list.
 Session-scoped state lives outside the factory:
 
 ```
-_normalized, pressHeld, turnHappened, _ledObservers, _held
+_normalized, _ledObservers, _transaction
 ```
+
+Of these three, `_transaction` is the one that must survive a
+rebind: the captured press config it holds is what will fire at
+physical release, and that firing must happen against the
+press-time surface regardless of how many rebinds happened in
+between (§2.5). `_normalized` and `_ledObservers` are session-
+scoped for different reasons — `_normalized` persists knob
+position across rebinds for soft-takeover bridging, `_ledObservers`
+is the observer registration list.
 
 ---
 
@@ -862,7 +987,8 @@ Read-only.
 | `[k3] _applyBinding(<name>) threw: …` | One binding's bind path threw; rest continued. |
 | `[k3] _syncFxLayout: fx-pattern patch … has no matching target` | An fx-family patch is in `activePatches` but missing from `patches:`. |
 | `[k3] colorScheme scheme function on X returns a fresh object each call` | Wrap with `composeScheme` or hoist the object. |
-| Play doesn't respond after a hotcue pad press; recovers after mouse-seek | Held hotcue press survived a rebind. `_releaseHeldWrite` in `_applyBinding` writes 0 on both unbind and rebind. If still seen, check `Binding._held` is set for push-mode buttons. |
+| Play doesn't respond after a hotcue pad press; recovers after mouse-seek | Transaction stays active across rebind, dispatches captured release at physical release. If still stuck, check `_transaction.active` on the binding via `inspect('why', name)`. |
+| Modifier state stuck / patch oscillates | Check `modifierStates.<name>.heldBy` references a binding that exists, and `_hasNoModifierPatch()` isn't suppressing enforcement unexpectedly. |
 | `[k3] sampling a scheme containing a `mixxx` colour stop` | A `mixxx` stop sits in a sampled ramp. `mixxx` is static-only — see §22 Limits. LED falls back to the nearest valid stop's colour. |
 | `[k3] colorScheme.schemeFromState on X must be an object` | `schemeFromState` is a string, number, or array. It's dropped; the base scheme (if any) renders instead. |
 | `[k3] colorScheme.on on X has equals but no state/co/patchActive` | `on:` has a comparator but no source to compare. LED stays off. Add `state: '...'`, `co: '...'`, or `patchActive: '...'`. |
@@ -895,6 +1021,19 @@ Full behaviour-driven symptoms: CUSTOMISE §3.
 3. If reset-able, add to `_bindingDefaults`.
 4. Turn on `_debugPrintsOn` and reload. Boot-time audits fire if
    a reset-able field isn't classified.
+
+## Adding a modifier state
+
+1. Declare in `cfg.modifierStates` with `heldBy`, plus
+   `recompute` / `patchActivate` / `onActivate` / `onDeactivate`
+   as needed.
+2. `heldBy` bindings must be `type: 'push'` somewhere in the
+   reachable patch stack — otherwise their transactions never
+   activate and the modifier stays false.
+3. If `patchActivate`, ensure the patch exists in `patches:` —
+   `_validateBindings` warns at boot otherwise.
+4. Read the state from config as `ctrl.modifiers.<name>` or from
+   a binding's `on: { state: 'modifiers.<name>' }`.
 
 ## Adding a func
 
@@ -1117,14 +1256,12 @@ carries an inline disable.
   `CO_MATCH_EPSILON = 1/127` — LED "matched" implies control
   live.
 - **First bind also rearms soft takeover.**
-- **Held push buttons are released and cleared on rebind.**
-  Without the release, a held hotcue pad swapped by patch change
-  stays at 1 — Mixxx stays in preview mode. Without the clear,
-  `_held` survives a push → toggle → push cycle (toggle's
-  `input()` never touches it) and the next rebind fires a
-  second, spurious release — writing 0 to a CO the user
-  legitimately set (`beatloop_size` after a layer swap,
-  `group_<channel>_enable` after an overlay exit).
+- **Held push buttons use the transaction model (§2.5).** A
+  rebind during a hold orphans the transaction; the captured
+  release fires at physical release against the press-time
+  config. The CO stays at its press-time value until then —
+  deliberate. `this._transaction.orphaned` is readable from a
+  func to branch on the orphan case.
 - **`valueCurve` doesn't touch `_normalized`.**
 - **LED on/off state comes from `colorScheme.on`, `outKey`, or
   nothing.**
@@ -1188,7 +1325,7 @@ or Patches and bindings.
 - **Controller split is load-order sensitive.**
 - **Loop-boundary encoders are ungated.** They stamp
   `_lastLoopTouchMs[ch]` but the gate only restricts beatjumps.
-  - **`mixxx` stops are static-only.** `mixxx` resolves its rgb
+- **`mixxx` stops are static-only.** `mixxx` resolves its rgb
   from the pad's hotcue colour at render time, and only
   `_renderStatic` handles that path. In a sampled ramp — a
   deviation LED's `knob:` scheme, a multi-stop scheme with a
@@ -1198,11 +1335,3 @@ or Patches and bindings.
   colour, a blend sample interpolates between the nearest valid
   stops, and the whole ramp renders black if no valid stops
   exist.
-
-- **Shift + pressL + encoderL + release toggles headSplit.**
-  encoderL under shift routes to `encStepParam` (master gain),
-  which doesn't set `turnHappened` — only `encBpmPressedHeadMix`
-  does. `bpmPress`'s release branch reads `turnHappened === false`
-  and toggles headSplit. Not a bug per se, but surprising when
-  the user's intent was "adjust master gain while holding pressL".
-  See README's CUE bottom row.
