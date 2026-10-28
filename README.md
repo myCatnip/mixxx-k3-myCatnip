@@ -254,15 +254,17 @@ BOTTOM — encoderL / pressL / encoderR / pressR
 ════════════════════════════════════════════════════════════
 
 CUE  (base)
-encL:  unbound                  +shift: master gain
-pressL: unbound
+encL:  BPM ±0.1                +shift: master gain
+       pressL held → head mix
+pressL: hold: encL = head mix
+       +shift release (no turn): toggle headSplit
+       +shift release (with turn): toggle headSplit
+       (shift+pressL+encL: encoderL is master gain, not head mix,
+       so the turn isn't registered and the toggle fires)
 encR:  playlist prev/next       +shift: headphone volume
-pressR: hold: arm modifiers.loadArm
+pressR: hold: arm track load
        while held: TOP press0/3, selectAB cells, and grid2_1 (slip)
        load onto that channel instead of their normal action
-
-Note: CUE_SHIFT.encoderL = master gain (preserved). The
-shift+pressL headSplit gesture is removed.
 
 LOOP  (diffs from CUE)
 encL:  loop resize (IN point moves)    +shift: beatjump
