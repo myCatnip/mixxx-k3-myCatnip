@@ -340,16 +340,6 @@ test('CUE grid2_0 no-op when loop clock stopped', function(t) {
     t.eq(c._decks[1].displaySource, 'track');
 });
 
-// ── BPM tap via pressL ─────────────────────────────────────
-
-test('pressL sets encoderL pressHeld', function(t) {
-    var c = setupCue();
-    H.press(c, 'pressL');
-    t.eq(c.bindings.encoderL.pressHeld, true);
-    H.release(c, 'pressL');
-    t.eq(c.bindings.encoderL.pressHeld, false);
-});
-
 // ── playlist nav ───────────────────────────────────────────
 
 test('encoderR navigates playlist', function(t) {
@@ -360,12 +350,12 @@ test('encoderR navigates playlist', function(t) {
 
 // ── track load shortcut ───────────────────────────────────
 
-test('pressR arms loadSelectedTrack', function(t) {
+test('pressR arms loadArm modifier', function(t) {
     var c = setupCue();
     H.press(c, 'pressR');
-    t.eq(c.loadState.pressed, true);
+    t.eq(c.modifiers.loadArm, true);
     H.release(c, 'pressR');
-    t.eq(c.loadState.pressed, false);
+    t.eq(c.modifiers.loadArm, false);
 });
 
 test('pressR + deck select loads track', function(t) {

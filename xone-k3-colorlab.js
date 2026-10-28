@@ -9,6 +9,10 @@
 //
 // Chord: shift + layer held, then press3 held 2s → shutdown.
 // Releasing shift, layer, or press3 kills the timer.
+//
+// Shift state comes from the modifier system — the shift binding
+// is push-mode with no func; modifierStates.shift derives the
+// state from its transaction.
 
 'use strict';
 
@@ -29,10 +33,13 @@
     // TOP — editor, unshifted
     // ============================================================
     var COLORLAB_TOP = {
-        shift: { func: F.shiftToggle,
+        // Push-mode modifier-holder. No func — modifierStates.shift
+        // derives the state from this binding's transaction. LED
+        // tracks modifiers.shift directly.
+        shift: { type: 'push',
                  colorScheme: {
                      scheme: { colors: ['red, 80, 16'] },
-                     on: { state: 'isShifted' }
+                     on: { state: 'modifiers.shift' }
                  } },
 
         encoder0: { func: F.ledRGB, args: ['r'] },
@@ -149,7 +156,8 @@
     // BOTTOM — editor, unshifted
     // ============================================================
     var COLORLAB_BOTTOM = {
-        layer: { func: F.layerButton, args: ['colorLab', 'slots'], colorScheme: { scheme: 'yellow', on: false } },
+        layer: { func: F.layerButton, args: ['colorLab', 'slots'], 
+                 type: 'push', colorScheme: { scheme: 'yellow', on: false } },
         encoderL: { func: F.ledLabMarkerWidth },
         pressL:   { func: F.ledFillGaps },
 
@@ -188,7 +196,7 @@
     function slotBtn(idx) { return { func: F.labSlotPress, args: [idx], noLED: true }; }
 
     var SLOTS = {
-        layer: { func: F.layerButton, args: ['slots', 'colorLab'],
+        layer: { func: F.layerButton, args: ['slots', 'colorLab'], type: 'push',
                  colorScheme: { scheme: 'purple', on: { state: '_lab.saveArmed' } } },
         pressL: { func: F.labEditReturn },
         pressR: { func: F.labArmSave },
@@ -208,8 +216,6 @@
     // ============================================================
     // CHORD
     // ============================================================
-    // press3 held 2s → shutdown. Releasing shift, layer, or
-    // press3 kills the timer.
     var CHORD = {
         press3: { func: F.shutdownHold }
     };
@@ -236,6 +242,11 @@
                 colorLabBeat:        COLORLAB_BEAT,
                 colorLabBeatShift:   COLORLAB_BEAT_SHIFT,
                 chord:               CHORD
+            },
+
+            modifierStates: {
+                shift: { heldBy: ['shift'], recompute: true },
+                chord: { heldBy: ['shift', 'layer'], patchActivate: 'chord' }
             },
 
             labPreviewTarget: 'button0_0',

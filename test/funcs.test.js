@@ -28,9 +28,9 @@ test('k3Select: sets selectedFxA', function(t) {
     t.eq(c.selectedFxA, 2);
 });
 
-test('k3Select: with loadState.pressed loads track', function(t) {
+test('k3Select: with modifiers.loadArm loads track', function(t) {
     var c = H.ctrl();
-    c.loadState.pressed = true;
+    c.modifiers.loadArm = true;
     c._applyBinding('press0', {
         func: XoneK3.FUNCS.k3Select, args: ['deck', 'A', 3]
     });
@@ -58,9 +58,9 @@ test('k3SelectActive: uses activeFx slot', function(t) {
     t.eq(c.selectedFxB, 3);
 });
 
-test('k3SelectActive: with loadState.pressed loads track', function(t) {
+test('k3SelectActive: with modifiers.loadArm loads track', function(t) {
     var c = H.ctrl();
-    c.loadState.pressed = true;
+    c.modifiers.loadArm = true;
     c._applyBinding('press0', {
         func: XoneK3.FUNCS.k3SelectActive, args: ['deck', 2]
     });
@@ -109,13 +109,17 @@ test('toggleActiveDeck: flips A ↔ B', function(t) {
 
 // ── loadSelectedTrack ──────────────────────────────────────
 
-test('loadSelectedTrack: press arms, release clears', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('pressR', {func: XoneK3.FUNCS.loadSelectedTrack});
+test('pressR: arms loadArm modifier while held', function(t) {
+    var c = H.ctrl({
+        modifierStates: { loadArm: { heldBy: ['pressR'] } },
+        patches: { base: { pressR: { type: 'push' } } },
+        initialPatches: ['base']
+    });
+    c._recompute();
     H.press(c, 'pressR');
-    t.eq(c.loadState.pressed, true);
+    t.eq(c.modifiers.loadArm, true);
     H.release(c, 'pressR');
-    t.eq(c.loadState.pressed, false);
+    t.eq(c.modifiers.loadArm, false);
 });
 
 // ── encPregainStep ─────────────────────────────────────────
@@ -253,32 +257,6 @@ test('encPlaylistNav: CCW selects prev', function(t) {
     t.eq(engine.getValue('[Playlist]', 'SelectPrevTrack'), 1);
 });
 
-// ── encBpmPressedHeadMix ───────────────────────────────────
-
-test('encBpmPressedHeadMix: no pressHeld → writes bpm', function(t) {
-    var c = H.ctrl();
-    engine._set('[InternalClock]', 'bpm', 120);
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encBpmPressedHeadMix,
-        group: '[InternalClock]', inKey: 'bpm'
-    });
-    H.send(c, 'encoderL', 1);
-    t.approx(engine.getValue('[InternalClock]', 'bpm'), 120.1, 1e-9);
-});
-
-test('encBpmPressedHeadMix: pressHeld writes headMix', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('encoderL', {
-        func: XoneK3.FUNCS.encBpmPressedHeadMix,
-        group: '[InternalClock]', inKey: 'bpm'
-    });
-    c.bindings.encoderL.pressHeld = true;
-    engine._set('[Master]', 'headMix', 0.5);
-    H.send(c, 'encoderL', 1);
-    t.approx(engine.getValue('[Master]', 'headMix'), 0.55, 1e-9);
-    t.eq(c.bindings.encoderL.turnHappened, true);
-});
-
 // ── encLoopMove ────────────────────────────────────────────
 
 test('encLoopMove: writes loop_anchor 1 for in', function(t) {
@@ -401,60 +379,6 @@ test('beatloopActivateResetAnchor: anchor 0 + activate pulse', function(t) {
     t.eq(engine.getValue('[Channel1]', 'beatloop_activate'), 1);
 });
 
-// ── bpmPress ───────────────────────────────────────────────
-
-test('bpmPress: press sets pressHeld on target encoder', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('pressL', {
-        func: XoneK3.FUNCS.bpmPress, args: ['encoderL']
-    });
-    H.press(c, 'pressL');
-    t.eq(c.bindings.encoderL.pressHeld, true);
-    t.eq(c.bindings.encoderL.turnHappened, false);
-});
-
-test('bpmPress: release clears pressHeld', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('pressL', {
-        func: XoneK3.FUNCS.bpmPress, args: ['encoderL']
-    });
-    H.press(c, 'pressL');
-    H.release(c, 'pressL');
-    t.eq(c.bindings.encoderL.pressHeld, false);
-});
-
-test('bpmPress: shift+release toggles headSplit', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('pressL', {
-        func: XoneK3.FUNCS.bpmPress, args: ['encoderL']
-    });
-    c.isShifted = true;
-    engine._set('[Master]', 'headSplit', 0);
-    H.press(c, 'pressL');
-    H.release(c, 'pressL');
-    t.eq(engine.getValue('[Master]', 'headSplit'), 1);
-});
-
-test('bpmPress: turn during press suppresses headSplit toggle', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('pressL', {
-        func: XoneK3.FUNCS.bpmPress, args: ['encoderL']
-    });
-    c.isShifted = true;
-    engine._set('[Master]', 'headSplit', 0);
-    H.press(c, 'pressL');
-    c.bindings.encoderL.turnHappened = true;
-    H.release(c, 'pressL');
-    t.eq(engine.getValue('[Master]', 'headSplit'), 0);
-});
-
-test('bpmPress: missing encoder arg no-op', function(t) {
-    var c = H.ctrl();
-    c._applyBinding('pressL', {
-        func: XoneK3.FUNCS.bpmPress, args: ['nonexistent']
-    });
-    H.press(c, 'pressL');
-});
 // ── hotcueSetPhraseColor ────────────────────────────────────
 
 test('hotcueSetPhraseColor: creates hotcue with first phrase color', function(t) {

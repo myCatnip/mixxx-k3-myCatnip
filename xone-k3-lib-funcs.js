@@ -4,6 +4,14 @@
 // Beatjump gating and the loop-touch stamping convention are
 // documented at `_beatjumpAllowed` / `_touchLoop` (render) and
 // INTERNALS §21.
+//
+// Held-press state
+// ----------------
+// This file no longer carries per-press state. Modifier states
+// (shift, chord, loadArm) are tracked by the controller's
+// transaction/modifier system (see lib-controller.js). Funcs
+// that need to know "is X held" read `ctrl.modifiers.<name>`.
+// See F.slipOrLoad and F.k3Select for the pattern.
 
 'use strict';
 
@@ -20,10 +28,12 @@
     // ============================================================
     // MODULE HELPERS
     // ============================================================
-    // The "pressR held = load onto channel" branch shared by
-    // k3Select / k3SelectActive / setActiveDeckTo.
+    // "pressR held = load onto channel" branch shared by
+    // k3Select / k3SelectActive / setActiveDeckTo. Reads the
+    // controller's loadArm modifier, which is derived from
+    // pressR's active transaction.
     function _loadSelectedOntoChannel(ctrl, channel) {
-        if (!ctrl.loadState.pressed) return false;
+        if (!ctrl.modifiers.loadArm) return false;
         engine.setValue('[Channel' + channel + ']', 'LoadSelectedTrack', 1);
         return true;
     }
@@ -101,10 +111,6 @@
                 };
             }
 
-            // Memoize the composed result per inner reference. Only
-            // hits when the inner fn is itself memoized (fxScheme,
-            // THEME reads) — so the fresh-scheme warning still fires
-            // on a fresh literal (inner !== lastInner every call).
             var lastInner = null, lastComposed = null;
             return function() {
                 var inner = capturedRef.call(this);
@@ -318,24 +324,16 @@
         },
 
         // ----------------------------------------------------------
-        // Shift / layer / chord
+        // Layer toggle
         // ----------------------------------------------------------
-        shiftToggle: function(args, ch, c, v, s) {
-            this._ctrl.onShiftButton(v, s);
-        },
+        // Layer swap. Chord entry/exit is driven by the modifier
+        // system — layer's press-time check is just "did chord
+        // already take over?". Releases are handled by the
+        // transaction model; this func never runs on release.
         layerButton: function(args, ch, c, v, s) {
-            var ctrl = this._ctrl;
-            var pressed = ctrl._isPress(v, s);
-            if (pressed && ctrl.isShifted) {
-                ctrl._enterChord();
-                return;
-            }
-            if (!pressed && ctrl._chordActive) {
-                ctrl._exitChord();
-                return;
-            }
-            if (!pressed) return;
-            ctrl.replacePatch(args[0], args[1]);
+            if (!this._ctrl._isPress(v, s)) return;
+            if (this._ctrl.modifiers.chord) return;
+            this._ctrl.replacePatch(args[0], args[1]);
         },
 
         // ----------------------------------------------------------
@@ -359,17 +357,7 @@
             XoneK3.debugPrint('overlayOn', { name: name });
         },
         layerExitOverlay: function(args, ch, c, v, s) {
-            if (!this._ctrl._isPress(v, s)) {
-                // Release must also exit chord, mirroring
-                // layerButton. Without this, opening an overlay from
-                // chord (press0 / press1) swaps the layer binding to
-                // this func, and releasing layer with the overlay
-                // still open leaves chord active — shift alone then
-                // acts as chord until shift is released. Reachable:
-                // shift+layer → tap press0 → release layer.
-                if (this._ctrl._chordActive) this._ctrl._exitChord();
-                return;
-            }
+            if (!this._ctrl._isPress(v, s)) return;
             this._ctrl.removePatch(args[0]);
         },
 
@@ -430,19 +418,15 @@
         },
 
         // ----------------------------------------------------------
-        // Track load
+        // Slip toggle + load arm
         // ----------------------------------------------------------
-        loadSelectedTrack: function(args, ch, c, v, s) {
-            this._ctrl.loadState.pressed = this._ctrl._isPress(v, s);
-        },
-
         // Slip toggle, unless the track-load arm is held — then
         // the press loads onto the active deck's pinned channel.
         // Action fires on press, release is a no-op.
         slipOrLoad: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             var ctrl = this._ctrl;
-            if (ctrl.loadState.pressed) {
+            if (ctrl.modifiers.loadArm) {
                 engine.setValue('[Channel' + ctrl.selectedDeckCurrent + ']',
                                 'LoadSelectedTrack', 1);
                 return;
@@ -450,7 +434,7 @@
             var cur = engine.getValue(this.group, 'slip_enabled');
             engine.setValue(this.group, 'slip_enabled', cur ? 0 : 1);
         },
-        
+
         // ----------------------------------------------------------
         // Encoders
         // ----------------------------------------------------------
@@ -459,17 +443,6 @@
             var step = XoneK3.parseNum(args[0]); if (isNaN(step)) step = 0.025;
             engine.setValue(this.group, this.inKey,
                 engine.getValue(this.group, this.inKey) + dir * step);
-        },
-        encBpmPressedHeadMix: function(args, ch, c, v, s) {
-            var dir = (v === 1) ? 1 : -1;
-            if (this.pressHeld) {
-                this.turnHappened = true;
-                engine.setValue('[Master]', 'headMix',
-                    engine.getValue('[Master]', 'headMix') + dir * 0.05);
-            } else {
-                engine.setValue(this.group, this.inKey,
-                    engine.getValue(this.group, this.inKey) + dir * 0.1);
-            }
         },
         encPlaylistNav: function(args, ch, c, v, s) {
             engine.setValue('[Playlist]',
@@ -510,7 +483,6 @@
         // ----------------------------------------------------------
         // Loop movement — gated by _beatjumpAllowed when in loop
         // ----------------------------------------------------------
-        // K3 encoder convention: v === 1 is CW (right turn).
         encBeatjump: function(args, ch, c, v, s) {
             if (!this._ctrl._beatjumpAllowed(this.group)) return;
             var cw = (v === 1);
@@ -537,10 +509,6 @@
 
         // Single-boundary move. "anchor" names the side that MOVES —
         // the opposite side stays put via loop_anchor.
-        //
-        // args: [anchor, step]
-        //   anchor  'in'  — IN-point moves; OUT-point anchored
-        //           'out' — OUT-point moves; IN-point anchored
         encLoopMove: function(args, ch, c, v, s) {
             var inSide = (args[0] === 'in');
             var step = XoneK3.parseNum(args[1]); if (isNaN(step)) step = 0.010;
@@ -557,10 +525,6 @@
         // ----------------------------------------------------------
         // Value setters
         // ----------------------------------------------------------
-        // pressSetValue writes an absolute value on press. Used by
-        // beatloop_size and beatjump_size cells. Only beatloop_size
-        // touches the loop — beatjump_size is a next-jump setting
-        // and doesn't affect the active loop's bounds.
         pressSetValue: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             engine.setValue(this.group, this.inKey, XoneK3.parseNum(args[0]));
@@ -573,28 +537,6 @@
             var cur = engine.getValue(this.group, 'beatjump_size');
             if (forward > 0) { if (cur <= min) return; engine.setValue(this.group, 'beatjump_size_halve', 1); }
             else { if (cur >= max) return; engine.setValue(this.group, 'beatjump_size_double', 1); }
-        },
-
-        // ----------------------------------------------------------
-        // BPM change
-        // ----------------------------------------------------------
-        bpmPress: function(args, ch, c, v, s) {
-            var enc = args[0] && this._ctrl.bindings[args[0]];
-            if (!enc) return;
-            if (this._ctrl._isPress(v, s)) {
-                enc.pressHeld = true;
-                enc.turnHappened = false;
-                this._ctrl._bpmHeldEncoder = enc;
-                this._ctrl._bpmHeldOwner   = this;
-            } else {
-                if (this._ctrl.isShifted && !enc.turnHappened) {
-                    var cur = engine.getValue('[Master]', 'headSplit');
-                    engine.setValue('[Master]', 'headSplit', cur ? 0 : 1);
-                }
-                enc.pressHeld = false;
-                this._ctrl._bpmHeldEncoder = null;
-                this._ctrl._bpmHeldOwner   = null;
-            }
         },
 
         // ----------------------------------------------------------
@@ -624,9 +566,6 @@
         // ----------------------------------------------------------
         // Timelines
         // ----------------------------------------------------------
-        // Toggles between track and loop while the loop clock is
-        // running. No-op when it isn't. Flag-reading LEDs have no
-        // CO connection, so we repaint explicitly.
         cycleDisplaySource: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             var chNum = this._ctrl._channelOf(this.group);

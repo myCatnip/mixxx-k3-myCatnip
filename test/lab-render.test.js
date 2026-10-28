@@ -152,7 +152,7 @@ test('_renderSegmentGrid: shift highlights black cells white @ 50', function(t) 
     var c = setupLab();
     bindTargets(c, ['grid0_0', 'grid1_0']);
     setEdit(c, {colors: [[127,0,0], [0,0,0]]});
-    c.isShifted = true;
+    c.modifiers.shift = true;
     H.clearLeds(c);
     renderSegments(c);
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
@@ -165,7 +165,7 @@ test('_renderSegmentGrid: black cells hide when not shifted', function(t) {
     var c = setupLab();
     bindTargets(c, ['grid0_0', 'grid1_0']);
     setEdit(c, {colors: [[127,0,0], [0,0,0]]});
-    c.isShifted = false;
+    c.modifiers.shift = false;
     H.clearLeds(c);
     renderSegments(c);
     t.rgb(H.led(c, 'grid1_0'), 0, 0, 0);
@@ -175,7 +175,7 @@ test('_renderSegmentGrid: shift does not touch non-black cells', function(t) {
     var c = setupLab();
     bindTargets(c, ['grid0_0', 'grid1_0', 'grid2_0']);
     setEdit(c, {colors: [[127,0,0], [0,127,0], [0,0,127]]});
-    c.isShifted = true;
+    c.modifiers.shift = true;
     H.clearLeds(c);
     renderSegments(c);
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
@@ -190,7 +190,7 @@ test('_renderSegmentGrid: shift does not highlight gap blacks', function(t) {
         colors: [[127,0,0], [0,0,0]],
         colorSet: [true, false]
     });
-    c.isShifted = true;
+    c.modifiers.shift = true;
     H.clearLeds(c);
     renderSegments(c);
     t.rgb(H.led(c, 'grid0_0'), 127, 0, 0);
@@ -204,7 +204,7 @@ test('_renderSegmentGrid: shift does not highlight during preview', function(t) 
     c._lab.slots[5] = {colors: [[0,0,0]]};
     c._lab.previewSource = 5;
     c._lab.previewing = true;
-    c.isShifted = true;
+    c.modifiers.shift = true;
     H.clearLeds(c);
     renderSegments(c);
     // Previewing black stays black under shift — highlight is

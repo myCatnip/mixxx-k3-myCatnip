@@ -11,6 +11,10 @@
 //
 // Loads after cat-schemes.js (needs fxSchemeFor, FX_COLOR_MAP,
 // countdownScheme).
+//
+// The shift binding is now `type: 'push'` with no func — the
+// modifier system (modifierStates.shift) reads its transaction
+// state directly. Its outKey drives the track-end countdown LED.
 
 'use strict';
 
@@ -19,7 +23,7 @@
         throw new Error('Xone K3: <filename> — xone-k3-lib-core.js must load first');
     }
     if (typeof XoneK3._requireLoad !== 'function') {
-        throw new Error('Xone K3: xone-k3-cat-top.js — xone-k3-lib-core.js must load first');
+        throw new Error('Xone K3: <filename> — xone-k3-lib-core.js must load first');
     }
     XoneK3._requireLoad('xone-k3-cat-top.js',
         ['FUNCS', 'builders', 'CAT']);
@@ -30,11 +34,6 @@
 
     var QFX = '[QuickEffectRack1_$DECK_ACTIVE$]';
 
-    // Focus-mode slot button. Selects which of the two slots (A / B)
-    // is active, for deck or FX. LED colour is the theme colour of
-    // whatever channel / unit is currently pinned to that slot, read
-    // live so a selectAB reassignment propagates on the next repaint.
-    // Brightness is on when this slot is the active one.
     function activeSlotButton(kind, which) {
         var themeMap  = (kind === 'deck') ? 'deck' : 'fx';
         var selProp   = (kind === 'deck')
@@ -55,14 +54,6 @@
         };
     }
 
-    // Shared top row — identical content across focus / twoDeck /
-    // twoDeckMini. Encoders target pinned deck A / B (the fix for
-    // the old `$DECK_ACTIVE$` indirection), presses are the same
-    // slot selectors in every mode.
-    //
-    // Returns a fresh object each call so each base patch owns its
-    // own cells (Object.assign mutates the first argument, so two
-    // callers can't share the same inner objects).
     function topRowBase() {
         return {
             encoder0: { func: F.encPregainStep, args: [0.025], group: '$DECK_A$', inKey: 'pregain' },
@@ -77,20 +68,21 @@
         };
     }
 
+    // Shift binding — push-mode, no func. The modifier system
+    // (modifierStates.shift in boot config) derives shift state
+    // from the transaction. outKey drives the LED countdown.
+    function shiftBinding() {
+        return {
+            type: 'push',
+            group: '$DECK_B$',
+            outKey: 'track_loaded',
+            colorScheme: { scheme: CAT.countdownScheme() }
+        };
+    }
+
     // ============================================================
     // TOP_SHARED — focus mode base
     // ============================================================
-    // Row 0 (knob1_0 / knob2_0 / knob3_0 + their buttons) is NOT
-    // here — it's owned by the fxLayout<n> layout patch. Row 2
-    // (knob1_2 / knob2_2 / knob3_2 + buttons) also comes from the
-    // layout patch, except knob1_2 / button1_2 which are the QFX
-    // cells: a plain binding here, live, LED tracks the loaded
-    // chain via schemeFromState.
-    //
-    // Cat/Kitten overrides from the shared row:
-    //   encoder1: QFX cycle follows the ACTIVE deck, not deck A.
-    //   encoder2: no deck-B QFX cell — off in focus mode.
-    // Every other encoder/press cell matches twoDeck.
     var TOP_SHARED = Object.assign(topRowBase(), {
         encoder1: { func: F.encQuickFxCycle, group: QFX },
         encoder2: null,
@@ -125,26 +117,15 @@
         fader0: { group: '$DECK_ACTIVE$', inKey: 'volume' },
         fader1: B.fxMix('$FX_ACTIVE_N$'),
 
-        // Shift button pulses with Deck B's track-end countdown.
-        shift: { func: F.shiftToggle,
-                 group: '$DECK_B$',
-                 outKey: 'track_loaded',
-                 colorScheme: { scheme: CAT.countdownScheme() } },
+        shift: shiftBinding()
     });
     TOP_SHARED._shift = 'topShift';
 
     // ============================================================
     // TWO_DECK — twoDeck mode base
     // ============================================================
-    // Encoder + press row comes from topRowBase() unchanged.
-    // Both QFX cells present (A on knob1_2, B on knob2_2).
-    // Cross-route cells route straight: button0_2 → FX-A into
-    // deck A, button3_2 → FX-B into deck B.
     var TWO_DECK = Object.assign(topRowBase(), {
-        shift: { func: F.shiftToggle,
-                 group: '$DECK_B$',
-                 outKey: 'track_loaded',
-                 colorScheme: { scheme: CAT.countdownScheme() } },
+        shift: shiftBinding(),
 
         knob0_0: B.eqKnob('$DECK_A$', 'high'),
         knob0_1: B.eqKnob('$DECK_A$', 'mid'),
@@ -206,13 +187,7 @@
     TWO_DECK._shift = 'topShift';
 
     // ============================================================
-    // TWO_DECK_MINI — twoDeck with one focused FX unit spanning
-    // both middle columns. Inherits everything from twoDeck except
-    // the middle layout cells (fxMini<n> vs fxLayoutA<n>/fxLayoutB<n>).
-    //
-    // Empty on purpose — the patch name must exist for TOP_MODES
-    // and initialPatches, and _collectShiftPatches walks the parent
-    // chain to pick up twoDeck._shift = 'topShift'.
+    // TWO_DECK_MINI — inherits twoDeck entirely
     // ============================================================
     var TWO_DECK_MINI = {
         patch: ['twoDeck']
@@ -220,11 +195,6 @@
 
     // ============================================================
     // TOP_SHIFT — shared shift companion for every top-half base.
-    // Source of truth: TOP_SHARED, TWO_DECK, and (via parent chain)
-    // TWO_DECK_MINI all declare _shift = 'topShift'.
-    //
-    // Encoders: key sync / reset on pinned deck A / B.
-    // Presses:  sync / keylock on pinned deck A / B.
     // ============================================================
     var TOP_SHIFT = {
         encoder0: { func: F.encKeySync,  group: '$DECK_A$' },

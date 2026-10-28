@@ -19,6 +19,19 @@
 //
 // Snake starts at (3, 0) — directly above shift — heading up.
 // Loads AFTER xone-k3-cat.js. Modifies CAT.CHORD and CAT_LAYERS.
+//
+// Modifier-system interaction
+// ---------------------------
+// SNAKE_OVERLAY declares `_noModifiers: true`. While any patch
+// with that flag is active, the modifier system is inert: shift
+// companions are not appended, chord is not appended, and the
+// modifier's patchActivate enforcement (add / remove) is skipped.
+// Snake owns the surface; modifiers step aside cleanly.
+//
+// Snake's own bindings (layer / shift / press*) do NOT use
+// `type: 'push'` — they handle press-only actions via direct
+// `_isPress(v, s)` dispatch. No transactions, so modifier state
+// stays whatever it was when snake started.
 
 'use strict';
 
@@ -39,44 +52,34 @@
     // PLAYFIELD — every LED except layer (28) and shift (29).
     // ============================================================
     XoneK3.SNAKE_PLAYFIELD = [
-        [24, 25, 26, 27],  // row 0 (bottom): grid row 3
-        [20, 21, 22, 23],  // row 1:          grid row 2
-        [16, 17, 18, 19],  // row 2:          grid row 1
-        [12, 13, 14, 15],  // row 3:          grid row 0
-        [ 8,  9, 10, 11],  // row 4:          button row 2
-        [ 4,  5,  6,  7],  // row 5:          button row 1
-        [ 0,  1,  2,  3],  // row 6:          button row 0
-        [30, 31, 32, 33]   // row 7 (top):    press0..press3
+        [24, 25, 26, 27],
+        [20, 21, 22, 23],
+        [16, 17, 18, 19],
+        [12, 13, 14, 15],
+        [ 8,  9, 10, 11],
+        [ 4,  5,  6,  7],
+        [ 0,  1,  2,  3],
+        [30, 31, 32, 33]
     ];
 
     XoneK3.SNAKE_TICK_START_MS = 500;
     XoneK3.SNAKE_TICK_STEP_MS  = 5;
     XoneK3.SNAKE_TICK_MIN_MS   = 400;
 
-    // Classic Snake: walls kill. Enable either axis independently
-    // — horizontal wrap only, vertical wrap only, both, or neither.
-    // On a 4-wide field, horizontal wrap is the more forgiving of
-    // the two; vertical wrap is more useful on the 8-tall field.
     XoneK3.SNAKE_WRAP_X = true;
     XoneK3.SNAKE_WRAP_Y = true;
 
-    // Layer / shift LEDs (28, 29) — status only, not playfield.
     var STATUS_LAYER = 28;
     var STATUS_SHIFT = 29;
 
-    // ============================================================
-    // COLOURS — hardcoded to avoid load-order issues. Resolving
-    // 'green' etc. at load time returns null; XoneK3.COLORS isn't
-    // populated until _bootWith runs.
-    // ============================================================
     var C_SNAKE_HEAD = { rgb: [  0, 127,   0], brightness: 127 };
     var C_SNAKE_BODY = { rgb: [  0, 127,   0], brightness: 100 };
     var C_SNAKE_TAIL = { rgb: [  0, 127,   0], brightness:  60 };
     var C_FOOD       = { rgb: [127,   0,   0], brightness: 127 };
     var C_DEAD       = { rgb: [127,   0,   0], brightness: 127 };
     var C_TURN       = { rgb: [  0, 127, 127], brightness:  60 };
-    var C_WAIT       = { rgb: [127,  64,   0], brightness: 127 };  // amber
-    var C_STATUS_OFF = { rgb: [ 60,  60,  60], brightness:  40 };  // dim grey
+    var C_WAIT       = { rgb: [127,  64,   0], brightness: 127 };
+    var C_STATUS_OFF = { rgb: [ 60,  60,  60], brightness:  40 };
 
     // ============================================================
     // PAINT
@@ -100,12 +103,12 @@
             return;
         }
         if (!s.started) {
-            paintCell(ctrl, STATUS_LAYER, C_STATUS_OFF);   // layer: not usable yet
-            paintCell(ctrl, STATUS_SHIFT, C_WAIT);         // shift: press to start
+            paintCell(ctrl, STATUS_LAYER, C_STATUS_OFF);
+            paintCell(ctrl, STATUS_SHIFT, C_WAIT);
             return;
         }
-        paintCell(ctrl, STATUS_LAYER, C_TURN);             // layer: turn left
-        paintCell(ctrl, STATUS_SHIFT, C_TURN);             // shift: turn right
+        paintCell(ctrl, STATUS_LAYER, C_TURN);
+        paintCell(ctrl, STATUS_SHIFT, C_TURN);
     }
 
     function paintAllRed(ctrl) {
@@ -128,10 +131,6 @@
         paintStatus(ctrl);
     }
 
-    // Only repaints cells whose kind changed since the last call.
-    // prevCells maps "y,x" → kind (head|body|tail|food) from the
-    // last paint; unchanged cells skip sendLED entirely, changed
-    // cells hit _ledCache for the wire dedupe.
     function paintGame(ctrl) {
         var s = ctrl._snake;
         if (!s) return;
@@ -139,12 +138,6 @@
         var H = field.length, W = field[0].length;
         var i, seg, key, kind, entry;
 
-        // First paint: explicitly blank every playfield cell.
-        // _blankLeds() runs on entry but the drain is 1 frame/tick,
-        // so a stray recompute inside the 1s paint-delay could
-        // have repainted some cells. Blanking here guarantees a
-        // clean field regardless of what the caller did. One-time
-        // cost of 32 sends per game.
         if (s.prevCells === null) {
             for (var by = 0; by < H; by++) {
                 for (var bx = 0; bx < W; bx++) {
@@ -153,19 +146,9 @@
             }
         }
 
-        // Diff-based paint. prevCells is a map "y,x" → kind
-        // (head|body|tail|food). Only cells whose kind changed get
-        // a sendLED call — the rest hit _ledCache and are dropped.
-        //
-        // The old blank-then-repaint forced every cell through the
-        // cache twice per tick (~22 sends on a 10-cell snake, ~42
-        // on a 20-cell snake), which exceeded the sysex drain rate
-        // at high game speed. Diff-based is O(changes) — ~3 sends
-        // per tick regardless of snake length.
         var prev = s.prevCells || {};
         var next = {};
 
-        // Food.
         if (s.food) {
             key = s.food.y + ',' + s.food.x;
             next[key] = 'food';
@@ -174,7 +157,6 @@
             }
         }
 
-        // Snake.
         for (i = 0; i < s.snake.length; i++) {
             seg = s.snake[i];
             if (seg.y < 0 || seg.y >= H || seg.x < 0 || seg.x >= W) continue;
@@ -190,7 +172,6 @@
             paintCell(ctrl, field[seg.y][seg.x], entry);
         }
 
-        // Cells that disappeared since the last paint — blank.
         for (var pk in prev) {
             if (!prev.hasOwnProperty(pk)) continue;
             if (next[pk] !== undefined) continue;
@@ -251,10 +232,6 @@
         var nx = head.x + s.dir.dx;
         var ny = head.y + s.dir.dy;
 
-        // Each axis resolves independently. Off the edge with that
-        // axis enabled → wrap; off the edge with it disabled →
-        // die. No wrap on x + wrap on y means the left/right walls
-        // still kill, only top/bottom are open.
         if (nx < 0 || nx >= W) {
             if (XoneK3.SNAKE_WRAP_X) nx = ((nx % W) + W) % W;
             else { die(ctrl); return; }
@@ -274,7 +251,6 @@
         if (willEat) {
             s.food = spawnFood(ctrl);
             if (s.food === null) {
-                // Board full — win, not death.
                 s.won = true;
                 if (s.timer) { engine.stopTimer(s.timer); s.timer = null; }
                 paintAllGreen(ctrl);
@@ -300,7 +276,6 @@
         if (ctrl._snake) return;
 
         ctrl._snake = {
-            // Head at (3, 0) — directly above shift. Heading up.
             snake:      [{ x: 3, y: 0 }],
             dir:        { dx: 0, dy: 1 },
             food:       null,
@@ -315,23 +290,17 @@
         };
         ctrl._snake.food = spawnFood(ctrl);
 
-        // Chord was the launcher; snake runs standalone. Clear
-        // both flags BEFORE the batch so the recompute doesn't
-        // try to add shift companions or re-add chord.
-        ctrl._chordActive = false;
-        ctrl.isShifted = false;
+        // Add the snake patch. `_noModifiers: true` on the patch
+        // means chord is suppressed from the stack even though
+        // it's still in activePatches, and modifier-driven patch
+        // enforcement skips while snake is active. No need to
+        // clear chord manually — the modifier system's shift/chord
+        // state is left untouched (it derives from transactions
+        // on shift/layer which are still held).
         ctrl._batchPatches(function(patches) {
-            var ci = patches.indexOf('chord');
-            if (ci !== -1) patches.splice(ci, 1);
             if (patches.indexOf('snake') === -1) patches.push('snake');
         });
 
-        // Blank all LEDs, reset _ledCache, clear the sysex queue,
-        // then wait before painting so the blank sweep flushes first.
-        // The paint itself still goes through the sysex drain
-        // (one frame per SYSEX_THROTTLE_MS), so the game board rolls
-        // in over a few hundred ms rather than popping atomically —
-        // the delay just keeps it from trailing behind the blank.
         ctrl._blankLeds();
 
         ctrl._snake.paintTimer = engine.beginTimer(1000, function() {
@@ -339,7 +308,6 @@
             if (ctrl._shuttingDown || !ctrl._snake) return;
             ctrl._snake.paintReady = true;
             paintGame(ctrl);
-            // No game timer yet. Started by snakeControl on shift.
         }, true);
     };
 
@@ -350,12 +318,21 @@
         if (ctrl._snake.paintTimer) engine.stopTimer(ctrl._snake.paintTimer);
         if (ctrl._snake.timer)      engine.stopTimer(ctrl._snake.timer);
         ctrl._snake = null;
-        ctrl.removePatch('snake');
+
+        // Remove snake; if chord's modifier state has gone false
+        // while snake was running (user released shift/layer
+        // mid-game), remove chord in the same batch to avoid a
+        // one-frame flash of chord on the recompute.
+        ctrl._batchPatches(function(patches) {
+            var si = patches.indexOf('snake');
+            if (si !== -1) patches.splice(si, 1);
+            if (!ctrl.modifiers.chord) {
+                var ci = patches.indexOf('chord');
+                if (ci !== -1) patches.splice(ci, 1);
+            }
+        });
     };
 
-    // Any playfield button press. Exits if the game is over;
-    // no-op while the game is live (the buttons are the playfield
-    // cells themselves — nothing to press them "for" during play).
     F.snakePressAny = function(args, ch, c, v, s) {
         if (!this._ctrl._isPress(v, s)) return;
         var ctrl = this._ctrl;
@@ -363,17 +340,12 @@
         if (ctrl._snake.dead || ctrl._snake.won) F.snakeExit.call(this, args, ch, c, v, s);
     };
 
-    // Shift: start if stationary, else turn right (CW). Exits if
-    // the game is over — this is a button press like any other.
     F.snakeControl = function(args, ch, c, v, s) {
         if (!this._ctrl._isPress(v, s)) return;
         var ctrl = this._ctrl;
         if (!ctrl._snake) return;
         if (ctrl._snake.dead || ctrl._snake.won) { F.snakeExit.call(this, args, ch, c, v, s); return; }
 
-        // Ignore presses during the blank-1s-paint window. Nothing
-        // on the panel is lit yet, starting now would move a snake
-        // on an invisible field.
         if (!ctrl._snake.paintReady) return;
 
         if (!ctrl._snake.started) {
@@ -385,12 +357,9 @@
         }
 
         var d = ctrl._snake.dir;
-        ctrl._snake.dir = { dx: d.dy, dy: -d.dx };   // 90° CW
+        ctrl._snake.dir = { dx: d.dy, dy: -d.dx };
     };
 
-    // Layer: turn left (CCW). No-op until the game has started.
-    // Exits if the game is over — this is a button press like any
-    // other.
     F.snakeTurn = function(args, ch, c, v, s) {
         if (!this._ctrl._isPress(v, s)) return;
         var ctrl = this._ctrl;
@@ -398,10 +367,9 @@
         if (ctrl._snake.dead || ctrl._snake.won) { F.snakeExit.call(this, args, ch, c, v, s); return; }
         if (!ctrl._snake.started) return;
         var d = ctrl._snake.dir;
-        ctrl._snake.dir = { dx: -d.dy, dy: d.dx };   // 90° CCW
+        ctrl._snake.dir = { dx: -d.dy, dy: d.dx };
     };
 
-    // Single entry point for the chord cell.
     F.toggleSnake = function(args, ch, c, v, s) {
         if (!this._ctrl._isPress(v, s)) return;
         if (this._ctrl._snake) F.snakeExit.call(this, args, ch, c, v, s);
@@ -411,21 +379,13 @@
     // ============================================================
     // OVERLAY
     // ============================================================
-    // _host lists base patches, not the chord — snake runs after
-    // the chord has been removed. Every playfield cell is nulled
-    // with {} so a recompute can't clobber the game paint.
-    //
-    // press0/1/3 nulled so accidental presses don't fire the base
-    // fxRouting / keylock / sync action and disturb the game.
-    //
-    // press2 has noLED: true — its LED (idx 32) is a playfield
-    // cell, painted by the game. The binding still fires on press
-    // to exit.
-    // Every playfield cell gets snakePressAny — dead-exit on any
-    // button, no-op while live. noLED keeps the binding's render
-    // path off (the game paints these cells directly via sendLED).
+    // _noModifiers: true — modifier system is inert while snake is
+    // active. Shift companions are not appended, chord is not
+    // appended, and the modifier's patchActivate enforcement is
+    // skipped (see lib-controller.js:_buildStack and _updateModifiers).
     var SNAKE_OVERLAY = {
         _host: ['topShared', 'twoDeck', 'twoDeckMini'],
+        _noModifiers: true,
 
         layer:  { func: F.snakeTurn,    noLED: true },
         shift:  { func: F.snakeControl, noLED: true },
@@ -471,10 +431,6 @@
     // ============================================================
     XoneK3.CAT_LAYERS.snake = SNAKE_OVERLAY;
 
-    // CHORD.press2 was empty in the shipped config — pure addition.
-    // LED reflects `_snake` state, but the chord is removed the
-    // instant snake starts, so it only lights if a recompute lands
-    // between press and re-batch. Harmless.
     CAT.CHORD.press2 = {
         func: F.toggleSnake,
         colorScheme: {

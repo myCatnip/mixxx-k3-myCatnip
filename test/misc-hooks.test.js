@@ -55,12 +55,17 @@ test('_afterRecompute: fires once per recompute', function(t) {
     t.eq(count, 1);
 });
 
-test('_afterRecompute: fires during shift / unshift', function(t) {
-    var c = H.ctrl({patches: {}});
+test('_afterRecompute: fires on modifier state change', function(t) {
+    var c = H.ctrl({
+        modifierStates: { shift: { heldBy: ['shift'], recompute: true } },
+        patches: { base: { shift: { type: 'push' } } },
+        initialPatches: ['base']
+    });
+    c._recompute();
     var count = 0;
     c._afterRecompute = function() { count++; };
-    c.shift();
-    c.unshift();
+    H.press(c, 'shift');
+    H.release(c, 'shift');
     t.eq(count, 2);
 });
 

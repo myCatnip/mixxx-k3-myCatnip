@@ -203,7 +203,7 @@ test('_buildStack: chord appended last even with shift', function(t) {
         chord: {}
     }});
     c.activePatches = ['topShared', 'chord'];
-    c.isShifted = true;
+    c.modifiers.shift = true;
     var stack = c._buildStack();
     t.eq(stack[stack.length - 1], 'chord');
 });
@@ -214,7 +214,7 @@ test('_buildStack: shift companions included when shifted', function(t) {
         topSharedShift: {press0: {}}
     }});
     c.activePatches = ['topShared'];
-    c.isShifted = true;
+    c.modifiers.shift = true;
     t.contains(c._buildStack(), 'topSharedShift');
 });
 
@@ -224,7 +224,7 @@ test('_buildStack: shift companions excluded when not shifted', function(t) {
         topSharedShift: {}
     }});
     c.activePatches = ['topShared'];
-    c.isShifted = false;
+    c.modifiers.shift = false;
     t.notOk(c._buildStack().indexOf('topSharedShift') !== -1);
 });
 

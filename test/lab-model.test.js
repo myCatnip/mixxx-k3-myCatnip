@@ -277,7 +277,7 @@ test('ledSelectTarget: shift+press on real stop removes it', function(t) {
         colors: [[127,0,0], [0,127,0]],
         colorSet: [true, true]
     };
-    c.isShifted = true;
+    c.modifiers.shift = true;
     H.bind(c, 'grid1_0', {
         func: XoneK3.FUNCS.ledSelectTarget, args: ['grid1_0']
     });
@@ -294,7 +294,7 @@ test('ledSelectTarget: delete real stop cascades adjacent gaps', function(t) {
         colors: [[10,0,0], [0,0,0], [0,10,0], [0,0,0], [0,0,10]],
         colorSet: [true, false, true, false, true]
     };
-    c.isShifted = true;
+    c.modifiers.shift = true;
     H.bind(c, 'grid2_0', {
         func: XoneK3.FUNCS.ledSelectTarget, args: ['grid2_0']
     });
@@ -309,7 +309,7 @@ test('ledSelectTarget: delete real stop cascades adjacent gaps', function(t) {
 test('ledSelectTarget: delete cell 0 is no-op', function(t) {
     var c = setupLab();
     c._lab.edit = {colors: [[127,0,0]], colorSet: [true]};
-    c.isShifted = true;
+    c.modifiers.shift = true;
     H.bind(c, 'grid0_0', {
         func: XoneK3.FUNCS.ledSelectTarget, args: ['grid0_0']
     });
@@ -324,7 +324,7 @@ test('ledSelectTarget: delete gap splices that cell', function(t) {
         colors: [[127,0,0], [0,0,0]],
         colorSet: [true, false]
     };
-    c.isShifted = true;
+    c.modifiers.shift = true;
     H.bind(c, 'grid1_0', {
         func: XoneK3.FUNCS.ledSelectTarget, args: ['grid1_0']
     });
@@ -351,7 +351,7 @@ test('ledSelectTarget: delete gap shifts subsequent cells down', function(t) {
         func: XoneK3.FUNCS.ledSelectTarget,
         args: ['button2_0']   // calib index 6
     });
-    c.isShifted = true;
+    c.modifiers.shift = true;
     H.press(c, 'grid2_0');
 
     t.eq(c._lab.edit.colors.length, 9, 'one cell removed');
@@ -388,14 +388,14 @@ test('ledSelectTarget: delete then edit recreates', function(t) {
         colorSet: [true, true]
     };
     c._lab.selectedSegment = 1;
-    c.isShifted = true;
+    c.modifiers.shift = true;
     H.bind(c, 'grid1_0', {
         func: XoneK3.FUNCS.ledSelectTarget, args: ['grid1_0']
     });
     H.press(c, 'grid1_0');
     t.eq(c._lab.edit.colors.length, 1, 'cell 1 removed');
 
-    c.isShifted = false;
+    c.modifiers.shift = false;
     c._lab.selectedSegment = 1;
     c._editColorField('r', 'abs', 100);
     t.eq(c._lab.edit.colors.length, 2);

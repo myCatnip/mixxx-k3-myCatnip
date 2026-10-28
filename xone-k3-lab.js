@@ -894,7 +894,7 @@
         // black — they don't need finding. Only when the strip
         // is showing the edit buffer, never on a preview.
         var isBlack = (c.rgb[0] === 0 && c.rgb[1] === 0 && c.rgb[2] === 0);
-        if (onColorLab && !this._lab.previewing && this.isShifted && isBlack) {
+        if (onColorLab && !this._lab.previewing && this.modifiers.shift && isBlack) {
             var rawScheme = this._editableScheme();
             if (rawScheme && _isColorSet(rawScheme, i)) {
                 return { rgb: [127, 127, 127], br: 50 };
@@ -943,14 +943,14 @@
                 beatOn ? 'cyan, 60' : 'white, 20');
         }
 
-        if (this.isShifted && this._patchActive('colorLabTuning')) {
+        if (this.modifiers.shift && this._patchActive('colorLabTuning')) {
             this._paintLED('press1', 'white, 60');
             this._paintLED('press2', 'cyan, 60');
             this._paintLED('press3', 'green, 60');
             return;
         }
 
-        if (this.isShifted) {
+        if (this.modifiers.shift) {
             this._paintCellsSolid(
                 this._findCellsByFunc([XoneK3.FUNCS.labToggleWb]),
                 this.wbActive ? 'green, 80' : 'red, 80');
@@ -1272,7 +1272,7 @@
         if (idx < 0) { print('ledSelectTarget: ' + name + ' not in calib group'); return; }
         if (!scheme.colors) scheme.colors = [[0, 0, 0]];
 
-        if (ctrl.isShifted) {
+        if (ctrl.modifiers.shift) {
             // Delete (shift+press).
             //
             //   real stop → cascade: remove the stop and every gap

@@ -1,11 +1,30 @@
 // xone-k3-lib-controller.js — K3Controller core: constructor,
-// patch resolution, focus, top-half mode table, chord, binding
-// application.
+// patch resolution, focus, top-half mode table, binding
+// application, and the modifier-state system.
 //
 // Loaded BEFORE lib-controller-colour.js, lib-controller-beat.js,
 // lib-controller-render.js, lib-controller-boot.js. The other four
 // extend K3Controller.prototype and require K3Controller to exist.
 // Inspection probes live in lib-inspect.js.
+//
+// Modifier states
+// ---------------
+// Named held-states declared in cfg.modifierStates. Each modifier
+// is active while every binding in its heldBy list has an active
+// transaction (see lib-binding.js). State changes fire optional
+// hooks (patchActivate, recompute, onActivate/onDeactivate) and
+// batch into at most one recompute.
+//
+// Two-axis shape:
+//   - State change → patch change (patchActivate) OR recompute
+//   - Idempotent: every press/release event enforces that
+//     activePatches matches modifier state for patchActivate
+//     modifiers. This handles cases where a config func removes
+//     a modifier-owned patch out of band (e.g. snake).
+//
+// Shipped modifiers: shift, chord, loadArm.
+// Replaces: isShifted, _chordActive, loadState.pressed, pressHeld,
+// _bpmHeldEncoder, _bpmHeldOwner.
 
 'use strict';
 
@@ -23,17 +42,11 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 (function() {
     var PN = XoneK3.PATCH_NAMES;
 
-    // Shared empty-args array passed to _safeBinding from the
-    // refresh paths. Never mutated — callers that need real args
-    // pass their own array. Exists so the hot-path
-    // _refreshAllLeds loop stays allocation-free per binding.
     var EMPTY_ARGS = [];
 
     // ============================================================
     // TOP-HALF MODE TABLE
     // ============================================================
-    // owns      every patch name belonging to the mode, for unwind.
-    // activate  the exact list to add given the current focus.
     XoneK3.TOP_MODES = {};
     XoneK3.TOP_MODES.focus = {
         owns: [
@@ -92,18 +105,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             displaySource: 'track',
             loopClock: freshVirtualClock(),
             lastBeatRepaint: 0, lastBeatEdge: 0, lastPositionSync: 0,
-            // Previous playposition reading. Undefined until the
-            // first tick. Used by _onPlayposition to detect
-            // backward movement (jog-scrub) so the beat-edge
-            // guard can be bypassed — see the comment there.
             lastPlayPos: undefined,
-            // Marker-hotcue snapshot for the current track. Keyed
-            // by hotcue index, values {color, pos}. Populated by
-            // _seedHotcueCache and kept current by the hotcue
-            // observers. _deriveOriginFromPosition reads only
-            // this — the per-tick origin scan used to fire 32 CO
-            // reads every 30ms per deck, and the observers give
-            // us the same data for free.
             hotcueState: {}
         };
     }
@@ -133,33 +135,24 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this.activePatches = (cfg.initialPatches || []).slice();
         this.patches = cfg.patches || {};
 
-        this.isShifted = false;
-        this._chordActive = false;
+        // Modifier-state system. Declared per-config; state is
+        // derived from transaction activity on the heldBy list.
+        this.modifierStates = cfg.modifierStates || {};
+        this.modifiers = {};
+        for (var mn in this.modifierStates) {
+            if (this.modifierStates.hasOwnProperty(mn)) this.modifiers[mn] = false;
+        }
 
-        this._bpmHeldEncoder = null;
-        this._bpmHeldOwner   = null;
-
-        // Per-channel timestamp of the last loop-touching event
-        // (beatjump, loop-boundary edit, loop size/state change).
-        // Consumed by the beatjump gate in lib-controller-render.js.
         this._lastLoopTouchMs = { 1: 0, 2: 0, 3: 0, 4: 0 };
 
         this._shuttingDown = false;
-        this.loadState = { pressed: false };
 
-        // _batchPatches re-entrancy guard. addPatch / removePatch /
-        // replacePatch throw while active; nested _batchPatches
-        // throws.
         this._batchPatchesActive = false;
 
-        // Recompute phase tracking + LED re-entrancy guard.
         this._recomputeDepth = 0;
         this._recomputeCompletedAt = 0;
         this._refreshAllLedsDepth = 0;
 
-        // Memo for _resolvedTargetHash. WeakMap keyed on cfg
-        // objects owned by _resolvePatch (never mutated, collected
-        // with the patch).
         this._resolvedTargetHashCache = new WeakMap();
 
         this.sysex = (cfg.sysex === false) ? false : true;
@@ -173,17 +166,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         this._phraseOrigin = { 1: 0, 2: 0, 3: 0, 4: 0 };
 
-        // Load gate: driven by track_loaded only. False means
-        // "deck has no track" — _trackMeta returns synthetic
-        // empty meta without any CO read. Seeded by
-        // _catchUpChannel from the live CO at boot.
         this._loadedState = { 1: false, 2: false, 3: false, 4: false };
-
-        // Settle timestamp: stamped by every metadata-relevant
-        // CO fire (track_loaded, track_samples, duration,
-        // file_bpm). Inside META_SETTLE_MS of the last stamp,
-        // _trackMeta reads live but skips the cache write —
-        // mixed old/new metadata tuples never reach the cache.
         this._loadSettlingAt = { 1: 0, 2: 0, 3: 0, 4: 0 };
 
         this.activeDeckVirtual   = false;
@@ -196,17 +179,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             3: freshDeckState(),
             4: freshDeckState()
         };
-        // Per-channel rate_ratio. Populated by _catchUpChannel and
-        // by the rate_ratio CO listener wired in
-        // _openChannelBeatClocks. _channelRate reads this first;
-        // it falls back to a live CO read on a cold cache.
-        // Eliminates a per-tick CO read from _advanceVirtualClock.
         this._rateCache = { 1: null, 2: null, 3: null, 4: null };
-        // Per-channel reverse flag. Populated by _catchUpChannel
-        // and _onTrackLoaded, kept current by the reverse CO
-        // listener. Removes two CO reads per throttled playposition
-        // tick (the beat-edge guard and _advanceVirtualClock's
-        // trackTempo:true branch).
         this._reverseCache = { 1: 0, 2: 0, 3: 0, 4: 0 };
         this._refreshActiveAlt();
 
@@ -321,6 +294,99 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     };
 
     // ============================================================
+    // MODIFIERS
+    // ============================================================
+    XoneK3.K3Controller.prototype._isHeld = function(name) {
+        var b = this.bindings[name];
+        return !!(b && b._transaction && b._transaction.active);
+    };
+
+    XoneK3.K3Controller.prototype._onBindingPress = function(name) {
+        this._updateModifiers();
+    };
+
+    XoneK3.K3Controller.prototype._onBindingRelease = function(name) {
+        this._updateModifiers();
+    };
+
+
+    // True if any active patch declares _noModifiers. Suppresses
+    // modifier-driven patch enforcement (snake removes chord out
+    // of band and must not have it re-added while it's running).
+    XoneK3.K3Controller.prototype._hasNoModifierPatch = function() {
+        for (var i = 0; i < this.activePatches.length; i++) {
+            var p = this.patches[this.activePatches[i]];
+            if (p && p._noModifiers && this._patchActive(this.activePatches[i])) return true;
+        }
+        return false;
+    };
+
+    // Recompute the modifier set from current transaction state.
+    // Two effects per modifier, applied in one pass:
+    //   - State change: fire onActivate/onDeactivate, schedule
+    //     patch add/remove via patchActivate, or set recompute.
+    //   - Idempotent patch sync: for patchActivate modifiers,
+    //     ensure activePatches matches modifier state even when
+    //     the state didn't change (config func may have removed
+    //     the patch out of band — snake does this).
+    //
+    // All patch additions / removals batch into one _batchPatches
+    // (which owns the recompute). Any changes with recompute: true
+    // but no patch change trigger a standalone _recompute.
+    XoneK3.K3Controller.prototype._updateModifiers = function() {
+        var patchChanges = [];
+        var needsRecompute = false;
+        var suppressPatchActivate = this._hasNoModifierPatch();
+
+        for (var name in this.modifierStates) {
+            if (!this.modifierStates.hasOwnProperty(name)) continue;
+            var cfg = this.modifierStates[name];
+            var heldBy = cfg.heldBy || [];
+            var active = heldBy.length > 0;
+            for (var i = 0; i < heldBy.length; i++) {
+                if (!this._isHeld(heldBy[i])) { active = false; break; }
+            }
+            var prev = this.modifiers[name];
+            if (prev !== active) {
+                this.modifiers[name] = active;
+                if (cfg.recompute) needsRecompute = true;
+                if (active && typeof cfg.onActivate === 'function') {
+                    cfg.onActivate.call(this, this);
+                }
+                if (!active && typeof cfg.onDeactivate === 'function') {
+                    cfg.onDeactivate.call(this, this);
+                }
+            }
+
+            // Idempotent patch enforcement. Fires whether or not
+            // the state changed — config funcs may remove the
+            // patch out of band.
+            if (cfg.patchActivate && !suppressPatchActivate) {
+                var have = (this.activePatches.indexOf(cfg.patchActivate) !== -1);
+                if (have !== active) {
+                    patchChanges.push({ name: cfg.patchActivate, active: active });
+                }
+            }
+        }
+
+        if (patchChanges.length > 0) {
+            this._batchPatches(function(patches) {
+                for (var p = 0; p < patchChanges.length; p++) {
+                    var pc = patchChanges[p];
+                    if (pc.active) {
+                        if (patches.indexOf(pc.name) === -1) patches.push(pc.name);
+                    } else {
+                        var idx = patches.indexOf(pc.name);
+                        if (idx !== -1) patches.splice(idx, 1);
+                    }
+                }
+            });
+        } else if (needsRecompute) {
+            this._recompute();
+        }
+    };
+
+    // ============================================================
     // PATCH RESOLUTION
     // ============================================================
     XoneK3.K3Controller.prototype._parentList = function(name) {
@@ -377,30 +443,30 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
     XoneK3.K3Controller.prototype._buildStack = function() {
         var stack = [];
-
         var hasChord = false;
+        var suppressModifiers = false;
+
         for (var i = 0; i < this.activePatches.length; i++) {
             var name = this.activePatches[i];
-            if (!this.patches[name]) continue;
+            var p = this.patches[name];
+            if (!p) continue;
+            if (p._noModifiers) suppressModifiers = true;
             if (!this._patchActive(name)) continue;
             if (name === PN.CHORD) { hasChord = true; continue; }
             if (stack.indexOf(name) === -1) stack.push(name);
         }
 
-        if (this.isShifted) {
+        if (this.modifiers.shift && !suppressModifiers) {
             var shiftPatches = [], seen = {};
             for (var j = 0; j < stack.length; j++) {
                 this._collectShiftPatches(stack[j], shiftPatches, seen);
             }
-            // A shift companion can also be independently active in
-            // activePatches (unusual but legal). Skip those so the
-            // final stack has no duplicates.
             for (var k = 0; k < shiftPatches.length; k++) {
                 if (stack.indexOf(shiftPatches[k]) === -1) stack.push(shiftPatches[k]);
             }
         }
 
-        if (hasChord) stack.push(PN.CHORD);
+        if (hasChord && !suppressModifiers) stack.push(PN.CHORD);
 
         return stack;
     };
@@ -416,20 +482,11 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // RECOMPUTE
     // ============================================================
-    // Self-contained: ends with _refreshAllLeds. Callers do not
-    // refresh afterward.
     XoneK3.K3Controller.prototype._recompute = function() {
         this._recomputeDepth++;
         try {
             var resolved = this._resolveStack(this._buildStack());
             this._applyResolved(resolved);
-            // loadState.pressed is controller-scoped and only
-            // cleared by loadSelectedTrack's release branch. A
-            // patch change can swap the binding under a held
-            // pressR; the release goes to a different binding and
-            // the flag sticks true. Reset here so the next
-            // k3Select press selects a channel instead of loading.
-            this.loadState.pressed = false;
             this._afterRecompute();
             this._refreshAllLeds();
             this._recomputeCompletedAt = Date.now();
@@ -442,19 +499,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     XoneK3.K3Controller.prototype._onInput = function(b) {};
     XoneK3.K3Controller.prototype._onPatchChange = function(from, to) {};
 
-    // One throwing binding must not stop the pass.
-    //
-    // Signature split from the original (fn, thisArg, args,
-    // warnKey, warnPrefix) so the hot path stays allocation-free:
-    // the two strings and the empty-args array used to be built
-    // per binding per call, before the try. Now the caller passes
-    // the binding's already-stored _name plus two string literals
-    // and a shared EMPTY_ARGS reference; key and message are only
-    // assembled inside the catch, which fires ~never.
-    //
-    // name       binding name (already a stored string on the Binding)
-    // keyPrefix  warn-once key prefix, e.g. 'refreshAllThrow:'
-    // msgPrefix  warn-once message prefix, e.g. '_refreshAllLeds: '
     XoneK3.K3Controller.prototype._safeBinding = function(
             fn, thisArg, args, name, keyPrefix, msgPrefix) {
         try {
@@ -466,12 +510,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         }
     };
 
-    // Explicit single-binding refresh. _applyBinding no longer
-    // refreshes on its own — every batch caller (_applyResolved,
-    // _unbindRemoved, _reapplyByTokens) passes skipRefresh=true
-    // and relies on the trailing _refreshAllLeds. Standalone
-    // callers (tests, external scripts) should either omit
-    // skipRefresh on the _applyBinding call or invoke this after.
     XoneK3.K3Controller.prototype._refreshBinding = function(name) {
         var b = this.bindings[name];
         if (!b) return;
@@ -488,10 +526,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         var newHashes = {};
         var newCfgs   = {};
 
-        // Per-binding refresh is redundant only when _recompute follows
-        // with _refreshAllLeds. Direct callers (tests, external
-        // scripts) don't get that sweep, so they still need
-        // _applyBinding to refresh.
         var skipRefresh = this._recomputeDepth > 0;
 
         this._unbindRemoved(resolved, oldHashes, skipRefresh);
@@ -523,13 +557,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         }
     };
 
-    // A single throwing binding must not abort the pass. cfg ===
-    // null / undefined means "unbind". skipRefresh is passed
-    // through to _applyBinding — batch callers set it true and
-    // rely on the trailing _refreshAllLeds. fingerprint is
-    // optional: callers that already computed a token fingerprint
-    // (like _reapplyByTokens) pass it to skip the recompute; the
-    // rest leave it undefined and _applyBinding resolves it.
     XoneK3.K3Controller.prototype._applyOneSafe = function(name, cfg, skipRefresh, fingerprint) {
         try {
             this._applyBinding(name, cfg, fingerprint, skipRefresh);
@@ -553,64 +580,28 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         return snap;
     };
 
-    // A push button that is being unbound or rebound while held
-    // has latched its CO at 1. Physical release will fire against
-    // the NEW binding (if any), so the OLD CO would otherwise
-    // stay at 1 forever — and for a hotcue that means Mixxx
-    // stays in preview mode and eats the next play press.
-    //
-    // Fire the release against prev.group / prev.inKey here. Skip
-    // when the binding is being rebound to the same push-mode CO:
-    // the natural physical-release path writes 0 to the same
-    // target, and duplicating it would be a redundant CO write.
-    //
-    // _held is session-scoped (set in Binding.input, cleared on
-    // physical release). It is NOT in _bindingDefaults, so
-    // _reset — which _applyBinding calls before this — leaves it
-    // intact.
-    XoneK3.K3Controller.prototype._releaseHeldWrite = function(b, prev) {
-        // bpmPress pairs a press binding (pressL) with an encoder
-        // (encoderL). pressHeld is session-scoped, so if pressL
-        // rebinds to something other than bpmPress (or to a
-        // different encoder), the release branch fires against
-        // the new binding and encoderL stays in head-mix mode
-        // forever. Clear only when the pairing is genuinely
-        // broken — if the new cfg still pairs bpmPress with the
-        // same encoder, leave the state alone (physical release
-        // will handle it normally).
-        if (this._bpmHeldOwner === b && this._bpmHeldEncoder) {
-            var newCfg = b._rawCfg;      // new cfg on rebind, null on unbind
-            var stillPairs =
-                newCfg &&
-                newCfg.func === XoneK3.FUNCS.bpmPress &&
-                newCfg.args &&
-                newCfg.args[0] === this._bpmHeldEncoder._name;
-            if (!stillPairs) {
-                this._bpmHeldEncoder.pressHeld    = false;
-                // true suppresses the release-side headSplit toggle:
-                // the user's press was orphaned by a layer change, so
-                // the eventual release must not fire the side effect.
-                // Next press of bpmPress resets it to false.
-                this._bpmHeldEncoder.turnHappened = true;
-                this._bpmHeldEncoder = null;
-                this._bpmHeldOwner   = null;
-            }
+    function argsEqual(a, b) {
+        if (a === b) return true;
+        if (!a || !b) return (a === b);
+        if (a.length !== b.length) return false;
+        for (var i = 0; i < a.length; i++) {
+            if (a[i] !== b[i]) return false;
         }
+        return true;
+    }
 
-        if (!b._held) return;
-        var samePushTarget = (b.group === prev.group &&
-                            b.inKey === prev.inKey &&
-                            b.buttonMode === 'push');
-        if (samePushTarget) return;
-        // Close the transaction before the write. Without this,
-        // _held survives a push → toggle → push cycle (toggle's
-        // input() never touches it), and the next rebind fires a
-        // second, spurious release — writing 0 to a CO the user
-        // legitimately set (beatloop_size after a layer swap;
-        // group_<channel>_enable after an overlay exit).
-        b._held = false;
-        if (!prev.wasBound || !prev.group || !prev.inKey) return;
-        engine.setValue(prev.group, prev.inKey, 0);
+    XoneK3.K3Controller.prototype._orphanTransaction = function(b) {
+        var t = b._transaction;
+        if (!t || !t.active) return;
+        if (t.orphaned) return;
+        var same =
+            t.group      === b.group &&
+            t.inKey      === b.inKey &&
+            t.func       === b._func &&
+            t.buttonMode === b.buttonMode &&
+            t.type       === b.type &&
+            argsEqual(t.funcArgs, b._funcArgs);
+        if (!same) t.orphaned = true;
     };
 
     XoneK3.K3Controller.prototype._unbind = function(b, prev) {
@@ -658,17 +649,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         engine.softTakeover(b.group, b.inKey, false);
         engine.softTakeover(b.group, b.inKey, true);
 
-        // Bridge. Mixxx uninitialises soft takeover on rearm and
-        // drops the next write unless it lands within its own
-        // tolerance of the current CO. A physical already near CO
-        // at rearm — the common case — would otherwise get stuck
-        // at the endpoint.
-        //
-        // A zero-distance write (CO's own value back to itself)
-        // flips initialised without a value change. TAKEOVER_EPSILON
-        // is deliberately larger than CO_MATCH_EPSILON, so an LED
-        // showing "matched" always implies control is live — the
-        // extra half-band is a harmless false-negative on the LED.
         if (b._normalized !== undefined) {
             var co = engine.getParameter(b.group, b.inKey);
             if (Math.abs(co - b._normalized) <= XoneK3.TAKEOVER_EPSILON) {
@@ -692,8 +672,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
     XoneK3.K3Controller.prototype._bindConns = function(b) {
         b._armOwnConn();
-        // A hotcue LED also watches the pad's colour CO so it
-        // repaints when the user recolours in Mixxx.
         if (b.outKey && b.group) {
             var m = b.outKey.match(/^(hotcue_\d+)_status$/);
             if (m) {
@@ -702,8 +680,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
                 }));
             }
         }
-        // outKey listener, unless on: already owns the on/off
-        // source (see _parseCsOn).
         if (b.group && b.outKey && (b._csOn === null || b._csOn === undefined)) {
             b._conns.push(engine.makeConnection(b.group, b.outKey, function() {
                 b._refresh();
@@ -714,9 +690,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // RESOLVED-TARGET HASH
     // ============================================================
-    // Positional fingerprint of every controller field the token
-    // table reads from. Derived from XoneK3.TOKENS so a new token
-    // is covered automatically.
     XoneK3.K3Controller.prototype._tokenFingerprint = function() {
         var parts = [];
         for (var i = 0; i < XoneK3.TOKENS.length; i++) {
@@ -725,10 +698,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         return parts.join('|');
     };
 
-    // Table-driven. Iterates XoneK3._BINDING_FIELDS rows that
-    // carry a token label, resolves each against current focus,
-    // and joins the results. Adding a new tokenable field is a
-    // single row in lib-core.js — no edit here.
     XoneK3.K3Controller.prototype._resolvedTargetHash = function(cfg, fingerprint) {
         if (!cfg) return '';
         if (fingerprint === undefined) fingerprint = this._tokenFingerprint();
@@ -757,22 +726,18 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         b._reset();
 
         if (cfg === null || cfg === undefined) {
-            this._releaseHeldWrite(b, prev);
+            this._orphanTransaction(b);
             this._unbind(b, prev);
             b._resolvedTargetHash = undefined;
             return;
         }
 
         this._bindCore(b, cfg);
-        // Rebind path: if this binding was a held push button and
-        // the new target differs, release the old CO now. Must
-        // happen after _bindCore so we can compare new target to
-        // the snapshot.
-        this._releaseHeldWrite(b, prev);
         XoneK3._auditBindingCfg(cfg, name);
         this._collectTokens(b, cfg);
         this._rearmSoftTakeover(b, prev);
         this._bindFunc(b, cfg);
+        this._orphanTransaction(b);
 
         if (cfg.colorScheme !== undefined) {
             this._setupColorScheme(b, cfg.colorScheme);
@@ -785,11 +750,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         b._resolvedTargetHash = this._resolvedTargetHash(cfg, fingerprint);
 
-        // Every batch caller (_applyResolved, _unbindRemoved,
-        // _reapplyByTokens) passes skipRefresh=true and relies on
-        // the trailing _refreshAllLeds. Standalone callers (tests,
-        // external scripts) should either omit skipRefresh here or
-        // call _refreshBinding(name) explicitly.
         if (!skipRefresh) b._refresh();
     };
 
@@ -801,34 +761,11 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // PATCH LIST MUTATIONS
     // ============================================================
-    // The mutator receives a *copy* of activePatches. It may
-    // mutate the copy in place (return ignored) or return a
-    // fresh array. Whatever ends up in the copy (or in the return
-    // value) becomes the new activePatches. activePatches is
-    // untouched until the mutator returns cleanly.
-    //
-    // addPatch / removePatch / replacePatch throw while a mutator
-    // is active. Nested _batchPatches throws too. Both are
-    // programmer errors: mutate the array argument.
     XoneK3.K3Controller.prototype._batchPatches = function(mutator) {
         if (this._batchPatchesActive) {
             throw new Error('_batchPatches cannot nest');
         }
 
-        // Single-slice: `copy` is the defensive snapshot handed to
-        // the mutator. `before` is a live reference to the pre-call
-        // activePatches — safe because:
-        //   (a) the mutator only ever sees `copy`, never `before`;
-        //   (b) `_diffPatches(before, result)` reads `before`
-        //       synchronously and extracts added/removed into new
-        //       arrays — no retained reference;
-        //   (c) nothing reads `before` after the diff call, and
-        //       `this.activePatches` isn't mutated until after it.
-        // The old double-slice defended against a mutator that
-        // reached into `ctrl.activePatches` directly — which is
-        // already a contract violation (`_batchPatchesActive` blocks
-        // it via addPatch / removePatch / replacePatch, and direct
-        // array mutation is undefined behaviour).
         var copy = this.activePatches.slice();
         var before = this.activePatches;
 
@@ -860,11 +797,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         }
     };
 
-    // Structural diff between two patch-name arrays. Returns
-    // { added, removed } or null when the arrays are identical
-    // (same length, same element order). A re-order is a change —
-    // later patches override earlier ones, so shifting a name
-    // changes resolution and needs a recompute.
     XoneK3.K3Controller.prototype._diffPatches = function(before, after) {
         var same = (before.length === after.length);
         if (same) {
@@ -934,9 +866,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         return null;
     };
 
-    // Unwinds every patch owned by ANY mode, then re-inserts the
-    // target's activate list at the position where the first owned
-    // patch sat. Non-owned patches keep their relative order.
     XoneK3.K3Controller.prototype.setTopMode = function(mode) {
         var target = XoneK3.TOP_MODES[mode];
         if (!target) { print('[k3] unknown top mode: ' + mode); return; }
@@ -963,52 +892,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     };
 
     // ============================================================
-    // SHIFT + CHORD
-    // ============================================================
-    XoneK3.K3Controller.prototype.shift = function() {
-        if (this.isShifted) return;
-        this.isShifted = true;
-        this._recompute();
-    };
-
-    XoneK3.K3Controller.prototype.unshift = function() {
-        if (!this.isShifted) return;
-        this.isShifted = false;
-        this._recompute();
-    };
-
-    XoneK3.K3Controller.prototype._enterChord = function() {
-        if (this._chordActive) return;
-        if (!this.patches[PN.CHORD]) return;
-        this._chordActive = true;
-        this.addPatch(PN.CHORD);
-    };
-
-    XoneK3.K3Controller.prototype._exitChord = function() {
-        if (!this._chordActive) return;
-        this._chordActive = false;
-        this.removePatch(PN.CHORD);
-    };
-
-    XoneK3.K3Controller.prototype.onShiftButton = function(v, s) {
-        var pressed = this._isPress(v, s);
-        if (pressed) {
-            this.shift();
-        } else {
-            if (this._chordActive) this._exitChord();
-            this.unshift();
-        }
-    };
-
-    // ============================================================
     // LED REPAINT
     // ============================================================
-    // Re-entrancy guard. Legitimate nested path is
-    //   _refreshAllLeds → _syncBeatClocks → _openBeatClocks
-    //     → _startVirtualClock → _resolveDisplaySource
-    //       → _refreshAllLeds('display-source')
-    // Skipping the nested call is safe — outer sweeps every
-    // binding after _syncBeatClocks returns.
     XoneK3.K3Controller.prototype._refreshAllLeds = function(why) {
         if (this._refreshAllLedsDepth > 0) return;
         this._refreshAllLedsDepth++;
@@ -1064,6 +949,26 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             }
         }
 
+        for (var modName in this.modifierStates) {
+            if (!this.modifierStates.hasOwnProperty(modName)) continue;
+            var mod = this.modifierStates[modName];
+            var heldBy = mod.heldBy || [];
+            for (var h = 0; h < heldBy.length; h++) {
+                if (!this.bindings[heldBy[h]]) {
+                    XoneK3._warnOnce('modifierHeldBy:' + modName + ':' + heldBy[h],
+                        'modifier "' + modName + '" references unknown binding "' +
+                        heldBy[h] + '"');
+                    issues++;
+                }
+            }
+            if (mod.patchActivate && !this.patches[mod.patchActivate]) {
+                XoneK3._warnOnce('modifierPatch:' + modName,
+                    'modifier "' + modName + '" references unknown patch "' +
+                    mod.patchActivate + '"');
+                issues++;
+            }
+        }
+
         if (issues > 0) {
             print('[k3] ' + issues + ' binding warning(s) — check the tokens above.');
         }
@@ -1072,9 +977,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // FOCUS
     // ============================================================
-    // Shared tail for the three focus setters. _syncFxLayout's own
-    // recompute refreshes; only call _refreshAllLeds when it didn't
-    // swap. Exactly one repaint per focus change on every path.
     XoneK3.K3Controller.prototype._afterFocusChanged = function(tokens, reason) {
         this._refreshActiveAlt();
         this._reapplyByTokens(tokens, { skipRefresh: true });
@@ -1131,9 +1033,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this._refreshDisplayFlags();
     };
 
-    // Short-circuit on resolved-target equality. b._resolvedTargetHash
-    // is written by _applyBinding at every bind, so this is a true
-    // identity compare — not a "have we seen this before" cache.
     XoneK3.K3Controller.prototype._reapplyByTokens = function(tokens, opts) {
         var fingerprint = null;
 

@@ -55,7 +55,7 @@
     };
 
     XoneK3.K3Controller.prototype._inspectRoot = function() {
-        var row = makeRow(20);
+        var row = makeRow(24);
 
         print('');
         print('== Xone K3 "' + this.label + '" (ch 0x' +
@@ -64,8 +64,7 @@
         row('activePatches:', this.activePatches.join(', ') || '(empty)');
         row('resolved stack:', this._buildStack().join(' → ') || '(empty)');
         row('top mode:', this.currentTopMode() || '—');
-        row('isShifted:', this.isShifted);
-        row('_chordActive:', this._chordActive);
+        row('modifiers:', JSON.stringify(this.modifiers));
         row('activeDeck:', this.activeDeck);
         row('activeFx:', this.activeFx);
         row('selectedDeckA/B:',
@@ -110,6 +109,11 @@
         print('== ' + name + ' ==');
         row('type:', b.type);
         row('bound:', !!b._rawCfg);
+        var txLabel = '—';
+        if (b._transaction && b._transaction.active) {
+            txLabel = b._transaction.orphaned ? 'active (orphaned)' : 'active';
+        }
+        row('tx:', txLabel);
         row('group:', b.group);
         row('inKey:', b.inKey);
         row('outKey:', b.outKey);
@@ -276,11 +280,6 @@
         var isOn = 0, onThrew = null;
         try { isOn = b._isOn(); } catch (e) { onThrew = e.message; }
 
-        // compileScheme(ref) is safe here only because scheme
-        // functions return raw refs (string names, plain scheme
-        // objects), never a compiled scheme. A compiled object
-        // would be re-resolved as a raw scheme and fail — debug-
-        // only, so the assumption is acceptable.
         var ref = null, refThrew = null, refCompiled = null;
         if (b._csSchemeFn) {
             try {
@@ -304,6 +303,11 @@
             ? (b.idx + ' (0x' + b.idx.toString(16) + ')')
             : (b.idx + ' — no LED'));
         row('type:', b.type);
+        var txLabel = '—';
+        if (b._transaction && b._transaction.active) {
+            txLabel = b._transaction.orphaned ? 'active (orphaned)' : 'active';
+        }
+        row('tx:', txLabel);
         row('group:', b.group);
         row('inKey:', b.inKey);
         row('outKey:', b.outKey);

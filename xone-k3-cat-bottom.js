@@ -4,6 +4,18 @@
 // CUE and LOOP are siblings — no inheritance between them.
 // Loads after cat-schemes.js (needs countdownScheme, slipScheme,
 // PLAY_LED_SCHEME).
+//
+// Layer button is push-mode so the modifier system captures a
+// transaction on press. Chord (shift+layer) activates via
+// modifiers.chord — see bootCat's modifierStates.
+//
+// pressR (CUE) is a modifier-holder: push-mode, no func, no
+// group/inKey. modifiers.loadArm derives from its transaction.
+// Its old F.loadSelectedTrack has moved to the transaction model.
+//
+// CUE's pressL / encoderL are unbound in this pass (paired-hold
+// removal — F.bpmPress / F.encBpmPressedHeadMix gone). Rebinds
+// deferred. CUE_SHIFT.encoderL (master gain) is preserved.
 
 'use strict';
 
@@ -48,8 +60,11 @@
                  colorScheme: CAT.PLAY_LED_SCHEME };
     }
 
+    // Push-mode — the transaction system uses this to derive the
+    // chord modifier (heldBy: ['shift', 'layer']).
     function layerButton(from, to) {
         return { func: F.layerButton, args: [from, to],
+                 type: 'push',
                  group: '$DECK_A$',
                  outKey: 'track_loaded',
                  colorScheme: { scheme: CAT.countdownScheme() } };
@@ -109,10 +124,11 @@
     // ============================================================
     var CUE = {
         layer: layerButton('cue', 'loop'),
-        encoderL: { func: F.encBpmPressedHeadMix, group: '$DECK_ACTIVE$', inKey: 'bpm' },
-        pressL:   { func: F.bpmPress, args: ['encoderL'] },
+        // pressR — modifier-holder only. modifiers.loadArm derives
+        // from its transaction. F.k3Select / F.slipOrLoad /
+        // F.setActiveDeckTo read ctrl.modifiers.loadArm.
+        pressR:   { type: 'push' },
         encoderR: { func: F.encPlaylistNav },
-        pressR:   { func: F.loadSelectedTrack },
 
         grid0_0: beatjump1('backward'),
         grid1_0: beatjump1('forward'),
@@ -260,9 +276,6 @@
     // ============================================================
     // LOOP odd-sizes — chord + slip overlay
     // ============================================================
-    // _host: 'loop'. Rows 2-3 become odd loop sizes. Beatjump
-    // direction buttons (grid0_1 / grid1_1) recolour yellow as
-    // the indicator; function unchanged.
     var LOOP_ODD = {
         _host: 'loop',
         grid0_1: { func: F.beatjumpButton, args: ['beatjump_backward'],
@@ -277,7 +290,7 @@
         grid0_3: loopSize('3/32', 'cyan'), grid1_3: loopSize('3/16', 'cyan'),
         grid2_3: loopSize('3/8',  'cyan'), grid3_3: loopSize('1/2',  'sky2')
     };
-    
+
     LOOP_ODD._shift = 'loopOddShift';
 
     var LOOP_ODD_SHIFT = {

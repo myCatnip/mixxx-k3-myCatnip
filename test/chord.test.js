@@ -2,144 +2,145 @@
 
 var H = require('./helpers');
 
-// Shift + layer → chord. Release order doesn't matter. Chord
-// patch sits above everything in the stack.
+// Chord is a modifier state: active while shift AND layer are
+// both held (via their transactions). The CHORD patch is added
+// and removed by the modifier system via `patchActivate`.
+//
+// Tests exercise the modifier system end-to-end (press/release
+// events), not the removed `_enterChord` / `_exitChord` methods.
 
-// ── onShiftButton ────────────────────────────────────────────
+function setup() {
+    var c = H.ctrl({
+        modifierStates: {
+            shift: { heldBy: ['shift'], recompute: true },
+            chord: { heldBy: ['shift', 'layer'], patchActivate: 'chord' }
+        },
+        patches: {
+            base: {
+                _shift: 'baseShift',
+                shift: { type: 'push' },
+                layer: { type: 'push', func: XoneK3.FUNCS.layerButton,
+                         args: ['cue', 'loop'] },
+                press0: { group: 'a' }
+            },
+            baseShift: { press0: { group: 'b' } },
+            chord: { press0: { group: 'c' } },
+            cue: {},
+            loop: {}
+        },
+        initialPatches: ['base', 'cue']
+    });
+    c._recompute();
+    return c;
+}
 
-test('onShiftButton: press sets isShifted', function(t) {
-    var c = H.ctrl();
-    c.onShiftButton(127, 0x90);
-    t.eq(c.isShifted, true);
-});
+// ── modifier state ──────────────────────────────────────────
 
-test('onShiftButton: release clears isShifted', function(t) {
-    var c = H.ctrl();
-    c.shift();
-    c.onShiftButton(0, 0x80);
-    t.eq(c.isShifted, false);
-});
-
-test('onShiftButton: release exits chord first if active', function(t) {
-    var c = H.ctrl({patches: {chord: {}}});
-    c.shift();
-    c._enterChord();
-    t.eq(c._chordActive, true);
-    c.onShiftButton(0, 0x80);
-    t.eq(c._chordActive, false);
-    t.eq(c.isShifted, false);
-});
-
-// ── _enterChord / _exitChord ────────────────────────────────
-
-test('_enterChord: adds chord patch when present', function(t) {
-    var c = H.ctrl({patches: {chord: {}}});
-    c._enterChord();
-    t.eq(c._chordActive, true);
-    t.contains(c.activePatches, 'chord');
-});
-
-test('_enterChord: no-op if already active', function(t) {
-    var c = H.ctrl({patches: {chord: {}}});
-    c._enterChord();
-    c._enterChord();
-    var count = 0;
-    for (var i = 0; i < c.activePatches.length; i++)
-        if (c.activePatches[i] === 'chord') count++;
-    t.eq(count, 1);
-});
-
-test('_enterChord: no-op if no chord patch declared', function(t) {
-    var c = H.ctrl({patches: {}});
-    c._enterChord();
-    t.eq(c._chordActive, false);
-});
-
-test('_exitChord: removes chord patch', function(t) {
-    var c = H.ctrl({patches: {chord: {}}});
-    c._enterChord();
-    c._exitChord();
-    t.eq(c._chordActive, false);
+test('chord: not active initially', function(t) {
+    var c = setup();
+    t.eq(c.modifiers.shift, false);
+    t.eq(c.modifiers.chord, false);
     t.notOk(c.activePatches.indexOf('chord') !== -1);
 });
 
-test('_exitChord: no-op if not active', function(t) {
-    var c = H.ctrl({patches: {chord: {}}});
-    c._exitChord();
-    t.eq(c._chordActive, false);
+test('chord: shift alone → modifiers.shift true, chord false', function(t) {
+    var c = setup();
+    H.press(c, 'shift');
+    t.eq(c.modifiers.shift, true);
+    t.eq(c.modifiers.chord, false);
+    t.notOk(c.activePatches.indexOf('chord') !== -1);
 });
 
-// ── layerButton func behavior ────────────────────────────────
-
-function callFunc(c, name, args, v) {
-    var bl = {_ctrl: c};
-    XoneK3.FUNCS[name].call(bl, args || [], 0, 0,
-                            (v === undefined) ? 127 : v, 0x90);
-}
-
-test('layerButton: normal press swaps patches', function(t) {
-    var c = H.ctrl({patches: {cue: {}, loop: {}}});
-    c.activePatches = ['cue'];
-    callFunc(c, 'layerButton', ['cue', 'loop']);
-    t.eq(c.activePatches, ['loop']);
-});
-
-test('layerButton: press while shifted enters chord', function(t) {
-    var c = H.ctrl({patches: {cue: {}, loop: {}, chord: {}}});
-    c.activePatches = ['cue'];
-    c.shift();
-    callFunc(c, 'layerButton', ['cue', 'loop']);
-    t.eq(c._chordActive, true);
+test('chord: shift + layer → chord active, patch added', function(t) {
+    var c = setup();
+    H.press(c, 'shift');
+    H.press(c, 'layer');
+    t.eq(c.modifiers.chord, true);
     t.contains(c.activePatches, 'chord');
-    // Layer patch did NOT change
+});
+
+test('chord: shift + layer does NOT swap the layer patch', function(t) {
+    var c = setup();
+    H.press(c, 'shift');
+    H.press(c, 'layer');
     t.contains(c.activePatches, 'cue');
+    t.notOk(c.activePatches.indexOf('loop') !== -1);
 });
 
-test('layerButton: release while chord active exits', function(t) {
-    var c = H.ctrl({patches: {cue: {}, loop: {}, chord: {}}});
-    c.activePatches = ['cue'];
-    c.shift();
-    callFunc(c, 'layerButton', ['cue', 'loop']);
-    callFunc(c, 'layerButton', ['cue', 'loop'], 0);
-    t.eq(c._chordActive, false);
+test('chord: layer alone swaps cue → loop', function(t) {
+    var c = setup();
+    H.press(c, 'layer');
+    t.eq(c.modifiers.chord, false);
+    t.contains(c.activePatches, 'loop');
+    t.notOk(c.activePatches.indexOf('cue') !== -1);
 });
 
-test('layerButton: plain release no-op', function(t) {
-    var c = H.ctrl({patches: {cue: {}, loop: {}}});
-    c.activePatches = ['cue'];
-    callFunc(c, 'layerButton', ['cue', 'loop'], 0);
-    t.eq(c.activePatches, ['cue']);
+// ── release ordering ────────────────────────────────────────
+
+test('chord: release layer first exits chord, shift still held', function(t) {
+    var c = setup();
+    H.press(c, 'shift');
+    H.press(c, 'layer');
+    t.eq(c.modifiers.chord, true);
+    H.release(c, 'layer');
+    t.eq(c.modifiers.chord, false);
+    t.eq(c.modifiers.shift, true);
+    t.notOk(c.activePatches.indexOf('chord') !== -1);
+    H.release(c, 'shift');
+    t.eq(c.modifiers.shift, false);
 });
 
-// ── chord in stack ───────────────────────────────────────────
+test('chord: release shift first exits chord, layer still held', function(t) {
+    var c = setup();
+    H.press(c, 'shift');
+    H.press(c, 'layer');
+    t.eq(c.modifiers.chord, true);
+    H.release(c, 'shift');
+    t.eq(c.modifiers.chord, false);
+    t.eq(c.modifiers.shift, false);
+    t.notOk(c.activePatches.indexOf('chord') !== -1);
+    H.release(c, 'layer');
+    t.eq(c.modifiers.chord, false);
+});
 
-test('chord appended last even during shift', function(t) {
-    var c = H.ctrl({patches: {
-        topShared: {_shift: 'topSharedShift', press0: {group: 'a'}},
-        topSharedShift: {press0: {group: 'b'}},
-        chord: {press0: {group: 'c'}}
-    }});
-    c.activePatches = ['topShared'];
-    c.shift();
-    c._enterChord();
+test('chord: layer first then shift also activates chord', function(t) {
+    var c = setup();
+    H.press(c, 'layer');        // swaps cue → loop
+    H.press(c, 'shift');        // both held → chord
+    t.eq(c.modifiers.chord, true);
+    t.contains(c.activePatches, 'chord');
+});
+
+// ── stack ordering ──────────────────────────────────────────
+
+test('chord: appended last in stack', function(t) {
+    var c = setup();
+    H.press(c, 'shift');
+    H.press(c, 'layer');
     var stack = c._buildStack();
     t.eq(stack[stack.length - 1], 'chord');
 });
 
-test('chord overrides shift companion on same cell', function(t) {
-    var c = H.ctrl({patches: {
-        topShared: {_shift: 'topSharedShift', press0: {group: 'a'}},
-        topSharedShift: {press0: {group: 'b'}},
-        chord: {press0: {group: 'c'}}
-    }});
-    c.activePatches = ['topShared'];
-    c.shift();
-    c._enterChord();
-    var stack = c._resolveStack(c._buildStack());
-    t.eq(stack.press0.group, 'c');
+test('chord: overrides shift companion on same cell', function(t) {
+    var c = setup();
+    H.press(c, 'shift');
+    H.press(c, 'layer');
+    var resolved = c._resolveStack(c._buildStack());
+    t.eq(resolved.press0.group, 'c');   // chord wins over baseShift
 });
 
-// ── shutdownHold ─────────────────────────────────────────────
+test('shift: companion included when modifiers.shift true', function(t) {
+    var c = setup();
+    H.press(c, 'shift');
+    t.contains(c._buildStack(), 'baseShift');
+});
+
+test('shift: companion excluded when modifiers.shift false', function(t) {
+    var c = setup();
+    t.notOk(c._buildStack().indexOf('baseShift') !== -1);
+});
+
+// ── shutdownHold ────────────────────────────────────────────
 
 test('shutdownHold: press arms a timer', function(t) {
     var c = H.ctrl();
