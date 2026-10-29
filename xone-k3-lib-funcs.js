@@ -34,6 +34,7 @@
     // pressR's active transaction.
     function _loadSelectedOntoChannel(ctrl, channel) {
         if (!ctrl.modifiers.loadArm) return false;
+        if (!(channel >= 1 && channel <= 4)) return false;
         engine.setValue('[Channel' + channel + ']', 'LoadSelectedTrack', 1);
         return true;
     }
@@ -458,11 +459,6 @@
         // the modifier state, not by a per-encoder flag — pressL's
         // transaction is the single source of truth, so rebinds
         // and patch changes mid-hold don't leave stale state.
-        // BPM step, or head-mix step while modifiers.bpmPressHeld is
-        // active (pressL held). The two-step behaviour is driven by
-        // the modifier state, not by a per-encoder flag — pressL's
-        // transaction is the single source of truth, so rebinds
-        // and patch changes mid-hold don't leave stale state.
         //
         // Sets _bpmHeldTurned so F.bpmPress can suppress the shift+
         // release headSplit toggle when the user actually turned
@@ -520,6 +516,7 @@
         encQuickFxCycle: function(args, ch, c, v, s) {
             var grp = this.group;
             var len = XoneK3.QFX_CHAIN_LIST.length;
+            if (len === 0) return;
             var cur = Math.floor(engine.getValue(grp, 'loaded_chain_preset'));
             if (cur < 0) cur = 0;                       // -1 = unsaved preset
             var next = (cur + (v === 1 ? 1 : -1) + len) % len;

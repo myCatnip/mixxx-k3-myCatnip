@@ -736,3 +736,42 @@ test('bounce: toggle→push→release→toggle does not swallow next press', fun
     t.eq(engine.getValue('[Channel1]', 'play'), 1,
         'press after rebind cycle toggles normally');
 });
+
+// ── _loadSelectedOntoChannel range guard ────────────────────
+
+test('k3Select: load-arm + out-of-range channel does not write', function(t) {
+    var c = H.ctrl();
+    c.modifiers.loadArm = true;
+    c._applyBinding('press0', {
+        func: XoneK3.FUNCS.k3Select, args: ['deck', 'A', 5]
+    });
+    H.press(c, 'press0');
+    t.eq(engine.getValue('[Channel5]', 'LoadSelectedTrack'), 0);
+    t.eq(engine.getValue('[Channel1]', 'LoadSelectedTrack'), 0);
+});
+
+test('k3Select: load-arm + valid channel loads track', function(t) {
+    var c = H.ctrl();
+    c.modifiers.loadArm = true;
+    c._applyBinding('press0', {
+        func: XoneK3.FUNCS.k3Select, args: ['deck', 'A', 2]
+    });
+    H.press(c, 'press0');
+    t.eq(engine.getValue('[Channel2]', 'LoadSelectedTrack'), 1);
+});
+
+// ── encQuickFxCycle empty list ──────────────────────────────
+
+test('encQuickFxCycle: empty list does not write NaN', function(t) {
+    var orig = XoneK3.QFX_CHAIN_LIST;
+    XoneK3.QFX_CHAIN_LIST = [];
+    var c = H.ctrl();
+    c._applyBinding('encoder1', {
+        func: XoneK3.FUNCS.encQuickFxCycle,
+        group: '[QuickEffectRack1_[Channel1]]'
+    });
+    H.send(c, 'encoder1', 1);
+    var v = engine.getValue('[QuickEffectRack1_[Channel1]]', 'loaded_chain_preset');
+    t.ok(!isNaN(v), 'must not write NaN, got ' + v);
+    XoneK3.QFX_CHAIN_LIST = orig;
+});

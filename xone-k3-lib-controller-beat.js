@@ -1029,24 +1029,21 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             var b = this._beatLeds[i];
             try {
                 if (ch === undefined) { b._refresh(); continue; }
-                // A function scheme can change shape at runtime —
-                // countdownScheme returns 'countdownIdle' (no beat)
-                // before a track loads and 'countdownA1..4' (beat)
-                // afterwards. Probe the current evaluation: if no
-                // beat block is present, this binding has no
-                // business repainting on every beat edge. Every FX
-                // layout cell goes through this path (its scheme is
-                // a composed closure over fxScheme(n), which has no
-                // beat), so this is what stops the per-beat churn.
-                // _evaluateScheme is memoized — a stable ref just
-                // hits the cache.
-                var beat = (b._csScheme && b._csScheme.beat)
-                        || (b._csCompiledMemo && b._csCompiledMemo.beat)
-                        || null;
-                if (!beat && b._csSchemeFn) {
-                    var probe = b._evaluateScheme();
-                    beat = (probe && probe.beat) || null;
-                }
+                // Use the same compiled scheme the render path uses
+                // (_evaluateScheme). That's the fn's current output
+                // when _csSchemeFn is set, else the base scheme. A
+                // binding with both a base scheme AND a function
+                // would otherwise gate on the base's beat deck while
+                // the LED actually renders the fn's output — wrong
+                // deck, spurious refreshes on the base deck's edges.
+                // _evaluateScheme is memoized on ref identity, so
+                // a stable scheme is one property-return per call.
+                // A function scheme can also change shape at runtime
+                // (countdownScheme idle → beat), which is what skips
+                // the per-beat churn on FX cells whose composed
+                // closure has no beat block.
+                var live = b._evaluateScheme();
+                var beat = live && live.beat;
                 if (!beat) continue;
                 var deckCh = this._resolveDeckRef(beat.deck);
                 if (deckCh === undefined || deckCh === null) { b._refresh(); continue; }

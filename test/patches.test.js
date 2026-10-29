@@ -312,3 +312,19 @@ test('replacePatch: unknown target no-op', function(t) {
     c.replacePatch('cue', 'nope');
     t.eq(c.activePatches, ['cue']);
 });
+
+test('replacePatch: same name → no recompute, no change event', function(t) {
+    var c = H.ctrl({patches: {cue: {}}});
+    c.activePatches = ['cue'];
+
+    var changes = 0;
+    c._onPatchChange = function() { changes++; };
+    var recomputes = 0;
+    var orig = c._recompute.bind(c);
+    c._recompute = function() { recomputes++; return orig(); };
+
+    c.replacePatch('cue', 'cue');
+
+    t.eq(changes, 0, 'no _onPatchChange for same-name replace');
+    t.eq(recomputes, 0, 'no recompute for same-name replace');
+});

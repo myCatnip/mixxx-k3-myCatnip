@@ -300,3 +300,19 @@ test('_syncFxLayout: non-fx patches untouched', function(t) {
     t.eq(c.activePatches[1], 'fxLayout2');
     t.eq(c.activePatches[2], 'cue');
 });
+
+test('_reapplyByTokens: skips when resolved-target hash unchanged', function(t) {
+    var c = H.ctrl();
+    c.activeDeck = 'A';
+    c.selectedDeckA = 1;
+    c.selectedDeckB = 1;   // both slots point at channel 1
+    c._refreshActiveAlt();
+    c._applyBinding('press0', { group: '$DECK_ACTIVE$', inKey: 'play' });
+
+    var applied = 0;
+    var orig = c._applyOneSafe.bind(c);
+    c._applyOneSafe = function() { applied++; return orig.apply(this, arguments); };
+
+    c.setActiveDeck('B');   // slot B, but same channel → same hash
+    t.eq(applied, 0, 'no rebind when resolved target hash unchanged');
+});

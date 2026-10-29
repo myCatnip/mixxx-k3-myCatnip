@@ -169,3 +169,45 @@ test('setTopMode: fires change events for every added/removed name', function(t)
     t.eq(log.recomputes, 1);
     t.eq(log.changes.length, 5);
 });
+
+// ── contract enforcement ───────────────────────────────────
+
+test('_batchPatches: nested call throws', function(t) {
+    var c = H.ctrl({patches: {a: {}, b: {}}});
+    c.activePatches = ['a'];
+    t.throws(function() {
+        c._batchPatches(function() {
+            c._batchPatches(function() {});
+        });
+    }, /cannot nest/);
+});
+
+test('_batchPatches: addPatch inside mutator throws', function(t) {
+    var c = H.ctrl({patches: {a: {}, b: {}}});
+    c.activePatches = ['a'];
+    t.throws(function() {
+        c._batchPatches(function() {
+            c.addPatch('b');
+        });
+    }, /inside a _batchPatches mutator/);
+});
+
+test('_batchPatches: removePatch inside mutator throws', function(t) {
+    var c = H.ctrl({patches: {a: {}, b: {}}});
+    c.activePatches = ['a', 'b'];
+    t.throws(function() {
+        c._batchPatches(function() {
+            c.removePatch('b');
+        });
+    }, /inside a _batchPatches mutator/);
+});
+
+test('_batchPatches: replacePatch inside mutator throws', function(t) {
+    var c = H.ctrl({patches: {a: {}, b: {}}});
+    c.activePatches = ['a'];
+    t.throws(function() {
+        c._batchPatches(function() {
+            c.replacePatch('a', 'b');
+        });
+    }, /inside a _batchPatches mutator/);
+});

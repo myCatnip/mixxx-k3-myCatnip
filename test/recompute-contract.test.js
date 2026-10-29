@@ -161,3 +161,20 @@ test('_refreshAllLeds: boot-time call does not warn', function(t) {
     }
     t.notOk(warned, 'boot must not produce a redundant-refresh warning');
 });
+
+test('_recompute: _afterRecompute throw warns, still refreshes', function(t) {
+    var c = H.ctrl({ patches: { a: {}, b: {} } });
+    c.activePatches = ['a'];
+
+    var refreshed = false;
+    var origRefresh = c._refreshAllLeds.bind(c);
+    c._refreshAllLeds = function(why) { refreshed = true; return origRefresh(why); };
+    c._afterRecompute = function() { throw new Error('boom'); };
+
+    XoneK3._warned = {};
+    _printLog.length = 0;
+    c.addPatch('b');
+
+    t.ok(refreshed, '_refreshAllLeds must run despite _afterRecompute throw');
+    t.contains(_printLog.join('\n'), '_afterRecompute threw on test');
+});

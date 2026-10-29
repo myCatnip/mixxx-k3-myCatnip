@@ -163,3 +163,87 @@ test('_refreshBinding: unknown binding no-op', function(t) {
     var c = H.ctrl();
     c._refreshBinding('noSuchBinding');
 });
+
+// ── _refresh fallback (outKey, no colorScheme) ──────────────
+
+test('_refresh: outKey-only off-frame sends black', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl', outKey: 'pfl'
+        // No colorScheme → _refresh takes the fallback branch
+    });
+    engine._set('[Channel1]', 'pfl', 0);
+    H.clearLeds(c);
+    c.bindings.button0_0._refresh();
+    var led = H.led(c, 'button0_0');
+    t.ok(led, 'should have sent a frame');
+    t.eq(led.r,  0);
+    t.eq(led.g,  0);
+    t.eq(led.b,  0);
+    t.eq(led.hw, 0);
+});
+
+test('_refresh: outKey-only on-frame sends white', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl', outKey: 'pfl'
+    });
+    engine._set('[Channel1]', 'pfl', 1);
+    H.clearLeds(c);
+    c.bindings.button0_0._refresh();
+    var led = H.led(c, 'button0_0');
+    t.eq(led.r,  127);
+    t.eq(led.g,  127);
+    t.eq(led.b,  127);
+    t.eq(led.hw, 127);
+});
+
+// ── _applyBinding skipRefresh contract ──────────────────────
+
+test('_applyBinding: skipRefresh true → no immediate refresh', function(t) {
+    var c = H.ctrl();
+    H.clearLeds(c);
+    var refreshed = 0;
+    var orig = c.bindings.button0_0._refresh.bind(c.bindings.button0_0);
+    c.bindings.button0_0._refresh = function() { refreshed++; return orig(); };
+
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl',
+        colorScheme: { scheme: 'red', on: true }
+    }, undefined, true);
+
+    t.eq(refreshed, 0, 'skipRefresh must not refresh');
+});
+
+test('_applyBinding: skipRefresh false → refresh fires', function(t) {
+    var c = H.ctrl();
+    H.clearLeds(c);
+    var refreshed = 0;
+    var orig = c.bindings.button0_0._refresh.bind(c.bindings.button0_0);
+    c.bindings.button0_0._refresh = function() { refreshed++; return orig(); };
+
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl',
+        colorScheme: { scheme: 'red', on: true }
+    }, undefined, false);
+
+    t.ok(refreshed > 0, 'refresh should fire when skipRefresh is false');
+});
+
+// ── shutdown suppresses captured release ────────────────────
+
+test('shutdown: held transaction does not fire captured release', function(t) {
+    var c = H.ctrl();
+    var fired = [];
+    c._applyBinding('press0', {
+        type: 'push',
+        func: function(args, ch, cc, v) { fired.push(v); }
+    });
+
+    H.press(c, 'press0');
+    t.eq(fired, [127], 'press fired');
+
+    c.shutdown();            // _shuttingDown set
+    H.release(c, 'press0');  // short-circuited by _shuttingDown guard
+    t.eq(fired, [127], 'release after shutdown must be suppressed');
+});

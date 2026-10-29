@@ -173,7 +173,14 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         this.sysex = (cfg.sysex === false) ? false : true;
 
-        this.channelPerceptual = cfg.channelPerceptual.slice();
+        var cp = cfg.channelPerceptual;
+        if (!Array.isArray(cp) || cp.length < 3) {
+            XoneK3._warnOnce('channelPerceptualShape:' + this.label,
+                'channelPerceptual must be a 3-element array on ' + this.label +
+                ' — got ' + JSON.stringify(cp) + '; using [1,1,1]');
+            cp = [1, 1, 1];
+        }
+        this.channelPerceptual = cp.slice();
         this.wbGain            = cfg.wbGain.slice();
         this.hkBoost           = cfg.hkBoost;
         this.lumGamma          = cfg.lumGamma;
@@ -527,8 +534,25 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         try {
             var resolved = this._resolveStack(this._buildStack());
             this._applyResolved(resolved);
-            this._afterRecompute();
-            this._refreshAllLeds();
+            // _applyResolved wraps each binding in try/catch; the
+            // subclass hook and the LED sweep do not. A throwing
+            // _afterRecompute (custom LabController override) or a
+            // throw out of _syncBeatClocks would otherwise skip the
+            // trailing _refreshAllLeds and leave
+            // _recomputeCompletedAt unset — causing spurious
+            // "outside a recompute" warnings on the next refresh.
+            try { this._afterRecompute(); }
+            catch (e) {
+                XoneK3._warnOnce('afterRecomputeThrow:' + this.label,
+                    '_afterRecompute threw on ' + this.label + ': ' +
+                    (e && e.message ? e.message : e));
+            }
+            try { this._refreshAllLeds(); }
+            catch (e) {
+                XoneK3._warnOnce('recomputeRefreshThrow:' + this.label,
+                    '_refreshAllLeds threw on ' + this.label + ': ' +
+                    (e && e.message ? e.message : e));
+            }
             this._recomputeCompletedAt = Date.now();
         } finally {
             this._recomputeDepth--;
@@ -899,6 +923,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         if (this._batchPatchesActive) {
             throw new Error('replacePatch called inside a _batchPatches mutator — mutate the array argument instead');
         }
+        if (from === to) return;
         if (!this.patches[to]) { print('Unknown patch: ' + to); return; }
         var i = this.activePatches.indexOf(from);
         if (i === -1) return;

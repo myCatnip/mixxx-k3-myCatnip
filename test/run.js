@@ -145,9 +145,6 @@ function resetGlobals() {
     X._schemeCache             = {};
     X._compiledCache           = {};
     X.controllers              = [];
-    X.VIRTUAL_CLOCKS           = {
-        loop: { trackTempo: false }
-    };
     X.TIME_SIG = null;
     // Phrase state is config-level and persists between tests.
     // Without these resets, a test that sets PHRASE_MARKER_COLORS

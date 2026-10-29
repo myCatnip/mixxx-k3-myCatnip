@@ -327,3 +327,45 @@ test('_onPlayIndicator: refreshes beat LEDs on every transition', function(t) {
 
     t.ok(calls >= 1, '_refreshBeatLeds must fire on pause transition');
 });
+
+// ── _refreshBeatLeds: fn scheme vs base scheme ──────────────
+//
+// The gate must follow the scheme that _evaluateScheme() actually
+// returns (fn output when _csSchemeFn is set, else base), not the
+// base scheme's beat block. A binding with both a base scheme
+// (beat on deck A) and a fn scheme (beat on deck B) must gate on
+// deck B, not A.
+
+test('_refreshBeatLeds: gates on fn scheme\'s beat deck, not base\'s', function(t) {
+    var c = H.ctrl();
+    c._loadedState[1] = true;
+    c._loadedState[2] = true;
+    engine._set('[Channel1]', 'duration', 300);
+    engine._set('[Channel1]', 'file_bpm', 120);
+    engine._set('[Channel1]', 'track_samples', 1000);
+    engine._set('[Channel2]', 'duration', 300);
+    engine._set('[Channel2]', 'file_bpm', 120);
+    engine._set('[Channel2]', 'track_samples', 1000);
+
+    // Base scheme beat on deck 1; fn returns beat on deck 2
+    var fnBeat2 = { colors: [[0,127,0]], beat: { deck: 2, color: 'blue' } };
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl',
+        colorScheme: {
+            scheme: { colors: [[127,0,0]], beat: { deck: 1, color: 'green' } },
+            schemeFromState: { state: 'activeDeck', map: { A: fnBeat2, B: fnBeat2 } }
+        }
+    });
+
+    var count = 0;
+    var orig = c.bindings.button0_0._refresh.bind(c.bindings.button0_0);
+    c.bindings.button0_0._refresh = function() { count++; return orig(); };
+
+    c._refreshBeatLeds(2);
+    var afterCh2 = count;
+    c._refreshBeatLeds(1);
+    var afterCh1 = count;
+
+    t.ok(afterCh2 > 0, 'ch2 (fn beat deck) refreshes');
+    t.eq(afterCh1, afterCh2, 'ch1 (base beat deck) does not refresh');
+});

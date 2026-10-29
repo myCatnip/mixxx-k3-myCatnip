@@ -324,3 +324,52 @@ test('_reset: wipes reset-able fields, preserves session fields', function(t) {
     t.eq(b.inKey, undefined);
     t.eq(b._normalized, 0.7);
 });
+
+// ── _evalOnCoValue cached value ────────────────────────────
+
+test('_evalOnCoValue: cachedValue wins over live read', function(t) {
+    var c = H.ctrl();
+    var b = c.bindings.button0_0;
+    b._csOn = {
+        co: 'enabled',
+        group: '[EffectRack1_EffectUnit1]',
+        cachedValue: 1
+    };
+    // CO reads 0 but cached 1 → on
+    engine._set('[EffectRack1_EffectUnit1]', 'enabled', 0);
+    t.eq(b._isOn(), 1);
+});
+
+test('_evalOnCoValue: falls back to live read when cachedValue undefined', function(t) {
+    var c = H.ctrl();
+    var b = c.bindings.button0_0;
+    b._csOn = {
+        co: 'enabled',
+        group: '[EffectRack1_EffectUnit1]',
+        cachedValue: undefined
+    };
+    engine._set('[EffectRack1_EffectUnit1]', 'enabled', 1);
+    t.eq(b._isOn(), 1);
+});
+
+// ── captured release throw recovery ────────────────────────
+
+test('_dispatchCapturedRelease: throwing func is caught, warn fired', function(t) {
+    var c = H.ctrl();
+    XoneK3._warned = {};
+    _printLog.length = 0;
+    c._applyBinding('press0', {
+        type: 'push',
+        func: function(args, ch, cc, v) {
+            if (v === 0) throw new Error('release boom');
+        }
+    });
+
+    H.press(c, 'press0');
+    var threw = false;
+    try { H.release(c, 'press0'); }
+    catch (e) { threw = true; }
+
+    t.notOk(threw, 'release must not propagate throw');
+    t.contains(_printLog.join('\n'), 'captured release threw');
+});

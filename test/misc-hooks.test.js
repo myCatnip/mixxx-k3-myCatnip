@@ -306,3 +306,37 @@ test('co-match cache: synchronous after input() write', function(t) {
              engine.getParameter('[Channel1]', 'pregain'), 1e-9,
              '_lastCoValue matches CO immediately after input()');
 });
+
+// ── channelPerceptual shape validation ──────────────────────
+
+test('channelPerceptual: short array warns and falls back to [1,1,1]', function(t) {
+    _printLog.length = 0;
+    var c = H.ctrl({ channelPerceptual: [1, 1] });
+    t.eq(c.channelPerceptual, [1, 1, 1]);
+    t.contains(_printLog.join('\n'),
+        'channelPerceptual must be a 3-element array');
+});
+
+test('channelPerceptual: short array does not produce NaN in _channelEmit', function(t) {
+    var c = H.ctrl({ channelPerceptual: [1, 1] });
+    var out = c._channelEmit([127, 0, 0], 127);
+    t.ok(!isNaN(out[0]));
+    t.ok(!isNaN(out[1]));
+    t.ok(!isNaN(out[2]));
+});
+
+// ── co-match cache: custom func writes own CO ───────────────
+
+test('co-match cache: custom func writing own CO → cache updated synchronously', function(t) {
+    var c = H.ctrl();
+    engine.setParameter('[Channel1]', 'pregain', 0.5);
+    c._applyBinding('knob0_0', {
+        group: '[Channel1]', inKey: 'pregain',
+        func: function() {
+            engine.setParameter(this.group, this.inKey, 0.9);
+        }
+    });
+    c.bindings.knob0_0.input(0, 0x10, 40, 0xB0);
+    t.approx(c.bindings.knob0_0._lastCoValue, 0.9, 1e-9,
+             'func-written CO reflected in cache synchronously');
+});

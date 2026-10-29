@@ -318,7 +318,8 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         // cost, identical cache state. Soft-takeover rejection
         // reads back the old CO, so co-match shows until takeover
         // is crossed, exactly as before.
-        if (this.type === 'knob' || this.type === 'fader') {
+        if ((this.type === 'knob' || this.type === 'fader') &&
+            this.group && this.inKey) {
             try { this._lastCoValue = engine.getParameter(this.group, this.inKey); }
             catch (e) { this._lastCoValue = undefined; }
         }
@@ -522,7 +523,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
 
             if (this.group && this.outKey) {
                 var v = engine.getValue(this.group, this.outKey) > 0;
-                this._send(v ? 127 : 127, v ? 127 : 0, v ? 127 : 0, v ? 127 : 0);
+                this._send(v ? 127 : 0, v ? 127 : 0, v ? 127 : 0, v ? 127 : 0);
             }
         } catch (e) {
             XoneK3._warnOnce('refreshThrow:' + this._name,
