@@ -379,7 +379,7 @@
     // return null before the cache write), matching the previous
     // behaviour.
 
-    XoneK3._compileFullScheme = function(raw, overrides) {
+    XoneK3._compileFullScheme = function(raw, overrides, seen) {
         if (overrides) raw = Object.assign({}, raw, overrides);
 
         var onSegs = XoneK3._buildSegments(raw.colors, raw.ratio, raw.brightness);
@@ -387,7 +387,7 @@
 
         var offSegs = null;
         if (raw.offScheme) {
-            var offC = XoneK3.compileScheme(raw.offScheme);
+            var offC = XoneK3.compileScheme(raw.offScheme, undefined, seen);
             if (offC) offSegs = offC.on;
         }
         if (!offSegs) offSegs = XoneK3._generateOff(onSegs);
@@ -395,7 +395,7 @@
         var coCompiled = null;
         if (raw.coScheme !== null && raw.coScheme !== false) {
             var coName = raw.coScheme || XoneK3.DEFAULT_CO_SCHEME;
-            if (coName) coCompiled = XoneK3.compileScheme(coName);
+            if (coName) coCompiled = XoneK3.compileScheme(coName, undefined, seen);
         }
 
         var marker = raw.markerColor
@@ -436,18 +436,38 @@
         };
     };
 
-    XoneK3.compileScheme = function(ref, overrides) {
+    XoneK3.compileScheme = function(ref, overrides, seen) {
         var cacheable = (typeof ref === 'string') && !overrides;
         if (cacheable && XoneK3._compiledCache[ref]) return XoneK3._compiledCache[ref];
+
+        // Cycle detection. A scheme that names itself (directly or
+        // through a chain) in offScheme / coScheme would otherwise
+        // recurse until the JS stack overflows on first render.
+        // Strings match by value, objects by reference. The cycle
+        // is broken at the innermost back-reference: that
+        // referencing field compiles to null, the outer call
+        // finishes normally.
+        seen = seen || new Set();
+        if (seen.has(ref)) {
+            if (typeof ref === 'string') {
+                XoneK3._warnOnce('schemeCycle:' + ref,
+                    'scheme "' + ref + '" references itself in its ' +
+                    'offScheme / coScheme chain — cycle broken, the ' +
+                    'referencing field renders as null');
+            }
+            return null;
+        }
+        seen.add(ref);
 
         var raw = XoneK3.resolveScheme(ref);
         var compiled;
         if (raw && raw.colors && raw.colors.length > 0) {
-            compiled = XoneK3._compileFullScheme(raw, overrides);
+            compiled = XoneK3._compileFullScheme(raw, overrides, seen);
         } else {
             compiled = XoneK3._compileSingleColor(ref);
         }
 
+        seen.delete(ref);
         if (cacheable && compiled) XoneK3._compiledCache[ref] = compiled;
         return compiled;
     };

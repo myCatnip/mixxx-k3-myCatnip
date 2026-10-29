@@ -25,7 +25,10 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
     XoneK3.K3Controller.prototype._wbRGB = function(r, g, b) {
         if (!this.wbActive) return [r, g, b];
         var wb = this.wbGain;
-        if (!wb) return [r, g, b];
+        // A short wbGain (e.g. [1, 1]) makes wb[2] undefined →
+        // b * undefined = NaN → Math.round(NaN) = NaN → downstream
+        // bit-AND coerces to 0. Silent blue kill on a config typo.
+        if (!wb || wb.length < 3) return [r, g, b];
         return [
             Math.max(0, Math.min(127, Math.round(r * wb[0]))),
             Math.max(0, Math.min(127, Math.round(g * wb[1]))),

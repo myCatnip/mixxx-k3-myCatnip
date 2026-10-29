@@ -196,6 +196,11 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         }
 
         var isPush = (this.type === 'button' && this.buttonMode === 'push');
+        // Snapshot pre-capture state. The capture block below sets
+        // active=true on the first press; the bounce guard further
+        // down must test the state BEFORE capture, or it blocks
+        // the first press too.
+        var wasActive = this._transaction.active;
 
         // ---- Physical press ----
         if (v > 0 && isPush && !this._transaction.active) {
@@ -216,10 +221,35 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             return;
         }
 
+        // ---- Bounce guard ----
+        // A v>0 event while a transaction was ALREADY active
+        // before this call is a hardware bounce — the user's
+        // physical state hasn't changed. Skip func dispatch so
+        // per-press flags (_bpmHeldTurned, shutdownHold's timer)
+        // aren't reset mid-hold. The eventual real release still
+        // dispatches the captured release normally.
+        //
+        // `wasActive` (pre-capture) is the discriminator. Testing
+        // the current value would return on the very first press,
+        // because _captureTransaction just set it to true above.
+        if (v > 0 && isPush && wasActive) {
+            return;
+        }
+
         // ---- Normal dispatch ----
-        var fn = this._func;
-        if (fn) fn.call(this, this._funcArgs, ch, cc, v, s);
-        else    this._defaultInput(v, s);
+        // A throwing func or engine call must not escape the MIDI
+        // handler — Mixxx logs it or crashes depending on version,
+        // and the observer repaint below is skipped so LED state
+        // diverges until the next input.
+        try {
+            var fn = this._func;
+            if (fn) fn.call(this, this._funcArgs, ch, cc, v, s);
+            else    this._defaultInput(v, s);
+        } catch (e) {
+            XoneK3._warnOnce('inputThrow:' + this._name,
+                'binding func threw on ' + this._name + ': ' +
+                (e && e.message ? e.message : e));
+        }
 
         this._refreshObservers();
     };
@@ -382,14 +412,28 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         if (this._noLED) return;
         if (this._ctrl._shuttingDown) return;
 
-        if (this._csActive) {
-            this._refreshColorScheme();
-            return;
-        }
+        // CO observers registered via _bindConns,
+        // _wireCsOnConnection, and _buildCsFromStateClosure call
+        // _refresh directly with no wrapper. A throw would escape
+        // through Mixxx's CO event loop. Catch here so every
+        // _refresh call site is protected regardless of caller.
+        // The external wrappers (_safeBinding, _refreshBeatLeds's
+        // inline try/catch) stay for their own pre/post work but
+        // no longer see throws from this body.
+        try {
+            if (this._csActive) {
+                this._refreshColorScheme();
+                return;
+            }
 
-        if (this.group && this.outKey) {
-            var v = engine.getValue(this.group, this.outKey) > 0;
-            this._send(v ? 127 : 0, v ? 127 : 0, v ? 127 : 0, v ? 127 : 0);
+            if (this.group && this.outKey) {
+                var v = engine.getValue(this.group, this.outKey) > 0;
+                this._send(v ? 127 : 0, v ? 127 : 0, v ? 127 : 0, v ? 127 : 0);
+            }
+        } catch (e) {
+            XoneK3._warnOnce('refreshThrow:' + this._name,
+                'refresh threw on ' + this._name + ': ' +
+                (e && e.message ? e.message : e));
         }
     };
 

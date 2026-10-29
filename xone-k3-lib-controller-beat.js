@@ -5,6 +5,14 @@
 // Loaded after lib-controller-colour.js. Extends K3Controller.prototype.
 // Pulse phase always from track position; cascade count from the
 // active display source. See CONCEPTS §8.
+//
+// Boot settle
+// -----------
+// After init's 250ms reopen runs the first catch-up, _startBootSettle
+// reschedules _catchUpChannel while boot-relevant CO fires are still
+// landing. Fixes silent-stale state on slow CO trees — a stale
+// track_loaded or play_indicator would otherwise leave a loaded deck
+// looking dead until the next unrelated event.
 
 'use strict';
 
@@ -21,9 +29,48 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
 (function() {
     var freshDeckState = XoneK3._freshDeckState;
 
-    // Hotcue slots snapshotted for phrase-marker colours and watched
-    // for place / recolour / delete / drag. 16 = Mixxx's max.
-    XoneK3.HOTCUE_MAX = 16;
+    // Hotcue slots scanned for phrase-marker colours. Default is
+    // the top row of the hotcue916 overlay; override in the preset
+    // config next to PHRASE_MARKER_COLORS.
+    XoneK3.PHRASE_HOTCUE_SLOTS = [9, 10, 11, 12];
+
+    // Mixxx pre-instantiates 36 hotcue COs, but four of those are
+    // the intro/outro markers — 32 real hotcues per deck.
+    XoneK3.MIXXX_HOTCUE_LIMIT = 32;
+
+    // Validated, deduped, in-range slot list. Single source for
+    // every consumer in the origin path. Invalid entries are
+    // dropped here; _validatePhraseHotcueSlots warns about them
+    // at boot.
+    //
+    // Memoized by array identity. _deriveOriginFromPosition calls
+    // this per throttled playposition tick; rebuilding the array
+    // plus seen map per tick would allocate ~130 times/sec across
+    // four channels. PHRASE_HOTCUE_SLOTS is documented
+    // set-before-boot, so replace-array is the supported way to
+    // change it (mutation in place keeps the identity and the
+    // cache; that's not the contract).
+    XoneK3._phraseHotcueSlots = function() {
+        var slots = XoneK3.PHRASE_HOTCUE_SLOTS;
+        if (XoneK3._phraseHotcueSlotsCacheSrc === slots &&
+            XoneK3._phraseHotcueSlotsCache) {
+            return XoneK3._phraseHotcueSlotsCache;
+        }
+        var out = [];
+        if (Array.isArray(slots)) {
+            var seen = {};
+            for (var i = 0; i < slots.length; i++) {
+                var n = slots[i];
+                if (typeof n !== 'number' || n < 1 || n > XoneK3.MIXXX_HOTCUE_LIMIT) continue;
+                if (seen[n]) continue;
+                seen[n] = true;
+                out.push(n);
+            }
+        }
+        XoneK3._phraseHotcueSlotsCache = out;
+        XoneK3._phraseHotcueSlotsCacheSrc = slots;
+        return out;
+    };
 
     // ============================================================
     // CHANNEL / LOOP STATE
@@ -306,7 +353,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         return true;
     };
 
-    // Snapshot every hotcue CO into this deck's hotcueState.
+    // Snapshot every declared hotcue CO into this deck's hotcueState.
     // Called at clock-open, on track_loaded (post-reset fallback),
     // and on track_samples change (load-over-current). After this,
     // _deriveOriginFromPosition reads only st.hotcueState — the
@@ -323,7 +370,9 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             XoneK3.PHRASE_MARKER_COLORS.length === 0) return;
 
         var grp = '[Channel' + ch + ']';
-        for (var n = 1; n <= XoneK3.HOTCUE_MAX; n++) {
+        var slots = XoneK3._phraseHotcueSlots();
+        for (var i = 0; i < slots.length; i++) {
+            var n = slots[i];
             st.hotcueState[n] = {
                 color: engine.getValue(grp, 'hotcue_' + n + '_color'),
                 pos:   engine.getValue(grp, 'hotcue_' + n + '_position')
@@ -358,15 +407,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var best = null;
         var bestAhead = null;
         var cache = st.hotcueState;
-        var maxCue = XoneK3.HOTCUE_MAX;
+        var slots = XoneK3._phraseHotcueSlots();
 
-        // Numeric index loop. for...in on a numeric-keyed object
-        // is dictionary iteration in V8, ~2× slower than an array
-        // walk. Only slots up to HOTCUE_MAX are ever seeded; slots
-        // beyond that (HOTCUE_MAX raised after boot) are undefined
-        // and skipped.
-        for (var n = 1; n <= maxCue; n++) {
-            var h = cache[n];
+        // Array walk over the declared slot list. Only those slots
+        // are seeded; anything else in the cache is stale and
+        // ignored.
+        for (var si = 0; si < slots.length; si++) {
+            var h = cache[slots[si]];
             if (!h) continue;
             if (markers.indexOf(h.color) === -1) continue;
             if (!(h.pos >= 0) || h.pos > meta.samples) continue;
@@ -477,12 +524,15 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             self._onPlayposition(ch);
         });
         wire(this._playConns, 'play_indicator', function(v) {
+            if (self._bootSettling[ch]) self._bootSettledAt[ch] = Date.now();
             self._onPlayIndicator(ch, v);
         });
         wire(this._playConns, 'track_loaded', function(v) {
+            if (self._bootSettling[ch]) self._bootSettledAt[ch] = Date.now();
             self._onTrackLoaded(ch, v);
         });
         wire(this._playConns, 'loop_enabled', function() {
+            if (self._bootSettling[ch]) self._bootSettledAt[ch] = Date.now();
             self._onLoopEnabled(ch);
         });
         wire(this._playConns, 'slip_enabled', function() {
@@ -493,12 +543,14 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // so _channelRate doesn't have to read the CO on every
         // throttled playposition tick.
         wire(this._playConns, 'rate_ratio', function(v) {
+            if (self._bootSettling[ch]) self._bootSettledAt[ch] = Date.now();
             self._rateCache[ch] = v;
         });
         // reverse changes only on user action (reverse toggle).
         // Cached so the beat-edge guard and _advanceVirtualClock
         // don't read the CO per throttled playposition tick.
         wire(this._playConns, 'reverse', function(v) {
+            if (self._bootSettling[ch]) self._bootSettledAt[ch] = Date.now();
             self._reverseCache[ch] = v > 0 ? 1 : 0;
         });
 
@@ -532,7 +584,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             self._deriveOriginFromPosition(ch, pos);
             self._syncBeatCount(ch);
         });
-        
+
         // outro_end_position changes when the user drags the outro
         // marker. Invalidate the meta cache so countdownScheme
         // picks up the new end on the next beat edge. No explicit
@@ -560,7 +612,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             self._trackMetaCache[ch] = undefined;
             self._refreshBeatLeds(ch);
         });
-        
+
         if (Array.isArray(XoneK3.PHRASE_MARKER_COLORS) &&
             XoneK3.PHRASE_MARKER_COLORS.length > 0) {
             this._wireHotcueObservers(ch, grp);
@@ -575,9 +627,9 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // then re-derives origin from the cache — no scan.
     //
     // The previous implementation used one shared `rederive`
-    // closure that re-scanned all 16 hotcues (32 CO reads) on
-    // every single observer fire. During a track load, Mixxx
-    // writes 16 positions + 16 colours per channel — that's 32
+    // closure that re-scanned all hotcues (32 CO reads) on every
+    // single observer fire. During a track load, Mixxx writes
+    // every hotcue position + colour per channel — that's 32
     // fires × 32 reads = 1024 CO reads per channel in a burst,
     // which is what contended the CO mutex against the audio
     // thread.
@@ -596,7 +648,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         this._seedHotcueCache(ch);
 
         var self = this;
-        var maxCue = XoneK3.HOTCUE_MAX;
+        var slots = XoneK3._phraseHotcueSlots();
 
         function onColor(n) {
             var st = self._decks[ch];
@@ -622,7 +674,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             self._deriveOriginFromPosition(ch, pos);
         }
 
-        for (var hn = 1; hn <= maxCue; hn++) {
+        for (var hi = 0; hi < slots.length; hi++) {
             (function(n) {
                 self._playConns.push(
                     engine.makeConnection(grp, 'hotcue_' + n + '_color',
@@ -630,8 +682,74 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
                 self._playConns.push(
                     engine.makeConnection(grp, 'hotcue_' + n + '_position',
                         function() { onPosition(n); }));
-            })(hn);
+            })(slots[hi]);
         }
+    };
+
+    // Warn-once at boot for a malformed PHRASE_HOTCUE_SLOTS. The
+    // runtime filters bad entries via _phraseHotcueSlots, so this
+    // is diagnostic only.
+    XoneK3.K3Controller.prototype._validatePhraseHotcueSlots = function() {
+        var slots = XoneK3.PHRASE_HOTCUE_SLOTS;
+        if (!Array.isArray(slots)) {
+            XoneK3._warnOnce('phraseSlotsShape',
+                'PHRASE_HOTCUE_SLOTS must be an array — phrase origin ' +
+                'derivation disabled');
+            return;
+        }
+        var seen = {};
+        for (var i = 0; i < slots.length; i++) {
+            var n = slots[i];
+            if (typeof n !== 'number' || n < 1 || n > XoneK3.MIXXX_HOTCUE_LIMIT) {
+                XoneK3._warnOnce('phraseSlotRange:' + n,
+                    'PHRASE_HOTCUE_SLOTS contains ' + n + ' — Mixxx ' +
+                    'supports hotcues 1..' + XoneK3.MIXXX_HOTCUE_LIMIT +
+                    '. Slot skipped.');
+                continue;
+            }
+            if (seen[n]) {
+                XoneK3._warnOnce('phraseSlotDup:' + n,
+                    'PHRASE_HOTCUE_SLOTS contains duplicate ' + n +
+                    ' — extra entry ignored');
+                continue;
+            }
+            seen[n] = true;
+        }
+    };
+
+    // Boot settle: after the initial catch-up, reschedule while CO
+    // fires are still landing (the tree is still populating).
+    // Capped to prevent runaway reschedules. Warn-once on cap hit
+    // so a slow-settling tree is diagnosable.
+    XoneK3.K3Controller.prototype._startBootSettle = function() {
+        for (var ch = 1; ch <= 4; ch++) {
+            this._bootSettledAt[ch] = Date.now();
+            this._bootAttempt[ch] = 0;
+            this._bootSettling[ch] = true;
+            this._checkBootChannel(ch);
+        }
+    };
+
+    XoneK3.K3Controller.prototype._checkBootChannel = function(ch) {
+        var elapsed = Date.now() - this._bootSettledAt[ch];
+        if (elapsed < XoneK3.BOOT_SETTLE_MS &&
+            this._bootAttempt[ch] < XoneK3.BOOT_MAX_ATTEMPTS) {
+            this._bootAttempt[ch]++;
+            var self = this;
+            engine.beginTimer(XoneK3.BOOT_SETTLE_MS, function() {
+                if (self._shuttingDown) return;
+                self._catchUpChannel(ch);
+                self._checkBootChannel(ch);
+            }, true);
+            return;
+        }
+        if (elapsed < XoneK3.BOOT_SETTLE_MS) {
+            XoneK3._warnOnce('bootSettle:' + ch,
+                'channel ' + ch + ' boot CO tree did not settle after ' +
+                this._bootAttempt[ch] + ' attempts — reads may be stale');
+        }
+        this._bootAttempt[ch] = 0;
+        this._bootSettling[ch] = false;
     };
 
     // Startup catch-up: CO connections fire on change, not on
@@ -669,6 +787,19 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         this._reverseCache[ch] =
             engine.getValue('[Channel' + ch + ']', 'reverse') > 0 ? 1 : 0;
         this._readLoopState(ch);
+        // If clocks were closed during a track load, the
+        // track_loaded observer never fired and _phraseOrigin still
+        // holds the previous track's value. _closeBeatClocks
+        // replaces _decks[ch] with freshDeckState, so hotcueState is
+        // empty in that case. Seed + derive so the first render
+        // after reopen uses the current track's markers. On the
+        // normal boot path _wireHotcueObservers already seeded, so
+        // the guard skips the redundant seed.
+        if (Object.keys(this._decks[ch].hotcueState).length === 0) {
+            this._seedHotcueCache(ch);
+        }
+        var pos = engine.getValue('[Channel' + ch + ']', 'playposition');
+        this._deriveOriginFromPosition(ch, pos);
         this._syncVirtualClock(ch);
         this._syncBeatCount(ch);
     };
@@ -733,6 +864,20 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // moving via _syncBeatCount — the "held bar" symptom.
         // Force the position repaint on backward movement so both
         // st.count and st.active update from the same source.
+        //
+        // Guard exists to prevent double-writer flicker. Without
+        // it, _repaintFromPosition writes st.active on every
+        // throttled playposition tick AND beat_active writes
+        // st.active on every edge. The two fire on different
+        // schedules and disagree briefly at beat boundaries — the
+        // LED flickers, sometimes showing two pulses per beat.
+        //
+        // When beat_active has been heard from recently (< 1.5s),
+        // the guard fires and only _syncBeatCount runs: st.active
+        // is written solely by _onBeatActive. When beat_active
+        // has stalled (no fires for 1.5s), the guard fails and
+        // _repaintFromPosition takes over to avoid a frozen pulse
+        // phase.
         if (playing && !reversing && !movingBackward && (now - st.lastBeatEdge < 1500)) {
             this._syncBeatCount(ch, newPos);
             return;

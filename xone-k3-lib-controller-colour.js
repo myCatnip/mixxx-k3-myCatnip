@@ -208,6 +208,17 @@
             b._csFailed = true;
             return;
         }
+        // Only knobs and faders carry _normalized. A button /
+        // encoder reference would freeze the LED on boot-white
+        // forever (_renderDeviation's
+        // `knob._normalized === undefined` branch).
+        if (knob.type !== 'knob' && knob.type !== 'fader') {
+            XoneK3._warnOnce('csKnobType:' + b._name,
+                'colorScheme: knob "' + cs.knob + '" on ' + b._name +
+                ' is type "' + knob.type + '" — must be knob or fader');
+            b._csFailed = true;
+            return;
+        }
         b._csKnob = knob;
         knob.addObserver(b);
     };

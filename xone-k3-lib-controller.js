@@ -119,10 +119,20 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         this.label = cfg.label;
         this.midiChannel = cfg.midiChannel;
 
-        this.selectedDeckA = cfg.initialDeckA !== undefined ? cfg.initialDeckA : 1;
-        this.selectedDeckB = cfg.initialDeckB !== undefined ? cfg.initialDeckB : 2;
-        this.selectedFxA  = cfg.initialFxA  !== undefined ? cfg.initialFxA  : 1;
-        this.selectedFxB  = cfg.initialFxB  !== undefined ? cfg.initialFxB  : 2;
+        // Clamp to 1..4. A non-numeric, out-of-range, or zero
+        // initial value would otherwise resolve $DECK_A$ etc. to
+        // [Channel<bad>] and silently break every channel-scoped
+        // func on that slot (_channelOf rejects 1..4 only).
+        function clamp1to4(v, fb) {
+            var n = parseInt(v, 10);
+            if (!isFinite(n) || n < 1) return fb;
+            if (n > 4) return 4;
+            return n;
+        }
+        this.selectedDeckA = clamp1to4(cfg.initialDeckA, 1);
+        this.selectedDeckB = clamp1to4(cfg.initialDeckB, 2);
+        this.selectedFxA  = clamp1to4(cfg.initialFxA,  1);
+        this.selectedFxB  = clamp1to4(cfg.initialFxB,  2);
 
         this.activeDeck = (cfg.initialActiveDeck === 'B') ? 'B' : 'A';
         this.activeFx   = (cfg.initialActiveFx   === 'B') ? 'B' : 'A';
@@ -174,6 +184,15 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         this._loadedState = { 1: false, 2: false, 3: false, 4: false };
         this._loadSettlingAt = { 1: 0, 2: 0, 3: 0, 4: 0 };
+
+        // Boot settle tracking. Each boot-relevant CO fire stamps
+        // _bootSettledAt[ch] while _bootSettling[ch] is true. The
+        // boot timer reschedules _catchUpChannel while the last
+        // stamp is younger than BOOT_SETTLE_MS, capped at
+        // BOOT_MAX_ATTEMPTS. See lib-controller-beat.js.
+        this._bootSettledAt = { 1: 0, 2: 0, 3: 0, 4: 0 };
+        this._bootAttempt   = { 1: 0, 2: 0, 3: 0, 4: 0 };
+        this._bootSettling  = { 1: false, 2: false, 3: false, 4: false };
 
         this.activeDeckVirtual   = false;
         this.activeLoopVirtual   = false;
@@ -308,13 +327,24 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     };
 
     XoneK3.K3Controller.prototype._onBindingPress = function(name) {
-        this._updateModifiers();
+        try {
+            this._updateModifiers();
+        } catch (e) {
+            XoneK3._warnOnce('updateModifiersPressThrow:' + name,
+                '_onBindingPress(' + name + ') threw: ' +
+                (e && e.message ? e.message : e));
+        }
     };
 
     XoneK3.K3Controller.prototype._onBindingRelease = function(name) {
-        this._updateModifiers();
+        try {
+            this._updateModifiers();
+        } catch (e) {
+            XoneK3._warnOnce('updateModifiersReleaseThrow:' + name,
+                '_onBindingRelease(' + name + ') threw: ' +
+                (e && e.message ? e.message : e));
+        }
     };
-
 
     // True if any active patch declares _noModifiers. Suppresses
     // modifier-driven patch enforcement (snake removes chord out
@@ -456,7 +486,10 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             var name = this.activePatches[i];
             var p = this.patches[name];
             if (!p) continue;
-            if (p._noModifiers) suppressModifiers = true;
+            // A _noModifiers patch whose _host isn't satisfied must
+            // not suppress the modifier system — it isn't visible,
+            // and _hasNoModifierPatch already gates on _patchActive.
+            if (p._noModifiers && this._patchActive(name)) suppressModifiers = true;
             if (!this._patchActive(name)) continue;
             if (name === PN.CHORD) { hasChord = true; continue; }
             if (stack.indexOf(name) === -1) stack.push(name);
@@ -974,6 +1007,8 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
                 issues++;
             }
         }
+
+        this._validatePhraseHotcueSlots();
 
         if (issues > 0) {
             print('[k3] ' + issues + ' binding warning(s) — check the tokens above.');

@@ -611,3 +611,59 @@ test('toggleLayerOverlay: release event no-op', function(t) {
     H.release(c, 'press0');
     t.notOk(c.activePatches.indexOf('ovCue') !== -1);
 });
+
+// ── bounce guard ───────────────────────────────────────────────
+
+test('bounce: v>0 during active transaction does not reset bpmHeldTurned',
+function(t) {
+    var c = H.ctrl({
+        modifierStates: {
+            shift: { heldBy: ['shift'] },
+            bpmPressHeld: { heldBy: ['pressL'] }
+        },
+        patches: { base: {
+            shift: { type: 'push' },
+            pressL: { type: 'push', func: XoneK3.FUNCS.bpmPress }
+        } },
+        initialPatches: ['base']
+    });
+    c._recompute();
+    engine._set('[Master]', 'headSplit', 0);
+
+    H.press(c, 'shift');
+    H.press(c, 'pressL');            // captured, _bpmHeldTurned=false
+    c._bpmHeldTurned = true;          // simulate encoder turn
+    H.press(c, 'pressL');            // bounce — must NOT reset flag
+    H.release(c, 'pressL');           // real release
+
+    t.eq(engine.getValue('[Master]', 'headSplit'), 0,
+        'turn survived bounce → no headSplit toggle');
+});
+
+test('bounce: v>0 during active transaction does not restart shutdown timer',
+function(t) {
+    var c = H.ctrl();
+    c._applyBinding('press3', { type: 'push', func: XoneK3.FUNCS.shutdownHold });
+    H.press(c, 'press3');
+    var first = c.bindings.press3._shutdownHoldTimer;
+    t.ok(first, 'timer armed on first press');
+
+    H.press(c, 'press3');            // bounce
+    t.eq(c.bindings.press3._shutdownHoldTimer, first,
+        'bounce did not restart the timer');
+
+    H.release(c, 'press3');           // cleanup
+});
+
+test('bounce: release still fires captured func', function(t) {
+    var c = H.ctrl();
+    var log = [];
+    c._applyBinding('press0', {
+        type: 'push',
+        func: function(args, ch, cc, v) { log.push(v); }
+    });
+    H.press(c, 'press0');            // log: [127]
+    H.press(c, 'press0');            // bounce — no log
+    H.release(c, 'press0');           // log: [127, 0]
+    t.eq(log, [127, 0], 'bounce skipped, real press + release logged');
+});

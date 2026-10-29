@@ -54,12 +54,20 @@
     // Place markers on beat boundaries — a marker mid-beat floors
     // to the start of its beat.
     //
-    // Scans up to XoneK3.HOTCUE_MAX (default 16 — set before boot
-    // if markers sit past 16; see CUSTOMISE §1.8). Values are the
-    // integer RGB hexes Mixxx stores on [ChannelN],hotcue_X_color.
-    // Empty list = feature off.
+    // Only hotcues listed in XoneK3.PHRASE_HOTCUE_SLOTS are
+    // scanned (default [9, 10, 11, 12] — the hotcue916 overlay's
+    // top row; set before boot). Values are the integer RGB hexes
+    // Mixxx stores on [ChannelN],hotcue_X_color. Empty list =
+    // feature off.
     // ============================================================
     XoneK3.PHRASE_MARKER_COLORS = [0xF2F2FF];
+
+    // Hotcue slots scanned for phrase-marker colours. Default is
+    // [9, 10, 11, 12] (the hotcue916 overlay's top row). Change
+    // to any 1..32 slots; duplicates and out-of-range entries are
+    // dropped with a warn-once at boot. Empty list = feature off.
+    //
+    // XoneK3.PHRASE_HOTCUE_SLOTS = [9, 10, 11, 12];
 
     // ============================================================
     // SCHEMES — Cat's colour ramps.
@@ -256,8 +264,8 @@
     //
     // The A/B suffix is derived from the binding's declared group
     // token. `$DECK_A$` in group → countdownA*, `$DECK_B$` →
-    // countdownB*. Deriving it means the binding's group and the
-    // scheme family are guaranteed to agree.
+    // countdownB*. `$DECK_ACTIVE$` reads the controller's current
+    // activeDeck each render, so the countdown follows focus.
     //
     // Phases measured in bars (4 beats each) remaining:
     //   > 64   phase1 (green)
@@ -272,16 +280,19 @@
             var grp = this.group;
             if (!grp || grp.indexOf('[Channel') !== 0) return 'countdownIdle';
 
+            var ctrl = this._ctrl;
+            if (!ctrl) return 'countdownIdle';
+
             var rawGroup = this._rawCfg && this._rawCfg.group;
             var suffix = null;
             if (typeof rawGroup === 'string') {
                 if      (rawGroup.indexOf('$DECK_A$') !== -1) suffix = 'A';
                 else if (rawGroup.indexOf('$DECK_B$') !== -1) suffix = 'B';
+                else if (rawGroup.indexOf('$DECK_ACTIVE$') !== -1) suffix = ctrl.activeDeck;
             }
             if (!suffix) return 'countdownIdle';
 
-            var ctrl = this._ctrl;
-            var ch = ctrl ? ctrl._channelOf(grp) : null;
+            var ch = ctrl._channelOf(grp);
             if (!ch) return 'countdownIdle';
 
             // Duration and file_bpm are cached per channel — both

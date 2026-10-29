@@ -153,6 +153,15 @@
                 return null;
             }
             resolved = Object.assign({}, ref);
+        } else if (Array.isArray(ref)) {
+            // Colour spec array — valid in colorScheme.scheme, was
+            // silently rejected here. Wrap as a single-stop scheme
+            // with interp/calibration/coScheme off so the compiled
+            // output matches _compileSingleColor's behaviour for a
+            // bare colour spec. Overrides apply on top of the same
+            // baseline.
+            resolved = { colors: [ref], interp: false, calibration: false,
+                         coScheme: null };
         } else {
             return null;
         }

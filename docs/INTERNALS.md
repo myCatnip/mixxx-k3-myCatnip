@@ -18,14 +18,17 @@ xone-k3-lib-core.js               bootstrap, tunables, PATCH_NAMES,
 xone-k3-lib-schemes.js            palette, scheme engine,
                                   LED_TRANSFERS, coMatchSample
 xone-k3-lib-binding.js            Binding primitive, colour render
-                                  path, snapshot field list
+                                  path, snapshot field list,
+                                  transaction model
 xone-k3-lib-controller.js         constructor, patch resolution,
                                   focus, TOP_MODES, chord, binding
-                                  application, scheme resolution
+                                  application, scheme resolution,
+                                  modifier states
 xone-k3-lib-controller-colour.js  on: parser, schemeFromState
                                   closures, _setupColorScheme
 xone-k3-lib-controller-beat.js    timeline, loop clock, display
-                                  source, beat count, beat clocks
+                                  source, beat count, beat clocks,
+                                  phrase hotcue slots, boot settle
 xone-k3-lib-controller-render.js  LED writes, sysex queue,
                                   calibration, ramp sampling,
                                   beatjump gate
@@ -35,7 +38,8 @@ xone-k3-lib-funcs.js              builders + XoneK3.FUNCS
 xone-k3-lib-inspect.js            runtime state probes
 
 xone-k3-cat-schemes.js            THEME, QFX_CHAIN_LIST,
-                                  PHRASE_MARKER_COLORS, SCHEMES
+                                  PHRASE_MARKER_COLORS, SCHEMES,
+                                  PHRASE_HOTCUE_SLOTS
 xone-k3-cat-fx.js                 FX layout tables + emitters
 xone-k3-cat-top.js                focus / twoDeck / mini bases
 xone-k3-cat-bottom.js             cue / loop / oddLoop layers
@@ -86,7 +90,8 @@ object across `<scriptfiles>`. Every other file opens with
         ├─ _onInput(b)
         ├─ push press? _captureTransaction → _onBindingPress
         ├─ push release? _dispatchCapturedRelease → _onBindingRelease
-        ├─ func / default write
+        ├─ bounce guard (v>0 while transaction active)
+        ├─ func / default write (try/catch)
         │
         ├─ _ledObservers[i]._refresh()
 
@@ -109,6 +114,8 @@ Beyond the binding map and `activePatches`:
   `outro_end_position`. Incomplete reads not cached (§6).
 - `_rateCache[1..4]` — `rate_ratio` snapshot, listener-fed
 - `_reverseCache[1..4]` — reverse flag, listener-fed
+- `_bootSettledAt` / `_bootAttempt` / `_bootSettling` — per-channel
+  boot-converge tracking (§3)
 - `_flatCache{}` — `_flatTarget` cache, keyed on segments id + `_calibFingerprint()`, bounded at 1024 entries (§12)
 - `_calibFingerprint()` — computed at call time. See PERFORMANCE for why.
 - `_resolvedTargetHashCache` — WeakMap<cfg, {fingerprint, value}> (§8)
@@ -146,6 +153,14 @@ compares the captured signature against the current binding; a
 mismatch marks the transaction orphaned. The transaction is
 session-scoped: `_reset` doesn't wipe it, and it survives the
 binding's unbind/rebind cycles.
+
+**Bounce guard.** A `v > 0` event arriving while a transaction is
+already active is treated as hardware bounce — no func dispatch,
+no default input, no state change. The eventual real release
+still dispatches the captured release normally. Without this, a
+bouncing pad resets per-press flags (`_bpmHeldTurned`,
+`shutdownHold`'s timer) mid-hold and changes user-visible
+behaviour.
 
 **Signature.** Fields compared: `group`, `inKey`, `func`,
 `funcArgs`, `buttonMode`, `type`. Fields excluded (changes don't
@@ -187,15 +202,32 @@ Each entry has:
 on every physical press and release. All patch changes from one
 pass batch into one `_batchPatches`. If a pass has state changes
 with `recompute: true` but no patch changes, a standalone
-`_recompute` runs at the end.
+`_recompute` runs at the end. Both `_onBindingPress` and
+`_onBindingRelease` wrap the call in try/catch (`updateModifiersPressThrow:` /
+`updateModifiersReleaseThrow:` warn-once) — a throwing
+`onActivate` / `onDeactivate` hook must not propagate through the
+MIDI handler.
+
+If the throw happened partway through the pass, `modifiers` may
+contain a state flip whose `patchActivate` enforcement didn't
+apply. That's tolerated: the next press or release re-runs
+`_updateModifiers` on the full held set, `patchActivate` is
+idempotent (it re-checks `activePatches` against current state
+every time), and the divergence self-heals. Rollback on throw
+was considered and rejected — the divergence window is bounded
+by the next user input, the observable difference is nil, and
+the snapshot cost on every press/release would buy nothing.
 
 **`_noModifiers` patch flag.** A patch can declare
-`_noModifiers: true`. While any active patch carries it,
-`_hasNoModifierPatch()` returns true and three things are
-suppressed: shift companions aren't appended by `_buildStack`,
-chord isn't appended, and `_updateModifiers` skips patchActivate
-enforcement entirely. Snake ships with this — the game owns the
-surface and must not have chord re-added mid-play.
+`_noModifiers: true`. While any active, `_patchActive`-satisfying
+patch carries it, `_hasNoModifierPatch()` returns true and three
+things are suppressed: shift companions aren't appended by
+`_buildStack`, chord isn't appended, and `_updateModifiers` skips
+patchActivate enforcement entirely. Both `_buildStack` and
+`_hasNoModifierPatch` gate on `_patchActive` so a `_noModifiers`
+patch whose `_host` isn't satisfied is inert. Snake ships with
+this — the game owns the surface and must not have chord re-added
+mid-play.
 
 **Order independence.** Chord activates regardless of whether
 shift or layer went down first. The modifier is a set-membership
@@ -238,6 +270,18 @@ that never fire; the reopen lets them fire. `_shuttingDown` guards
 a reload landing inside the window. `_funcIdCounter` / `_funcIdMap`
 reset per boot — otherwise `inspect()` prints ids whose value
 depends on reload count.
+
+The reopen calls `_startBootSettle()` after `_syncBeatClocks`.
+After the initial catch-up, `_checkBootChannel(ch)` reschedules
+`_catchUpChannel` while any boot-relevant CO (`track_loaded`,
+`play_indicator`, `loop_enabled`, `rate_ratio`, `reverse`) fired
+within `BOOT_SETTLE_MS` (100 ms) of the last fire, capped at
+`BOOT_MAX_ATTEMPTS` (5). Warn-once per channel on cap hit. On a
+fast-settling tree this costs one extra catch-up and stops; on a
+slow tree it re-reads before the state goes stale. Fixes the
+silent failure where `_loadedState[ch] = false` or
+`st.playing = false` from a stale boot read leaves a loaded
+deck looking dead until the next unrelated event fires.
 
 `halt()` calls `shutdown()` on every controller and clears the
 array.
@@ -331,9 +375,12 @@ Per-channel state shape: `_freshDeckState()` in `lib-controller.js`.
 ## Origin
 
 Derived from marker hotcues (`PHRASE_MARKER_COLORS`) by
-`_deriveOriginFromPosition`. Runs on every throttled playposition
+`_deriveOriginFromPosition`. Only hotcues listed in
+`PHRASE_HOTCUE_SLOTS` (default `[9, 10, 11, 12]`) are seeded,
+watched, and scanned; other hotcues can carry a marker colour
+without affecting origin. Runs on every throttled playposition
 tick, `track_loaded`, any `track_samples` change, and any hotcue
-colour / position change.
+colour / position change on a listed slot.
 
 **Reads only `st.hotcueState`, never the COs.** Frozen in loop
 mode. `_resetBeat` is the only hard reset. No manual setter.
@@ -604,9 +651,23 @@ deck state when the deck has seen a beat, else null.
 Both write from track frac, so they agree.
 
 The position handler skips the pulse repaint in track mode when
-playing forward and a recent `beat_active` edge exists (within
-1.5 s) — that's what prevents the flicker inside a loop. It still
-calls `_syncBeatCount` before returning.
+playing forward **inside a loop** and a recent `beat_active`
+edge exists (within 1.5 s) — that's what prevents the flicker at
+loop wrap, where `trackFrac` jumps 1 → 0. It still calls
+`_syncBeatCount` before returning.
+
+The guard prevents double-writer flicker. Without it,
+`_repaintFromPosition` writes `st.active` on every throttled
+playposition tick **and** `_onBeatActive` writes it on every
+edge. The two fire on different schedules and disagree briefly
+at beat boundaries — the LED flickers, sometimes showing two
+pulses per beat. When `beat_active` has been heard from
+recently (< 1.5 s), the guard fires and only `_syncBeatCount`
+runs: `st.active` is written solely by `_onBeatActive`. When
+`beat_active` has stalled (no fires for 1.5 s), the guard fails
+and `_repaintFromPosition` takes over to avoid a frozen pulse
+phase. The stalled-beat_active case is rare in practice; the
+double-writer flicker is not.
 
 The guard also requires the playhead not moving backward —
 `beat_active` fires irregularly on backward jog, and the guard
@@ -634,9 +695,11 @@ on `_playConns` — wired in `_openChannelBeatClocks`:
 | `_playConns` | `reverse` | Updates `_reverseCache[ch]`. |
 
 Plus hotcue colour / position observers when
-`PHRASE_MARKER_COLORS` is non-empty (2 × `HOTCUE_MAX` per channel).
-Wired once at clock-open — raising `HOTCUE_MAX` after boot extends
-the per-tick derive scan but not the observer set.
+`PHRASE_MARKER_COLORS` is non-empty — two observers per slot in
+`PHRASE_HOTCUE_SLOTS` (4 slots → 8 connections per channel by
+default). Wired once at clock-open; changing
+`PHRASE_HOTCUE_SLOTS` after boot extends the per-tick derive
+scan but not the observer set.
 
 Each observer updates one `st.hotcueState` field and re-derives
 origin from the cache — no scan.
@@ -648,6 +711,24 @@ syncs count. CO connections fire on change, not on setup — a
 preset reload during playback would otherwise render paused mode
 on a playing deck.
 
+At boot, `init`'s 250 ms reopen runs the catch-up once, then
+`_startBootSettle()` reschedules it while boot-relevant CO fires
+are still landing (see §3). A single catch-up against a still-
+populating CO tree would leave `_loadedState[ch]` or
+`st.playing` wrong until the next unrelated event; the settle
+loop reads the correct values before the state goes stale.
+
+Catch-up also re-seeds the hotcue cache and re-derives origin
+when the cache is empty. That state arises when the beat clocks
+were closed (no beat LEDs active) across a track load:
+`track_loaded` and `track_samples` observers weren't wired, so
+neither fired, leaving `_phraseOrigin` at the previous track's
+value. Without the re-derive, a paused deck after reopen would
+show the wrong phrase colour until the next `playposition` tick
+or manual play. The guard (empty cache → seed + derive) skips
+the redundant seed on the normal boot path where
+`_wireHotcueObservers` already seeded.
+
 `_syncBeatClocks` is the only caller of open / close. Gate is
 `_needsBeatClocks` — returns `_beatLeds.length > 0`, with a
 fallback scan of `_applied` when the array is empty. Dead code in
@@ -657,10 +738,23 @@ the shipped path; safety net only.
 
 # 11. Scheme pipeline
 
-`compileScheme(ref, overrides)` resolves the raw scheme (string →
-`SCHEMES[name]` + defaults; object with `.colors` → as-is; object
-without `.colors` → warn + null), then either builds segments and
-the tmap (full scheme) or falls back to a single-colour ramp.
+`compileScheme(ref, overrides, seen)` resolves the raw scheme
+(string → `SCHEMES[name]` + defaults; object with `.colors` →
+as-is; object without `.colors` → warn + null), then either
+builds segments and the tmap (full scheme) or falls back to a
+single-colour ramp.
+
+**Cycle detection.** `offScheme` and `coScheme` can name other
+schemes. A scheme that names itself — directly, or through a
+chain — would otherwise recurse until the JS stack overflows on
+first render. `compileScheme` threads a `seen` Set through
+`_compileFullScheme`. Strings match by value, objects by
+reference. The cycle breaks at the innermost back-reference: the
+referencing field compiles to null and warn-onces
+(`schemeCycle:<name>`); the outer call finishes normally. `seen`
+is deleted on exit so the cache stays usable for future calls.
+Without this, a bad config crashes at bind time with a stack
+trace that points nowhere useful.
 
 Bare palette names resolve to single-colour schemes. Cached by
 name when `ref` is a string and no overrides were passed.
@@ -688,7 +782,14 @@ Boot-scoped. Reset in `_bootWith` (§3).
 
 # 12. Render
 
-Every render goes through `Binding._refresh`:
+Every render goes through `Binding._refresh`. The whole body is
+wrapped in try/catch (`refreshThrow:<name>` warn-once) — CO
+observers registered via `_bindConns`, `_wireCsOnConnection`, and
+`_buildCsFromStateClosure` call `_refresh` directly with no outer
+wrapper, so a throw would escape through Mixxx's CO event loop.
+The external wrappers (`_safeBinding`, `_refreshBeatLeds`'s
+inline try/catch) remain for their own pre/post work but no
+longer see throws from this body.
 
 1. `_csActive`? → `_refreshColorScheme()`
 2. `outKey`? → read `outKey`, send on/off
@@ -715,11 +816,11 @@ summed to Y, `pow(Y, lumGamma)`, boosted by `hkBoost × saturation`.
 ## Flat target
 
 `_flatTarget(segs)` scans stops for minimum perceived luminance.
-Cached per controller in `_flatCache`, keyed by `segs._cacheId`
+Cached per controller in `_flatCache`, keyed on `segs._cacheId`
 then `_calibFingerprint()`, bounded at 1024 entries — overflow
-clears the whole cache, same discipline as `_hwCache`. The cap
-matters for colorLab: every input event allocates a fresh `segs`
-array (`_version++` invalidates the compile cache), so entries
+evicts one entry, same discipline as `_hwCache`. The cap matters
+for colorLab: every input event allocates a fresh `segs` array
+(`_version++` invalidates the compile cache), so entries
 accumulate during a tuning session. Misses still recompute
 `_minSegmentEmit` — the cap only bounds memory, not per-render
 CPU.
@@ -758,7 +859,11 @@ Uses the CO value directly (0-based). `loaded_chain_preset` is
 # 13. Input mods
 
 `Binding.input()` order: `_onInput(b)` → normalized update (knobs /
-faders) → func dispatch or default → observer repaints.
+faders) → push-mode transaction capture (if applicable) → bounce
+guard → func dispatch or default → observer repaints. The func /
+default dispatch is wrapped in try/catch (`inputThrow:<name>`
+warn-once) so a throwing user func or an invalid CO write can't
+escape through the MIDI handler.
 
 ## valueCurve
 
@@ -974,7 +1079,7 @@ Read-only.
 | LEDs half-update on patch switch | A binding field missing from `_BINDING_CFG_FIELDS`. |
 | Soft takeover stops working after a rebind | A reset-able field missing from `_SNAPSHOT_FIELDS`. |
 | Fader stuck at endpoint after deck switch | `_rearmSoftTakeover` bridge didn't fire. Check `b._normalized !== undefined` at rebind. |
-| No beat after Mixxx startup until reload | Init-time beat-clock open raced the CO tree. `init`'s 250 ms reopen fixes; bump delay or check `_shuttingDown` if it still happens. |
+| No beat after Mixxx startup until reload | Init-time beat-clock open raced the CO tree. `init`'s 250 ms reopen fixes; the boot settle-aware catch-up (§3) makes it robust against slow trees. |
 | Beat LEDs stay dark after the 250 ms reopen | `_trackMeta` caching incomplete values. Check the `if (meta.duration > 0)` guard. |
 | Loop clock doesn't resume after a preset reload during an active loop | `_openBeatClocks`'s catch-up loop reads loop state on open. |
 | Beat colour sticks while playing; correct when jogged | Position-tick guard returned before syncing count. `_syncBeatCount` must run before the early return. |
@@ -989,6 +1094,12 @@ Read-only.
 | `[k3] colorScheme scheme function on X returns a fresh object each call` | Wrap with `composeScheme` or hoist the object. |
 | Play doesn't respond after a hotcue pad press; recovers after mouse-seek | Transaction stays active across rebind, dispatches captured release at physical release. If still stuck, check `_transaction.active` on the binding via `inspect('why', name)`. |
 | Modifier state stuck / patch oscillates | Check `modifierStates.<name>.heldBy` references a binding that exists, and `_hasNoModifierPatch()` isn't suppressing enforcement unexpectedly. |
+| `[k3] binding func threw on <name>` | The binding's func or default input threw. `Binding.input`'s try/catch logged it. The observer repaint for that tick was skipped — LED state may diverge for that binding until the next input. Check the func for invalid CO reads or missing args. |
+| `[k3] refresh threw on <name>` | A CO observer's repaint threw. `Binding._refresh`'s try/catch logged it. The binding's LED stays stale until the next refresh event (scheme re-eval, focus change, patch swap, or another CO fire). Usually a bad scheme closure or an engine CO that no longer exists. |
+| `[k3] _onBindingPress(<name>) threw` / `[k3] _onBindingRelease(<name>) threw` | A modifier hook (`onActivate` / `onDeactivate`) or `patchActivate` enforcement threw. The press or release transaction still cleared, but the modifier state or patch swap was skipped. Check `modifierStates` hooks and `patchActivate` targets. |
+| `[k3] XoneK3.TIME_SIG contains invalid barBeats/phraseBars` | TIME_SIG was assigned directly with non-integer or out-of-range values (bypassing `setTimeSig`). The cascade falls back to scheme defaults. Use `setTimeSig(4, 4)` or provide integers ≥ 1. |
+| `[k3] scheme "<name>" references itself in its offScheme / coScheme chain` | A scheme's `offScheme` or `coScheme` names itself (directly or through a chain). The back-reference field renders as null instead of infinitely recursing. Break the cycle by pointing at a different scheme or setting the field to null. |
+| `[k3] colorScheme: knob "<name>" on <binding> is type "<type>"` | A `colorScheme.knob` reference points at a button or encoder. Only knobs and faders track `_normalized`; the LED stays on boot-white forever. Point `knob:` at a knob or fader binding. |
 | `[k3] sampling a scheme containing a `mixxx` colour stop` | A `mixxx` stop sits in a sampled ramp. `mixxx` is static-only — see §22 Limits. LED falls back to the nearest valid stop's colour. |
 | `[k3] colorScheme.schemeFromState on X must be an object` | `schemeFromState` is a string, number, or array. It's dropped; the base scheme (if any) renders instead. |
 | `[k3] colorScheme.on on X has equals but no state/co/patchActive` | `on:` has a comparator but no source to compare. LED stays off. Add `state: '...'`, `co: '...'`, or `patchActive: '...'`. |
@@ -1087,13 +1198,17 @@ Add filename to every `.midi.xml` (5 files) and `test/harness.js`.
 mutable globals before every test — tunables, debug flags,
 `_warned`, `_modeSeen`, `_funcIdCounter`, `_funcIdMap`,
 `_schemeCache`, `_compiledCache`, `VIRTUAL_CLOCKS`, `TIME_SIG`,
-`BEATJUMP_GAP_MS`, mocks, controllers array, print log.
+`BEATJUMP_GAP_MS`, `BOOT_SETTLE_MS`, `BOOT_MAX_ATTEMPTS`, mocks,
+controllers array, print log, `_phraseHotcueSlotsCache*`.
 
 `SCHEMES` is reset by `lib-schemes.js` on every reload — config
 files re-register their own.
 
 Adding a new mutable global on `XoneK3` means adding a reset line
-to `resetGlobals()` in `run.js`.
+to `resetGlobals()` in `run.js`. `_phraseHotcueSlotsCache` and
+`_phraseHotcueSlotsCacheSrc` in particular need resetting — they
+are memoized module-scoped state and would otherwise leak
+between tests.
 
 Coverage: see test file list. Not tested: real Mixxx, real LED
 bytes, config contents as data, lab round-trip state machine.
@@ -1149,10 +1264,20 @@ carries an inline disable.
   playing".** `st.playing` mirrors `play_indicator` and picks
   `BEAT_PLAYING_MODE` / `BEAT_PAUSED_MODE`.
 - **The loop clock is the only virtual timeline.**
-- **Boot-time beat-clock reopen.** See §3.
+- **Boot-time beat-clock reopen.** See §3. Settle-aware — after
+  the initial reopen, `_startBootSettle` reschedules
+  `_catchUpChannel` while boot-relevant CO fires are still
+  landing, so a slow CO tree converges before the state goes
+  stale.
 - **`_openBeatClocks` catches up state on open.** See §10.
 - **`st.lastPlayPos` gates the beat-edge guard.** Backward motion
-  bypasses the 1.5 s guard so `_repaintFromPosition` runs.
+  bypasses the 1.5 s guard so `_repaintFromPosition` runs. The
+  guard is also gated on `st.loopActive` — outside a loop there
+  is no wrap to protect against and the pulse tracks `trackFrac`
+  live.
+- **`_catchUpChannel` re-seeds the hotcue cache and re-derives
+  origin when the cache is empty.** That state arises when clocks
+  were closed across a track load. See §10.
 
 ## Beatjump gate
 
@@ -1167,11 +1292,13 @@ carries an inline disable.
 
 ## Caches
 
-- **`_decks[ch].hotcueState`** — per-channel hotcue snapshot.
-  Seeded at clock-open, `track_loaded`, `track_samples`.
-  Observers read `_decks[ch]` fresh on every fire (`_resetBeat`
-  replaces the object). `_deriveOriginFromPosition` reads only
-  this — zero COs per tick.
+- **`_decks[ch].hotcueState`** — per-channel hotcue snapshot,
+  keyed by hotcue index. Only slots in `PHRASE_HOTCUE_SLOTS`
+  (default 9–12) are present. Seeded at clock-open,
+  `track_loaded`, `track_samples`. Observers read `_decks[ch]`
+  fresh on every fire (`_resetBeat` replaces the object).
+  `_deriveOriginFromPosition` reads only this — zero COs per
+  tick.
 - **`_trackMetaCache`** — reset on `track_loaded`, `track_samples`,
   `duration`, `file_bpm`, and `outro_end_position`. Gated by
   `_loadedState[ch]` (return empty, skip COs, when not loaded)
@@ -1210,6 +1337,9 @@ carries an inline disable.
 - **`_resolvedTargetHashCache`** — WeakMap keyed on cfg,
   invalidated by token fingerprint.
 - **`_funcIdCounter` / `_funcIdMap`** — reset every boot.
+- **`_phraseHotcueSlotsCache` / `_phraseHotcueSlotsCacheSrc`** —
+  memoized by `PHRASE_HOTCUE_SLOTS` array identity. Reset in
+  `test/run.js` between tests.
 - **`SCHEMES` / `COLORS`** — cleared by `lib-schemes.js` on every
   evaluation. Compiled-scheme references on live bindings are
   object references, not names — they survive the clear.
@@ -1262,6 +1392,12 @@ carries an inline disable.
   config. The CO stays at its press-time value until then —
   deliberate. `this._transaction.orphaned` is readable from a
   func to branch on the orphan case.
+- **Push-mode bounce guard.** A `v > 0` event arriving while a
+  transaction is already active is treated as hardware bounce
+  and skipped — no func dispatch, no default input, no state
+  change. Prevents per-press flag resets (`_bpmHeldTurned`,
+  `shutdownHold`'s timer) mid-hold. The real release still
+  dispatches the captured func normally. See §2.5.
 - **`valueCurve` doesn't touch `_normalized`.**
 - **LED on/off state comes from `colorScheme.on`, `outKey`, or
   nothing.**
@@ -1290,7 +1426,9 @@ carries an inline disable.
 - **`_bindConns` skips the `outKey` connection when `_csOn` is
   set** — including `on: false`.
 - **`countdownScheme` derives its A / B family from the raw
-  group token,** not the resolved group.
+  group token,** not the resolved group. `$DECK_ACTIVE$` is also
+  matched — the suffix comes from `ctrl.activeDeck` and follows
+  focus changes on every LED repaint.
 - **`_sendSysExLED`'s drain timer bails on empty queue only.**
   Shutdown polls `_sysexQueue.length === 0`.
 - **`_validateBindings` token warnings go through `_warnOnce`.**

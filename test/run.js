@@ -149,6 +149,16 @@ function resetGlobals() {
         loop: { trackTempo: false }
     };
     X.TIME_SIG = null;
+    // Phrase state is config-level and persists between tests.
+    // Without these resets, a test that sets PHRASE_MARKER_COLORS
+    // to [] (as beatsync's setup does) pollutes every later test
+    // that expects the default. Same for PHRASE_HOTCUE_SLOTS —
+    // N1's tests replace it and restore, but a fresh default here
+    // guarantees isolation.
+    X.PHRASE_MARKER_COLORS       = [0xF2F2FF];
+    X.PHRASE_HOTCUE_SLOTS        = [9, 10, 11, 12];
+    X._phraseHotcueSlotsCache    = null;
+    X._phraseHotcueSlotsCacheSrc = null;
     global.engine._reset();
     global.midi._reset();
     global._printLog.length = 0;

@@ -180,9 +180,11 @@ test('hotcue916: hidden in loop, reappears in cue', function(t) {
     var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
     t.ok(c._patchActive('hotcue916'));
     H.press(c, 'layer');   // cue → loop
+    H.release(c, 'layer');
     t.notOk(c._patchActive('hotcue916'));
     t.contains(c.activePatches, 'hotcue916');
     H.press(c, 'layer');   // loop → cue
+    H.release(c, 'layer');
     t.ok(c._patchActive('hotcue916'));
 });
 
@@ -242,9 +244,11 @@ test('loopOdd: hidden in cue, reappears in loop', function(t) {
     var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'loop', 'loopOdd']});
     t.ok(c._patchActive('loopOdd'));
     H.press(c, 'layer');   // loop → cue
+    H.release(c, 'layer');
     t.notOk(c._patchActive('loopOdd'));
     t.contains(c.activePatches, 'loopOdd');
     H.press(c, 'layer');   // cue → loop
+    H.release(c, 'layer');
     t.ok(c._patchActive('loopOdd'));
 });
 

@@ -155,6 +155,12 @@ button0_0: {
     colorScheme: { knob: 'knob0_0', scheme: 'myCatnip' }
 }
 ```
+
+The referenced binding **must be `type: 'knob'` or `'fader'`** —
+only those carry `_normalized`. A button or encoder reference
+fails at bind with a `csKnobType:` warn-once and the LED goes
+dark, because there's no position to sample.
+
 A `mixxx` colour spec can't be used in a deviation ramp — the
 hotcue colour is resolved at render time, and the sampling
 path has no rgb to sample. A `mixxx` stop in a sampled ramp
@@ -249,6 +255,14 @@ warning. Derive from an existing scheme with
 (e.g. `red`). `colorScheme.scheme: 'red'` will use your scheme,
 but `colors: ['red']` will always use the palette.
 
+**Cycle trap:** `offScheme` and `coScheme` can name other
+schemes, including the same scheme. A scheme that names itself
+— directly or through a chain — would recurse infinitely without
+protection. The runtime detects cycles and warns once
+(`schemeCycle:<name>`); the referencing field renders as null.
+Break the cycle by pointing at a different scheme or setting the
+field to null.
+
 ## 1.8 Anchor the phrase at a hotcue
 
 Set `PHRASE_MARKER_COLORS` in `xone-k3-cat-schemes.js` to the
@@ -260,17 +274,24 @@ XoneK3.PHRASE_MARKER_COLORS = [0xC50A08, 0x0044FF];
 
 Shipped default: `[0xF2F2FF]`. Empty list = feature off.
 
-Put a hotcue at the phrase-start beat, set its colour to red
-(`0xC50A08`). The origin derives on the next playposition tick.
-Same hotcue doubles as a jump.
+By default, only hotcues 9, 10, 11, and 12 are scanned — the top
+row of the `hotcue916` chord overlay. Change the range with:
 
-Up to `XoneK3.HOTCUE_MAX` hotcues scanned (default 16, declared
-at the top of `lib-controller-beat.js`; Mixxx supports 36). Set
-it *before* boot if you place markers past hotcue 16. Setting it
-after boot extends the per-tick derive scan but not the observer
-set — the observer connections are wired once at clock-open, so a
-post-boot raise won't watch markers above the boot-time limit.
-Origin still re-derives on the next playhead throttle.
+```js
+XoneK3.PHRASE_HOTCUE_SLOTS = [9, 10, 11, 12];
+```
+
+Set *before* boot — the range is fixed for the session. Any
+1..32 slots are accepted (Mixxx's real hotcue limit — the
+pre-instantiated CO range includes intro/outro markers, so 32 is
+the usable count). Duplicates and out-of-range entries are
+dropped with a warn-once at boot. The hotcues stored in those
+slots (colour, position) update live via observers — only the
+slot *range* is fixed.
+
+Put a hotcue at the phrase-start beat in one of those slots, set
+its colour to red (`0xC50A08`). The origin derives on the next
+playposition tick. Same hotcue doubles as a jump.
 
 Before the first marker, origin derives from the *next* marker
 ahead, so playing before beat 1 shows a negative count that
@@ -399,10 +420,11 @@ When the overlay exits, the original comes back.
 layer button to exit it. Otherwise the host's `layer` wins.
 
 `_noModifiers: true` on a patch disables the modifier system
-while that patch is active — shift companions, chord, and
-modifier `patchActivate` enforcement are all suppressed. Use it
-when an overlay needs the whole surface (a game, a modal editor).
-Only snake ships this today. See INTERNALS §2.5.
+while that patch is active and `_host`-satisfied — shift
+companions, chord, and modifier `patchActivate` enforcement are
+all suppressed. Use it when an overlay needs the whole surface
+(a game, a modal editor). Only snake ships this today. See
+INTERNALS §2.5.
 
 ## 1.12 Custom funcs
 
@@ -476,11 +498,16 @@ as `B.eqKnob(...)` where `B = XoneK3.builders`.
 ```js
 B.composeScheme({ scheme: 'catFX', markerPosition: 127 })
 B.composeScheme({ scheme: 'catFX', marker: 'high' })
+B.composeScheme({ scheme: [127, 0, 0], markerWidth: 2 })
 ```
 
 Overrides: `markerColor`, `markerPosition`, `markerWidth`,
 `schemePosition`, `reverse`, `curve`, `brightness`, `beat`.
 Resolves the base at config-eval time and returns a plain object.
+Array colour specs (`[127, 0, 0]`) are supported — wrapped as a
+single-stop scheme with `interp` / `calibration` / `coScheme`
+disabled, matching the behaviour of `colorScheme.scheme: [127,0,0]`
+directly. Overrides apply on top of the same baseline.
 
 ---
 
@@ -795,19 +822,22 @@ index, so that LED is K2-locked for the whole session.
 
 ```js
 // cat-schemes.js
-XoneK3.PHRASE_MARKER_COLORS = [0xF2F2FF];   // [] = feature off
-XoneK3.THEME = { ... };                     // see §1.2
-XoneK3.QFX_CHAIN_LIST = [...];              // see cat-schemes.js
+XoneK3.PHRASE_MARKER_COLORS = [0xF2F2FF];        // [] = feature off
+XoneK3.PHRASE_HOTCUE_SLOTS = [9, 10, 11, 12];    // 1..32; see §1.8
+XoneK3.THEME = { ... };                          // see §1.2
+XoneK3.QFX_CHAIN_LIST = [...];                   // see cat-schemes.js
 
 // lib-core.js
 XoneK3.BEATJUMP_GAP_MS = 130;
 XoneK3.PULSE_CO_MS = 30;
+XoneK3.BOOT_SETTLE_MS = 100;
+XoneK3.BOOT_MAX_ATTEMPTS = 5;
 XoneK3.BEAT_PLAYING_MODE = 'pulse';
 XoneK3.BEAT_PAUSED_MODE  = 'solid';
 XoneK3.CO_MATCH_EPSILON = 1 / 127;
 XoneK3.TAKEOVER_EPSILON = 2 / 127;
 
-XoneK3.setTimeSig(4, 4);
+XoneK3.setTimeSig(4, 4);          // integers ≥ 1; fractional inputs floored
 XoneK3.clearTimeSig();
 ```
 
@@ -816,7 +846,10 @@ a given beat count resolves to) and the layer / shift
 track-end countdown (which bar-length sets its phase
 boundaries). Both read `TIME_SIG.barBeats` with priority over
 their scheme's baked `barBeats`. If they disagree under a
-non-4/4 signature, the two go out of phase.
+non-4/4 signature, the two go out of phase. Arguments are
+floored to integers; values below 1 or non-finite are rejected.
+Direct assignment to `XoneK3.TIME_SIG` bypasses the validation —
+a malformed value warns once and falls back to scheme defaults.
 
 `QFX_CHAIN_LIST` order must match Preferences → Effects → Quick
 Effect Chains. Only the chains listed there light up correctly on
@@ -840,6 +873,11 @@ is how far a deviation LED's knob can be from its bound CO before
 the LED shows the co-match gradient. `TAKEOVER` is the rearm
 tolerance. The relation guarantees LED "matched" implies control
 live.
+
+**`BOOT_SETTLE_MS` / `BOOT_MAX_ATTEMPTS`** — the boot settle loop
+reschedules `_catchUpChannel` while boot-relevant CO fires are
+still landing, capped at `BOOT_MAX_ATTEMPTS`. See INTERNALS §3
+for mechanics and rationale.
 
 ## 2.10 Diagnostics
 
@@ -920,6 +958,11 @@ Encoders:
   encBeatjumpStepScale ['1/32', 16]
   encStepParam         ['[Master]', 'gain', 0.01]
   encPlaylistNav
+  encBpmOrHeadMix      [0.1, 0.05]
+      BPM step, or headMix step while modifiers.bpmPressHeld
+      is active. Sets _bpmHeldTurned when it takes the headMix
+      branch, so bpmPress can suppress the shift+release
+      headSplit toggle.
 
 Buttons:
 
@@ -936,6 +979,12 @@ Buttons:
       Resets loop_anchor then pulses beatloop_activate. Stamps
       _lastLoopTouchMs.
   shutdownHold
+  bpmPress             pressL release handler for the
+                       pressL+encoderL pair. Toggles [Master]
+                       headSplit on release when shift is held
+                       and the encoder was not turned.
+                       Suppressed when the transaction is
+                       orphaned.
   hotcueSetPhraseColor ['N']
       Activates hotcue N; if unset, also writes
       PHRASE_MARKER_COLORS[0] as its colour. Release writes 0.

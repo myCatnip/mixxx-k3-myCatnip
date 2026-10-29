@@ -8,10 +8,10 @@ var H = require('./helpers');
 function setup(patches) {
     var c = H.ctrl({patches: patches || {}});
     // Cat's schemes ship with PHRASE_MARKER_COLORS = [0xF2F2FF],
-    // which wires 32 hotcue observers per channel (color + position
-    // for hotcues 1..16). These tests only verify base connection
-    // counts, so clear the marker list — otherwise _playConns grows
-    // to 148 (37 × 4) and the count assertions break.
+    // which wires 8 hotcue observers per channel (color + position
+    // for the 4 slots in PHRASE_HOTCUE_SLOTS). These tests only
+    // verify base connection counts, so clear the marker list —
+    // otherwise _playConns grows to 76 (19 × 4).
     XoneK3.PHRASE_MARKER_COLORS = [];
     engine._set('[Channel1]', 'duration', 300);
     engine._set('[Channel1]', 'file_bpm', 120);
@@ -104,15 +104,16 @@ test('track_samples change invalidates _trackMetaCache', function(t) {
 test('_seedHotcueCache populates from COs', function(t) {
     var c = setup();
     XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
-    engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
-    engine._set('[Channel1]', 'hotcue_1_position', 500);
+    engine._set('[Channel1]', 'hotcue_9_color',    0xC50A08);
+    engine._set('[Channel1]', 'hotcue_9_position', 500);
 
     c._seedHotcueCache(1);
 
-    t.eq(c._decks[1].hotcueState[1].color, 0xC50A08);
-    t.eq(c._decks[1].hotcueState[1].pos, 500);
-    t.eq(Object.keys(c._decks[1].hotcueState).length, XoneK3.HOTCUE_MAX,
-         'all HOTCUE_MAX slots cached');
+    t.eq(c._decks[1].hotcueState[9].color, 0xC50A08);
+    t.eq(c._decks[1].hotcueState[9].pos, 500);
+    t.eq(Object.keys(c._decks[1].hotcueState).length,
+         XoneK3._phraseHotcueSlots().length,
+         'all declared slots cached');
 
     XoneK3.PHRASE_MARKER_COLORS = [];
 });
@@ -130,23 +131,23 @@ test('track_samples change re-seeds hotcueState', function(t) {
     withBeat(c);
     XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
 
-    // Simulate a marker on hotcue 1, seed manually to establish
+    // Simulate a marker on hotcue 9, seed manually to establish
     // the pre-load state.
-    engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
-    engine._set('[Channel1]', 'hotcue_1_position', 500);
+    engine._set('[Channel1]', 'hotcue_9_color',    0xC50A08);
+    engine._set('[Channel1]', 'hotcue_9_position', 500);
     c._seedHotcueCache(1);
-    t.eq(c._decks[1].hotcueState[1].color, 0xC50A08);
+    t.eq(c._decks[1].hotcueState[9].color, 0xC50A08);
 
     // New track loads over the current one: hotcues reset but
     // track_loaded does not re-fire. track_samples changes.
-    engine._set('[Channel1]', 'hotcue_1_color',    0);
-    engine._set('[Channel1]', 'hotcue_1_position', -1);
+    engine._set('[Channel1]', 'hotcue_9_color',    0);
+    engine._set('[Channel1]', 'hotcue_9_position', -1);
     engine._set('[Channel1]', 'track_samples',     2000);
     engine._trigger('[Channel1]', 'track_samples', 2000);
 
-    t.eq(c._decks[1].hotcueState[1].color, 0,
+    t.eq(c._decks[1].hotcueState[9].color, 0,
          'cache must reflect new track after track_samples change');
-    t.eq(c._decks[1].hotcueState[1].pos, -1);
+    t.eq(c._decks[1].hotcueState[9].pos, -1);
 
     XoneK3.PHRASE_MARKER_COLORS = [];
 });
@@ -156,13 +157,13 @@ test('_wireHotcueObservers seeds hotcueState on open', function(t) {
     // Set markers BEFORE withBeat so _openBeatClocks sees a
     // non-empty marker list and wires observers + seeds cache.
     XoneK3.PHRASE_MARKER_COLORS = [0xC50A08];
-    engine._set('[Channel1]', 'hotcue_1_color',    0xC50A08);
-    engine._set('[Channel1]', 'hotcue_1_position', 500);
+    engine._set('[Channel1]', 'hotcue_9_color',    0xC50A08);
+    engine._set('[Channel1]', 'hotcue_9_position', 500);
 
     withBeat(c);
 
-    t.eq(c._decks[1].hotcueState[1].color, 0xC50A08);
-    t.eq(c._decks[1].hotcueState[1].pos, 500);
+    t.eq(c._decks[1].hotcueState[9].color, 0xC50A08);
+    t.eq(c._decks[1].hotcueState[9].pos, 500);
 
     XoneK3.PHRASE_MARKER_COLORS = [];
 });

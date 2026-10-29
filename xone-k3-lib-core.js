@@ -76,6 +76,15 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // window spans the last fire regardless of which one it was.
     XoneK3.META_SETTLE_MS = 300;
 
+    // Boot settle. After the initial catch-up at boot, if any
+    // boot-relevant CO (track_loaded, play_indicator, loop_enabled,
+    // rate_ratio, reverse) fires within BOOT_SETTLE_MS of the last
+    // fire, another catch-up is scheduled. Stops the silent-stale
+    // bug where a slow CO tree leaves _loadedState[ch] or
+    // st.playing wrong until the next unrelated event.
+    XoneK3.BOOT_SETTLE_MS = 100;
+    XoneK3.BOOT_MAX_ATTEMPTS = 5;
+
     XoneK3.LAYER_BUTTON_NOTE = 0x0C;
     XoneK3.SHIFT_BUTTON_NOTE = 0x0F;
 
@@ -122,7 +131,15 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     XoneK3.TIME_SIG = null;
 
     XoneK3.setTimeSig = function(barBeats, phraseBars) {
-        if (!(barBeats > 0) || !(phraseBars > 0)) return;
+        // Floor + reject non-finite. Fractional barBeats produce a
+        // fractional phraseLen; the modulo positions in beatLevel
+        // then only coincide with integer beat counts at a subset
+        // of the expected positions, silently corrupting the
+        // cascade. NaN/Infinity propagate the same way.
+        barBeats = Math.floor(Number(barBeats));
+        phraseBars = Math.floor(Number(phraseBars));
+        if (!isFinite(barBeats) || barBeats < 1) return;
+        if (!isFinite(phraseBars) || phraseBars < 1) return;
         XoneK3.TIME_SIG = { barBeats: barBeats, phraseBars: phraseBars };
         if (!XoneK3.controllers) return;
         for (var i = 0; i < XoneK3.controllers.length; i++) {
@@ -181,16 +198,27 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // UTILITIES
     // ============================================================
     XoneK3.parseNum = function(s) {
-        if (typeof s === 'number') return s;
-        if (typeof s !== 'string') return NaN;
-        s = s.trim();
-        if (s === '') return NaN;
-        var p = s.split('/');
-        if (p.length === 2) {
-            var a = parseFloat(p[0]), b = parseFloat(p[1]);
-            if (!isNaN(a) && !isNaN(b) && b !== 0) return a / b;
+        var v;
+        if (typeof s === 'number') {
+            v = s;
+        } else if (typeof s !== 'string') {
+            return NaN;
+        } else {
+            s = s.trim();
+            if (s === '') return NaN;
+            var p = s.split('/');
+            if (p.length === 2) {
+                var a = parseFloat(p[0]), b = parseFloat(p[1]);
+                if (!isNaN(a) && !isNaN(b) && b !== 0) v = a / b;
+                else v = parseFloat(s);
+            } else {
+                v = parseFloat(s);
+            }
         }
-        return parseFloat(s);
+        // Callers guard with isNaN, which accepts Infinity. A
+        // config typo like args: ['1e999'] would write Infinity
+        // to a CO (engine.setValue / setParameter paths).
+        return isFinite(v) ? v : NaN;
     };
 
     XoneK3.readPath = function(obj, path) {
@@ -563,11 +591,21 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // defaults. Extracted so beatLevel reads as music, not as
     // defaulting rules.
     function _resolveSig(beat) {
-        if (XoneK3.TIME_SIG) {
-            return {
-                barBeats:   XoneK3.TIME_SIG.barBeats,
-                phraseBars: XoneK3.TIME_SIG.phraseBars
-            };
+        var sig = XoneK3.TIME_SIG;
+        if (sig) {
+            var bb = sig.barBeats;
+            var pb = sig.phraseBars;
+            var validBB = (typeof bb === 'number' && isFinite(bb) &&
+                           bb >= 1 && bb === Math.floor(bb));
+            var validPB = (typeof pb === 'number' && isFinite(pb) &&
+                           pb >= 1 && pb === Math.floor(pb));
+            if (validBB && validPB) return { barBeats: bb, phraseBars: pb };
+            // Direct assignment bypasses setTimeSig's coercion;
+            // warn-once and fall through to scheme defaults.
+            XoneK3._warnOnce('timeSigInvalid',
+                'XoneK3.TIME_SIG contains invalid barBeats/phraseBars — ' +
+                'falling back to scheme defaults. Use setTimeSig() or ' +
+                'provide integers >= 1.');
         }
         return {
             barBeats:   (typeof beat.barBeats   === 'number' && beat.barBeats   > 0)

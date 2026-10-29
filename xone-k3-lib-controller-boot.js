@@ -33,6 +33,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-boot.js', ['K3Controller']);
             self._closeBeatClocks();
             self._syncBeatClocks();
             self._syncFxLayout();
+            self._startBootSettle();
         }, true);
     };
     XoneK3.K3Controller.prototype._initExtra = function() {};
