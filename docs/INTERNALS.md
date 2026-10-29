@@ -617,7 +617,7 @@ The CHORD patch in `cat-overlays.js` declares no `layer` binding
 - `press3` — `shutdownHold`
 - `pressR` — `toggleTopMode`
 - `pressL` — `toggleMiniFx`
-- `grid2_1` — `toggleLayerOverlay(['hotcue916', 'loopOdd'])`
+- `grid2_1` — `toggleLayerOverlay(['hotcue2', 'loopOdd'])`
 
 `grid2_1` picks target by `_patchActive('cue')` /
 `_patchActive('loop')`. Both overlays may sit in `activePatches`

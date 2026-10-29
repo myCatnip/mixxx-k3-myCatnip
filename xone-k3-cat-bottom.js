@@ -88,7 +88,7 @@
             type: 'push'
         };
     }
-    function hotcue916(n) {
+    function hotcuePhrase(n) {
         return {
             group: '$DECK_ACTIVE$',
             inKey: 'hotcue_' + n + '_activate',
@@ -99,11 +99,36 @@
             args: [n]
         };
     }
-    function hotcueClear916(n) {
+    function hotcuePhraseClear(n) {
         return {
             group: '$DECK_ACTIVE$',
             inKey: 'hotcue_' + n + '_clear',
             outKey: 'hotcue_' + n + '_status',
+            colorScheme: { scheme: 'red, 93, 0' },
+            type: 'push'
+        };
+    }
+    // Intro / outro marker cell — direct CO binding, exactly the
+    // same shape as hotcue() / hotcueClear(). Mixxx's `_activate`
+    // does jump-if-set, set-if-unset, matching hotcue `_activate`.
+    // `_clear` deletes, matching hotcue `_clear`. `_enabled` is
+    // the read-only on/off (0 = unset, 1 = set), matching hotcue
+    // `_status`. Brightness off = 0 so the LED goes fully dark
+    // when unset, same visual as `mixxx` off-ramp.
+    function markerCell(base, color) {
+        return {
+            group: '$DECK_ACTIVE$',
+            inKey: base + '_activate',
+            outKey: base + '_enabled',
+            colorScheme: { scheme: color + ', 110, 0' },
+            type: 'push'
+        };
+    }
+    function markerCellShift(base) {
+        return {
+            group: '$DECK_ACTIVE$',
+            inKey: base + '_clear',
+            outKey: base + '_enabled',
             colorScheme: { scheme: 'red, 93, 0' },
             type: 'push'
         };
@@ -179,9 +204,13 @@
     CUE._shift = 'cueShift';
 
     // ============================================================
-    // CUE 9-16 — chord + slip overlay
+    // hotcue2 — chord + slip overlay
     // ============================================================
-    var CUE_916 = {
+    // Row 2: hotcues 9-12, phrase colour set on create (PHRASE_HOTCUE_SLOTS).
+    // Row 3: intro / outro markers. Same press/clear CO pattern as
+    // hotcues — _activate on press, _clear on shift+press, _enabled
+    // drives the LED.
+    var CUE_2 = {
         _host: 'cue',
         grid0_1: { func: F.beatjumpButton, args: ['beatjump_16_backward'],
                    group: '$DECK_ACTIVE$', outKey: 'track_loaded',
@@ -190,14 +219,17 @@
                    group: '$DECK_ACTIVE$', outKey: 'track_loaded',
                    colorScheme: { scheme: 'yellow, 127' } },
 
-        grid0_2: hotcue916(9),  grid1_2: hotcue916(10),
-        grid2_2: hotcue916(11), grid3_2: hotcue916(12),
-        grid0_3: hotcue916(13), grid1_3: hotcue916(14),
-        grid2_3: hotcue916(15), grid3_3: hotcue916(16)
-    };
-    CUE_916._shift = 'hotcue916Shift';
+        grid0_2: hotcuePhrase(9),  grid1_2: hotcuePhrase(10),
+        grid2_2: hotcuePhrase(11), grid3_2: hotcuePhrase(12),
 
-    var CUE_916_SHIFT = {
+        grid0_3: markerCell('intro_start', 'green'),
+        grid1_3: markerCell('intro_end',   'lime'),
+        grid2_3: markerCell('outro_start', 'amber'),
+        grid3_3: markerCell('outro_end',   'orange')
+    };
+    CUE_2._shift = 'hotcue2Shift';
+
+    var CUE_2_SHIFT = {
         grid0_1: { func: F.beatjumpButton, args: ['beatjump_16_backward'],
                    group: '$DECK_ACTIVE$', outKey: 'track_loaded',
                    colorScheme: { scheme: 'yellow, 127' } },
@@ -205,10 +237,13 @@
                    group: '$DECK_ACTIVE$', outKey: 'track_loaded',
                    colorScheme: { scheme: 'yellow, 127' } },
 
-        grid0_2: hotcueClear916(9),  grid1_2: hotcueClear916(10),
-        grid2_2: hotcueClear916(11), grid3_2: hotcueClear916(12),
-        grid0_3: hotcueClear916(13), grid1_3: hotcueClear916(14),
-        grid2_3: hotcueClear916(15), grid3_3: hotcueClear916(16)
+        grid0_2: hotcuePhraseClear(9),  grid1_2: hotcuePhraseClear(10),
+        grid2_2: hotcuePhraseClear(11), grid3_2: hotcuePhraseClear(12),
+
+        grid0_3: markerCellShift('intro_start'),
+        grid1_3: markerCellShift('intro_end'),
+        grid2_3: markerCellShift('outro_start'),
+        grid3_3: markerCellShift('outro_end')
     };
 
     // ============================================================
@@ -307,8 +342,8 @@
     // ============================================================
     CAT.CUE = CUE;
     CAT.CUE_SHIFT = CUE_SHIFT;
-    CAT.CUE_916 = CUE_916;
-    CAT.CUE_916_SHIFT = CUE_916_SHIFT;
+    CAT.CUE_2 = CUE_2;
+    CAT.CUE_2_SHIFT = CUE_2_SHIFT;
     CAT.LOOP = LOOP;
     CAT.LOOP_SHIFT = LOOP_SHIFT;
     CAT.LOOP_ODD = LOOP_ODD;

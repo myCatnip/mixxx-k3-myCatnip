@@ -226,10 +226,16 @@ LEDs
 
 Layer overlays (chord + slip, per layer, toggle again to exit):
 
-  hotcue916 (cue layer)
-    row 2-3: hotcues 9, 10, 11, 12 / 13, 14, 15, 16
-    press unset: creates with PHRASE_MARKER_COLORS[0]
-    +shift:      clears the hotcue
+  hotcue2 (cue layer)
+    row 2: hotcues 9, 10, 11, 12
+           press unset: creates with PHRASE_MARKER_COLORS[0]
+           +shift:      clears the hotcue
+    row 3: intro_start / intro_end / outro_start / outro_end
+           press:       activate (jump if set, set at playhead if unset)
+           +shift:      clear
+           LED lit while the marker is set
+           Colours: green / lime / amber / orange
+           Shift colour: red (same as hotcue clear)
     grid0_1 / grid1_1 (beatjump16): recolour yellow
 
   loopOdd (loop layer)
@@ -309,7 +315,7 @@ press2: —
 press3: hold 2 s → shutdown
 pressR: toggleTopMode  (focus ↔ twoDeck-family; mini → focus)
 pressL: toggleMiniFx   (twoDeck ↔ mini; focus → no-op)
-grid2_1 (slip): toggle layer overlay (cue → hotcue916, loop → loopOdd)
+grid2_1 (slip): toggle layer overlay (cue → hotcue2, loop → loopOdd)
 
 Passes through unchanged:
 enc0-3:  whatever the active top mode bound them to (chord holds shift, so
@@ -329,7 +335,7 @@ selectAB
 fxRouting
   gridN_M: toggle FX(N+1) → channel(M+1) group-enable
 
-Layer overlays (hotcue916 / loopOdd) — see GRID rows 2-3 above.
+Layer overlays (hotcue2 / loopOdd) — see GRID rows 2-3 above.
 Both can be on at once; each is visible only in its own layer.
 ```
 

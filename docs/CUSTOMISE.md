@@ -275,7 +275,7 @@ XoneK3.PHRASE_MARKER_COLORS = [0xC50A08, 0x0044FF];
 Shipped default: `[0xF2F2FF]`. Empty list = feature off.
 
 By default, only hotcues 9, 10, 11, and 12 are scanned — the top
-row of the `hotcue916` chord overlay. Change the range with:
+row of the `hotcue2` chord overlay. Change the range with:
 
 ```js
 XoneK3.PHRASE_HOTCUE_SLOTS = [9, 10, 11, 12];

@@ -24,7 +24,7 @@
 | **Gap** | In colorLab, an extension cell the user hasn't set. Fill paints gaps; saving collapses them into real stops. |
 | **Group** | A Mixxx group string. `[Channel1]`, `[EffectRack1_EffectUnit2]`, etc. |
 | **Host** | An overlay patch's `_host` field — the patches it may apply over. |
-| **Hotcue 9-16 overlay** | Chord + slip overlay on the cue layer: rows 2–3 become hotcues 9–16. |
+| **hotcue2 overlay** | Chord + slip overlay on the cue layer: row 2 shows hotcues 9–12 (phrase-colour on create), row 3 shows intro/outro markers (jump on press, set on shift+press). |
 | **Loop clock** | The virtual timeline. Accumulates the musical progress a loop would have made, seeded from the playhead when the loop starts, through wraps. |
 | **Loop-odd overlay** | Chord + slip overlay on the loop layer: rows 2–3 become odd loop sizes. |
 | **Main cue** | The track's primary cue point. Cleared by writing `1` to `[ChannelN],cue_clear`; writing to `cue_point` moves it. |

@@ -123,7 +123,7 @@
                                  on: { patchActive: 'twoDeckMini' } } },
 
         grid2_1: { func: F.toggleLayerOverlay,
-                   args: ['hotcue916', 'loopOdd'] }
+                   args: ['hotcue2', 'loopOdd'] }
     };
 
     // ============================================================

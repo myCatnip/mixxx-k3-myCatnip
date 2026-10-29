@@ -52,8 +52,8 @@
         // Bottom
         cue:              CAT.CUE,
         cueShift:         CAT.CUE_SHIFT,
-        hotcue916:        CAT.CUE_916,
-        hotcue916Shift:   CAT.CUE_916_SHIFT,
+        hotcue2:          CAT.CUE_2,
+        hotcue2Shift:     CAT.CUE_2_SHIFT,
         loop:             CAT.LOOP,
         loopShift:        CAT.LOOP_SHIFT,
         loopOdd:          CAT.LOOP_ODD,

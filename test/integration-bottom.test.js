@@ -119,7 +119,7 @@ test('layer press cycles loop → cue', function(t) {
     t.notOk(c.activePatches.indexOf('loop') !== -1);
 });
 
-// ── hotcue916 overlay (cue mode, chord + slip) ─────────────
+// ── hotcue2 overlay (cue mode, chord + slip) ───────────────
 
 function enterChord(c) {
     H.press(c, 'shift');
@@ -130,24 +130,24 @@ function exitChord(c) {
     H.release(c, 'shift');
 }
 
-test('hotcue916: chord + slip in cue activates it', function(t) {
+test('hotcue2: chord + slip in cue activates it', function(t) {
     var c = setupCue();
     enterChord(c);
     H.press(c, 'grid2_1');
     exitChord(c);
-    t.contains(c.activePatches, 'hotcue916');
-    t.ok(c._patchActive('hotcue916'));
+    t.contains(c.activePatches, 'hotcue2');
+    t.ok(c._patchActive('hotcue2'));
 });
 
-test('hotcue916: chord + slip again removes it', function(t) {
-    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
+test('hotcue2: chord + slip again removes it', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
     enterChord(c);
     H.press(c, 'grid2_1');
     exitChord(c);
-    t.notOk(c.activePatches.indexOf('hotcue916') !== -1);
+    t.notOk(c.activePatches.indexOf('hotcue2') !== -1);
 });
 
-test('hotcue916: does not toggle loopOdd', function(t) {
+test('hotcue2: does not toggle loopOdd', function(t) {
     var c = setupCue();
     enterChord(c);
     H.press(c, 'grid2_1');
@@ -155,37 +155,119 @@ test('hotcue916: does not toggle loopOdd', function(t) {
     t.notOk(c.activePatches.indexOf('loopOdd') !== -1);
 });
 
-test('hotcue916: grid0_2 targets hotcue 9', function(t) {
-    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
+test('hotcue2: grid0_2 targets hotcue 9', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
     engine._set('[Channel1]', 'hotcue_9_activate', 0);
     H.press(c, 'grid0_2');
     t.eq(engine.getValue('[Channel1]', 'hotcue_9_activate'), 1);
 });
 
-test('hotcue916: grid3_3 targets hotcue 16', function(t) {
-    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
-    engine._set('[Channel1]', 'hotcue_16_activate', 0);
-    H.press(c, 'grid3_3');
-    t.eq(engine.getValue('[Channel1]', 'hotcue_16_activate'), 1);
-});
-
-test('hotcue916: shift clears hotcue 9', function(t) {
-    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
+test('hotcue2: shift clears hotcue 9', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
     H.press(c, 'shift');
     H.press(c, 'grid0_2');
     t.eq(engine.getValue('[Channel1]', 'hotcue_9_clear'), 1);
 });
 
-test('hotcue916: hidden in loop, reappears in cue', function(t) {
-    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue916']});
-    t.ok(c._patchActive('hotcue916'));
+// ── hotcue2 row 3: intro/outro markers ─────────────────────
+
+// Row 3 uses direct CO binding — same shape as hotcue_*_activate
+// and hotcue_*_clear. Mixxx's _activate does jump-if-set /
+// set-if-unset; the mock can only verify the trigger CO fires.
+
+test('hotcue2: press grid0_3 fires intro_start_activate', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    engine._set('[Channel1]', 'intro_start_activate', 0);
+    H.press(c, 'grid0_3');
+    t.eq(engine.getValue('[Channel1]', 'intro_start_activate'), 1);
+});
+
+test('hotcue2: release grid0_3 clears intro_start_activate', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    H.press(c, 'grid0_3');
+    H.release(c, 'grid0_3');
+    t.eq(engine.getValue('[Channel1]', 'intro_start_activate'), 0);
+});
+
+test('hotcue2: press grid1_3 fires intro_end_activate', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    engine._set('[Channel1]', 'intro_end_activate', 0);
+    H.press(c, 'grid1_3');
+    t.eq(engine.getValue('[Channel1]', 'intro_end_activate'), 1);
+});
+
+test('hotcue2: press grid2_3 fires outro_start_activate', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    engine._set('[Channel1]', 'outro_start_activate', 0);
+    H.press(c, 'grid2_3');
+    t.eq(engine.getValue('[Channel1]', 'outro_start_activate'), 1);
+});
+
+test('hotcue2: press grid3_3 fires outro_end_activate', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    engine._set('[Channel1]', 'outro_end_activate', 0);
+    H.press(c, 'grid3_3');
+    t.eq(engine.getValue('[Channel1]', 'outro_end_activate'), 1);
+});
+
+test('hotcue2: shift+grid0_3 fires intro_start_clear', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    engine._set('[Channel1]', 'intro_start_clear', 0);
+    H.press(c, 'shift');
+    H.press(c, 'grid0_3');
+    t.eq(engine.getValue('[Channel1]', 'intro_start_clear'), 1);
+});
+
+test('hotcue2: shift+grid1_3 fires intro_end_clear', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    engine._set('[Channel1]', 'intro_end_clear', 0);
+    H.press(c, 'shift');
+    H.press(c, 'grid1_3');
+    t.eq(engine.getValue('[Channel1]', 'intro_end_clear'), 1);
+});
+
+test('hotcue2: shift+grid2_3 fires outro_start_clear', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    engine._set('[Channel1]', 'outro_start_clear', 0);
+    H.press(c, 'shift');
+    H.press(c, 'grid2_3');
+    t.eq(engine.getValue('[Channel1]', 'outro_start_clear'), 1);
+});
+
+test('hotcue2: shift+grid3_3 fires outro_end_clear', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    engine._set('[Channel1]', 'outro_end_clear', 0);
+    H.press(c, 'shift');
+    H.press(c, 'grid3_3');
+    t.eq(engine.getValue('[Channel1]', 'outro_end_clear'), 1);
+});
+
+test('hotcue2: row-3 LED follows _enabled (on)', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    engine._set('[Channel1]', 'intro_start_enabled', 1);
+    H.clearLeds(c);
+    c.bindings['grid0_3']._refresh();
+    t.rgb(H.led(c, 'grid0_3'), 0, 127, 0);
+});
+
+test('hotcue2: row-3 LED follows _enabled (off)', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    engine._set('[Channel1]', 'intro_start_enabled', 0);
+    H.clearLeds(c);
+    c.bindings['grid0_3']._refresh();
+    t.hw(H.led(c, 'grid0_3'), 0);
+});
+
+test('hotcue2: hidden in loop, reappears in cue', function(t) {
+    var c = H.bootCat({initialPatches: ['topShared', 'fxLayout1', 'cue', 'hotcue2']});
+    t.ok(c._patchActive('hotcue2'));
     H.press(c, 'layer');   // cue → loop
     H.release(c, 'layer');
-    t.notOk(c._patchActive('hotcue916'));
-    t.contains(c.activePatches, 'hotcue916');
+    t.notOk(c._patchActive('hotcue2'));
+    t.contains(c.activePatches, 'hotcue2');
     H.press(c, 'layer');   // loop → cue
     H.release(c, 'layer');
-    t.ok(c._patchActive('hotcue916'));
+    t.ok(c._patchActive('hotcue2'));
 });
 
 // ── loopOdd overlay (loop mode, chord + slip) ──────────────
@@ -256,18 +338,18 @@ test('loopOdd: hidden in cue, reappears in loop', function(t) {
 
 // ── overlays coexist across layer switches ─────────────────
 
-test('hotcue916 and loopOdd both persist; only host-active is visible', function(t) {
+test('hotcue2 and loopOdd both persist; only host-active is visible', function(t) {
     var c = setupCue();
 
-    // Add hotcue916 in cue mode.
+    // Add hotcue2 in cue mode.
     enterChord(c);
     H.press(c, 'grid2_1');
     H.release(c, 'grid2_1');
     exitChord(c);
-    t.contains(c.activePatches, 'hotcue916');
-    t.ok(c._patchActive('hotcue916'));
+    t.contains(c.activePatches, 'hotcue2');
+    t.ok(c._patchActive('hotcue2'));
 
-    // Switch to loop, add loopOdd. hotcue916 stays in activePatches
+    // Switch to loop, add loopOdd. hotcue2 stays in activePatches
     // but its host ('cue') is gone.
     H.press(c, 'layer');
     H.release(c, 'layer');
@@ -276,14 +358,14 @@ test('hotcue916 and loopOdd both persist; only host-active is visible', function
     H.release(c, 'grid2_1');
     exitChord(c);
 
-    t.contains(c.activePatches, 'hotcue916');
+    t.contains(c.activePatches, 'hotcue2');
     t.contains(c.activePatches, 'loopOdd');
-    t.notOk(c._patchActive('hotcue916'));
+    t.notOk(c._patchActive('hotcue2'));
     t.ok(c._patchActive('loopOdd'));
 
-    // Back to cue. hotcue916 visible again, loopOdd hidden.
+    // Back to cue. hotcue2 visible again, loopOdd hidden.
     H.press(c, 'layer');
-    t.ok(c._patchActive('hotcue916'));
+    t.ok(c._patchActive('hotcue2'));
     t.notOk(c._patchActive('loopOdd'));
 });
 

@@ -55,7 +55,7 @@
     // to the start of its beat.
     //
     // Only hotcues listed in XoneK3.PHRASE_HOTCUE_SLOTS are
-    // scanned (default [9, 10, 11, 12] — the hotcue916 overlay's
+    // scanned (default [9, 10, 11, 12] — the hotcue2 overlay's
     // top row; set before boot). Values are the integer RGB hexes
     // Mixxx stores on [ChannelN],hotcue_X_color. Empty list =
     // feature off.
@@ -63,7 +63,7 @@
     XoneK3.PHRASE_MARKER_COLORS = [0xF2F2FF];
 
     // Hotcue slots scanned for phrase-marker colours. Default is
-    // [9, 10, 11, 12] (the hotcue916 overlay's top row). Change
+    // [9, 10, 11, 12] (the hotcue2 overlay's top row). Change
     // to any 1..32 slots; duplicates and out-of-range entries are
     // dropped with a warn-once at boot. Empty list = feature off.
     //

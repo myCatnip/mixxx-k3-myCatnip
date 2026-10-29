@@ -30,7 +30,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     var freshDeckState = XoneK3._freshDeckState;
 
     // Hotcue slots scanned for phrase-marker colours. Default is
-    // the top row of the hotcue916 overlay; override in the preset
+    // the top row of the hotcue2 overlay; override in the preset
     // config next to PHRASE_MARKER_COLORS.
     XoneK3.PHRASE_HOTCUE_SLOTS = [9, 10, 11, 12];
 

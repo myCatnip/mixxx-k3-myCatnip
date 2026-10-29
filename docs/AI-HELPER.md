@@ -134,6 +134,10 @@ onek3-minifx, colorlab) carry 95% of requested edits. Runtime
   "beat LED out of sync on pitched"    → _channelRate reads
                                           rate_ratio, not rate
   "clear the main cue"                 → [ChannelN],cue_clear
+  "set/clear intro or outro markers"   → [ChannelN],intro_start_activate /
+                                          intro_start_clear (same trio
+                                          for intro_end, outro_start,
+                                          outro_end)
   "is the shift held" / "held button state"
                                        → modifiers.<name>
   "held across rebind / patch change"  → transaction
@@ -237,7 +241,7 @@ phrasings plus the closest workaround.
 
 ## AI failure modes
 
-Four items where an AI is likely to guess plausibly but wrongly.
+Five items where an AI is likely to guess plausibly but wrongly.
 Verified against code or the Mixxx manual. The full INTERNALS
 gotcha list is §21.
 
@@ -254,6 +258,18 @@ gotcha list is §21.
   `[ChannelN],cue_clear` (a `type: 'push'` binding handles the
   0 release). Writing to `cue_point` *moves* the cue; it
   doesn't clear it.
+
+- **Intro / outro markers use a different CO trio than hotcues.**
+  Naming pattern: `intro_start`, `intro_end`, `outro_start`,
+  `outro_end`. Each has `_activate` (seek-if-set / set-if-unset,
+  no play-mode variant like hotcue activate has), `_clear`
+  (delete), and `_enabled` (read-only set/unset flag). `_position`
+  is read-only for setting — writing it is silently ignored, so
+  a `playposition` read/write round trip via `_position` looks
+  like it works in a mock but does nothing on real Mixxx. Bind
+  the same shape as hotcues: `inKey: base + '_activate'` on the
+  press cell, `inKey: base + '_clear'` on the shift cell,
+  `outKey: base + '_enabled'` on both.
 
 - **`scheme: FX_COLOR_MAP[n]` is a function scheme.** Combined
   with `schemeFromState`, the function is silently ignored
