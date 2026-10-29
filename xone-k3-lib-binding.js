@@ -5,9 +5,10 @@
 // Loaded after lib-core and lib-schemes, before lib-controller
 // (which constructs Bindings in _buildHardware).
 //
-// Session-scoped fields (_normalized, _ledObservers, _transaction)
-// are set in the constructor after _bindingDefaults() — _reset
-// doesn't touch them.
+// Session-scoped fields (_normalized, _ledObservers, _transaction,
+// _togglePressActive, _lastOutKeyValue, _lastCoValue) are set in
+// the constructor after _bindingDefaults() — _reset doesn't touch
+// them.
 //
 // Transaction model
 // -----------------
@@ -99,6 +100,26 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         // Session-scoped — survive _reset.
         this._normalized = undefined;
         this._ledObservers = [];
+
+        // Toggle-mode press-state flag, used by the bounce guard in
+        // input(). Session-scoped — survives _reset so a rebind
+        // during a hold doesn't lose track of press state and fire
+        // a spurious toggle from the leftover physical press.
+        this._togglePressActive = false;
+
+        // Cached outKey CO value, seeded at bind, kept fresh by the
+        // outKey listener. Removes a per-render CO read from _isOn.
+        // Undefined means "not seeded yet" — _isOn falls back to a
+        // live read.
+        this._lastOutKeyValue = undefined;
+
+        // Cached getParameter value for the binding's own CO. Only
+        // populated for knob/fader types (the only valid targets for
+        // a colorScheme.knob reference). Kept fresh by the value
+        // listener. Removes a per-render getParameter read from the
+        // co-match path. Undefined means "not seeded yet" or "not a
+        // pot" — coMatchSample falls back to a live read.
+        this._lastCoValue = undefined;
 
         // Physical-button transaction. Persists across _reset and
         // across rebinds (as "orphaned"). Set on physical press,
@@ -202,6 +223,18 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         // the first press too.
         var wasActive = this._transaction.active;
 
+        // Clear toggle press-state on any button release, before
+        // any dispatch path can early-return. Doing this
+        // unconditionally (rather than only when the current mode
+        // is toggle) closes the toggle → push → toggle rebind
+        // case: a binding pressed as toggle, rebound to push
+        // mid-hold, then released, then rebound back to toggle
+        // would otherwise leave _togglePressActive stuck true and
+        // swallow the next press. Session-scoped — survives _reset.
+        if (this.type === 'button' && v === 0) {
+            this._togglePressActive = false;
+        }
+
         // ---- Physical press ----
         if (v > 0 && isPush && !this._transaction.active) {
             this._captureTransaction();
@@ -221,7 +254,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             return;
         }
 
-        // ---- Bounce guard ----
+        // ---- Bounce guard (push-mode) ----
         // A v>0 event while a transaction was ALREADY active
         // before this call is a hardware bounce — the user's
         // physical state hasn't changed. Skip func dispatch so
@@ -234,6 +267,25 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         // because _captureTransaction just set it to true above.
         if (v > 0 && isPush && wasActive) {
             return;
+        }
+
+        // ---- Bounce guard (toggle-mode) ----
+        // Toggle-mode bindings don't capture transactions, so the
+        // push-mode guard above doesn't cover them. A hardware
+        // bounce (v>0 twice without a release between) would fire
+        // the toggle action twice, flipping the CO back to its
+        // original state — user sees one press, no change. Track
+        // press state separately; a v>0 while _togglePressActive
+        // is true is the same physical press. Cleared on any
+        // button release above. Protects both func-bound and
+        // default-input toggle bindings, and a fast user
+        // double-press still works because the intervening release
+        // clears the flag.
+        if (this.type === 'button' && !isPush) {
+            if (v > 0) {
+                if (this._togglePressActive) return;
+                this._togglePressActive = true;
+            }
         }
 
         // ---- Normal dispatch ----
@@ -249,6 +301,26 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             XoneK3._warnOnce('inputThrow:' + this._name,
                 'binding func threw on ' + this._name + ': ' +
                 (e && e.message ? e.message : e));
+        }
+
+        // Refresh the cached CO value for knob/fader bindings
+        // before observers repaint. The value listener (armed in
+        // _armOwnConn) fires on the next event-loop turn, so
+        // without this the observer sweep below renders against
+        // the pre-write cached value — every deviation LED
+        // sampling this knob flashes a spurious co-match gradient
+        // on every MIDI event until the listener catches up.
+        //
+        // Read back once per input event, not per render. Covers
+        // both the default-input write and any custom func that
+        // writes to this binding's own CO. A func that doesn't
+        // touch this CO reads back the unchanged value — no-op
+        // cost, identical cache state. Soft-takeover rejection
+        // reads back the old CO, so co-match shows until takeover
+        // is crossed, exactly as before.
+        if (this.type === 'knob' || this.type === 'fader') {
+            try { this._lastCoValue = engine.getParameter(this.group, this.inKey); }
+            catch (e) { this._lastCoValue = undefined; }
         }
 
         this._refreshObservers();
@@ -326,9 +398,27 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         if (this._valueConn) { this._valueConn.disconnect(); this._valueConn = null; }
         if (this.group === undefined || this.inKey === undefined) return;
         var self = this;
+        // Only knobs and faders need the cached getParameter value
+        // for the co-match path — they're the only valid targets
+        // for a colorScheme.knob reference. Buttons and encoders
+        // skip the extra read.
+        var isPot = (this.type === 'knob' || this.type === 'fader');
         this._valueConn = engine.makeConnection(this.group, this.inKey, function() {
+            if (isPot) {
+                try { self._lastCoValue = engine.getParameter(self.group, self.inKey); }
+                catch (e) { self._lastCoValue = undefined; }
+            }
             self._refreshObservers();
         });
+        // Seed: Mixxx fires the listener on change, not on setup.
+        // The first render after bind would find _lastCoValue
+        // undefined and do a live read that never gets reused.
+        // Seed here so the cache is valid from the first render
+        // onward.
+        if (isPot) {
+            try { this._lastCoValue = engine.getParameter(this.group, this.inKey); }
+            catch (e) { this._lastCoValue = undefined; }
+        }
     };
 
     XoneK3.Binding.prototype._send = function(r, g, b, hw) {
@@ -348,6 +438,9 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             return this._evalCsOn(this._csOn);
         }
         if (this.group && this.outKey) {
+            if (this._lastOutKeyValue !== undefined) {
+                return this._lastOutKeyValue > 0 ? 1 : 0;
+            }
             return engine.getValue(this.group, this.outKey) > 0 ? 1 : 0;
         }
         return 0;
@@ -374,6 +467,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
 
     XoneK3.Binding.prototype._evalOnCoValue = function(s) {
         if (s.group === undefined) return undefined;
+        if (s.cachedValue !== undefined) return s.cachedValue;
         return engine.getValue(s.group, s.co);
     };
 
@@ -428,7 +522,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
 
             if (this.group && this.outKey) {
                 var v = engine.getValue(this.group, this.outKey) > 0;
-                this._send(v ? 127 : 0, v ? 127 : 0, v ? 127 : 0, v ? 127 : 0);
+                this._send(v ? 127 : 127, v ? 127 : 0, v ? 127 : 0, v ? 127 : 0);
             }
         } catch (e) {
             XoneK3._warnOnce('refreshThrow:' + this._name,
@@ -498,7 +592,8 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
 
     XoneK3.Binding.prototype._renderCoMatch = function(knob, scheme, isOn, physical) {
         if (!knob.group || !knob.inKey) return false;
-        var steer = XoneK3.coMatchSample(scheme, knob.group, knob.inKey, physical, isOn);
+        var steer = XoneK3.coMatchSample(scheme, knob.group, knob.inKey,
+                                          physical, isOn, knob._lastCoValue);
         if (!steer) return false;
         this._sendSampled(steer.ramp, steer.t, scheme.co, isOn, true);
         return true;

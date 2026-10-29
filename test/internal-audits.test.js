@@ -121,8 +121,10 @@ test('_buildCsFromStateClosure: co source reads live value', function(t) {
         map: {0: 'red', 1: 'blue'}
     });
     engine._set('[EffectRack1_EffectUnit1]', 'enabled', 1);
+    engine._trigger('[EffectRack1_EffectUnit1]', 'enabled', 1);
     t.eq(closure(), 'blue');
     engine._set('[EffectRack1_EffectUnit1]', 'enabled', 0);
+    engine._trigger('[EffectRack1_EffectUnit1]', 'enabled', 0);
     t.eq(closure(), 'red');
 });
 
@@ -143,6 +145,7 @@ test('_buildCsFromStateClosure: list clamps high index', function(t) {
         list: ['a', 'b', 'c']
     });
     engine._set('[TestGroup]', 'x', 100);
+    engine._trigger('[TestGroup]', 'x', 100);
     t.eq(closure(), 'c');
 });
 
@@ -163,6 +166,7 @@ test('_buildCsFromStateClosure: list floors fractional index', function(t) {
         list: ['a', 'b', 'c', 'd']
     });
     engine._set('[TestGroup]', 'x', 2.9);
+    engine._trigger('[TestGroup]', 'x', 2.9);
     t.eq(closure(), 'c');
 });
 

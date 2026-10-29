@@ -154,13 +154,29 @@ mismatch marks the transaction orphaned. The transaction is
 session-scoped: `_reset` doesn't wipe it, and it survives the
 binding's unbind/rebind cycles.
 
-**Bounce guard.** A `v > 0` event arriving while a transaction is
-already active is treated as hardware bounce — no func dispatch,
-no default input, no state change. The eventual real release
-still dispatches the captured release normally. Without this, a
-bouncing pad resets per-press flags (`_bpmHeldTurned`,
-`shutdownHold`'s timer) mid-hold and changes user-visible
-behaviour.
+**Bounce guard (push-mode).** A `v > 0` event arriving while a
+transaction is already active is treated as hardware bounce — no
+func dispatch, no default input, no state change. The eventual
+real release still dispatches the captured release normally.
+Without this, a bouncing pad resets per-press flags
+(`_bpmHeldTurned`, `shutdownHold`'s timer) mid-hold and changes
+user-visible behaviour.
+
+**Bounce guard (toggle-mode).** Toggle-mode bindings don't
+capture transactions, so the push-mode guard doesn't cover them.
+A hardware bounce would fire `_defaultInput` (or the binding's
+func) twice, flipping the CO back to its original state — user
+sees one press, no change. `_togglePressActive`, a session-
+scoped press-state flag, is set on the first `v > 0` and cleared
+on **any** button release, regardless of the binding's current
+mode. Clearing unconditionally (not just when the mode is
+toggle) closes the `toggle → push → toggle` rebind case: a
+binding pressed as toggle, rebound to push mid-hold, then
+released, then rebound back to toggle would otherwise leave the
+flag stuck `true` and swallow the next press. A real
+double-press (with a release between) works normally because
+the release clears the flag. Protects both func-bound and
+default-input toggle bindings.
 
 **Signature.** Fields compared: `group`, `inKey`, `func`,
 `funcArgs`, `buttonMode`, `type`. Fields excluded (changes don't
@@ -917,17 +933,26 @@ able field means editing one list.
 Session-scoped state lives outside the factory:
 
 ```
-_normalized, _ledObservers, _transaction
+_normalized, _ledObservers, _transaction, _togglePressActive,
+_lastOutKeyValue, _lastCoValue
 ```
 
-Of these three, `_transaction` is the one that must survive a
-rebind: the captured press config it holds is what will fire at
-physical release, and that firing must happen against the
-press-time surface regardless of how many rebinds happened in
-between (§2.5). `_normalized` and `_ledObservers` are session-
-scoped for different reasons — `_normalized` persists knob
-position across rebinds for soft-takeover bridging, `_ledObservers`
-is the observer registration list.
+`_transaction` is the one that must survive a rebind: the
+captured press config it holds is what will fire at physical
+release, and that firing must happen against the press-time
+surface regardless of how many rebinds happened in between
+(§2.5). `_normalized` and `_ledObservers` are session-scoped for
+different reasons — `_normalized` persists knob position across
+rebinds for soft-takeover bridging, `_ledObservers` is the
+observer registration list. `_togglePressActive` persists across
+rebinds so a toggle-mode binding rebound mid-hold still clears
+correctly on the physical release — without it, a rebind would
+reset the flag and the next `v > 0` on the new binding would
+fire a spurious toggle from the leftover press. `_lastOutKeyValue`
+and `_lastCoValue` are re-seeded by `_bindConns` /
+`_armOwnConn` at every bind, so surviving a `_reset` doesn't
+preserve stale data — it just avoids a transient `undefined`
+between `_reset` and the seed.
 
 ---
 
@@ -1319,6 +1344,22 @@ carries an inline disable.
 - **`_reverseCache[1..4]`** — reverse flag. Listener-fed,
   seeded by `_catchUpChannel`. Removes a per-tick CO read from
   the beat-edge guard in `_onPlayposition`.
+- **`Binding._lastOutKeyValue`** — cached outKey CO value, seeded
+  at bind by `_bindConns` and updated by the outKey listener.
+  Removes one CO read per `_isOn` call (every LED render).
+  Undefined means "not seeded yet"; `_isOn` falls back to a live
+  read.
+- **`Binding._lastCoValue`** — cached `getParameter` value for a
+  knob/fader binding's own CO, seeded at bind by `_armOwnConn`
+  and updated by the value listener. Only populated for
+  knob/fader types (the only valid `colorScheme.knob` targets).
+  Removes one `getParameter` read per co-match render;
+  `coMatchSample` falls back to a live read when undefined.
+- **`_csOn.cachedValue` / `sd.cachedValue`** — cached `on.co`
+  and `schemeFromState.co` CO values, seeded and updated by
+  their respective listeners. Remove one CO read per render.
+  Reset naturally on rebind because `_parseCsOn` /
+  `_buildCsFromStateClosure` create fresh objects.
 - **`_flatCache`** — keyed on `segs._cacheId` then
   `_calibFingerprint()`. Bounded at 1024. See §12.
 - **`_hwCache`** — bounded at 1024.

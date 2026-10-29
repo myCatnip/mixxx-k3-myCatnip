@@ -179,7 +179,7 @@ test('hotcue colour change triggers LED repaint', function(t) {
         outKey: 'hotcue_1_status',
         colorScheme: {scheme: 'mixxx'}
     });
-    engine._set('[Channel1]', 'hotcue_1_status', 1);
+    H.fireCO('[Channel1]', 'hotcue_1_status', 1);
     engine._set('[Channel1]', 'hotcue_1_color', 0xC50A08);
     H.clearLeds(c);
     engine._trigger('[Channel1]', 'hotcue_1_color', 0xC50A08);
@@ -198,4 +198,111 @@ test('hotcue colour watcher disconnected on unbind', function(t) {
     c._applyBinding('grid0_2', null);
     var conns = engine._conns['[Channel1]|hotcue_1_color'] || [];
     t.eq(conns.length, 0);
+});
+
+// ── outKey cache ──────────────────────────────────────────────
+
+test('outKey cache: seeded on bind', function(t) {
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'pfl', 1);
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl', outKey: 'pfl',
+        colorScheme: {scheme: 'red, 100, 20'}
+    });
+    t.eq(c.bindings.button0_0._lastOutKeyValue, 1,
+         'seeded with current CO at bind');
+});
+
+test('outKey cache: updated on listener fire', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl', outKey: 'pfl',
+        colorScheme: {scheme: 'red, 100, 20'}
+    });
+    engine._trigger('[Channel1]', 'pfl', 1);
+    t.eq(c.bindings.button0_0._lastOutKeyValue, 1);
+    engine._trigger('[Channel1]', 'pfl', 0);
+    t.eq(c.bindings.button0_0._lastOutKeyValue, 0);
+});
+
+test('outKey cache: _isOn reflects cached value', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl', outKey: 'pfl',
+        colorScheme: {scheme: 'red, 100, 20'}
+    });
+    engine._trigger('[Channel1]', 'pfl', 1);
+    t.eq(c.bindings.button0_0._isOn(), 1);
+});
+
+test('outKey cache: stale cache still updates on next CO change', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('button0_0', {
+        group: '[Channel1]', inKey: 'pfl', outKey: 'pfl',
+        colorScheme: {scheme: 'red, 100, 20'}
+    });
+    engine._set('[Channel1]', 'pfl', 1);
+    engine._trigger('[Channel1]', 'pfl', 1);
+    t.eq(c.bindings.button0_0._lastOutKeyValue, 1,
+         'cache caught up after listener fire');
+    t.eq(c.bindings.button0_0._isOn(), 1);
+});
+
+// ── co-match cache ───────────────────────────────────────────
+
+test('co-match cache: seeded on knob bind', function(t) {
+    var c = H.ctrl();
+    engine.setParameter('[Channel1]', 'pregain', 0.5);
+    c._applyBinding('knob0_0', {
+        group: '[Channel1]', inKey: 'pregain'
+    });
+    t.approx(c.bindings.knob0_0._lastCoValue, 0.5, 1e-9);
+});
+
+test('co-match cache: updated on knob change', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('knob0_0', {
+        group: '[Channel1]', inKey: 'pregain'
+    });
+    engine.setParameter('[Channel1]', 'pregain', 0.7);
+    engine._trigger('[Channel1]', 'pregain', 0.7);
+    t.approx(c.bindings.knob0_0._lastCoValue, 0.7, 1e-9);
+});
+
+test('co-match cache: not seeded on button bind', function(t) {
+    var c = H.ctrl();
+    c._applyBinding('press0', {
+        group: '[Channel1]', inKey: 'play'
+    });
+    t.eq(c.bindings.press0._lastCoValue, undefined);
+});
+
+test('co-match cache: coMatchSample falls back to live read when undefined', function(t) {
+    engine.setParameter('[Channel1]', 'pregain', 0.4);
+    var compiled = XoneK3.compileScheme({
+        colors: [[127, 0, 0]],
+        coScheme: 'coMatch'
+    });
+    var steer = XoneK3.coMatchSample(compiled, '[Channel1]', 'pregain',
+                                      0.8, true, undefined);
+    t.ok(steer, 'live read fallback returned a steer');
+});
+
+// Regression: a knob's own write must update _lastCoValue
+// synchronously, or deviation LEDs sampling it flash a spurious
+// co-match on every MIDI event (the listener fires one event-loop
+// turn after the write, but _refreshObservers runs immediately
+// inside input()).
+test('co-match cache: synchronous after input() write', function(t) {
+    var c = H.ctrl();
+    engine.setParameter('[Channel1]', 'pregain', 0.5);
+    c._applyBinding('knob0_0', {
+        group: '[Channel1]', inKey: 'pregain'
+    });
+    // Drive the write through input() — no manual _trigger, so the
+    // listener hasn't fired yet when the assertion runs.
+    c.bindings.knob0_0.input(0, 0x10, 40, 0xB0);
+    t.approx(c.bindings.knob0_0._lastCoValue,
+             engine.getParameter('[Channel1]', 'pregain'), 1e-9,
+             '_lastCoValue matches CO immediately after input()');
 });

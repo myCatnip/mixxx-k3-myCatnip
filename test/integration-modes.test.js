@@ -80,16 +80,16 @@ test('chord pressL: no-op from focus', function(t) {
 test('mode cycle: all four transitions in sequence', function(t) {
     var c = H.bootCat();
 
-    enterChord(c); H.press(c, 'pressR'); exitChord(c);
+    enterChord(c); H.press(c, 'pressR'); H.release(c, 'pressR'); exitChord(c);
     t.ok(isActive(c, 'twoDeck'));
 
-    enterChord(c); H.press(c, 'pressL'); exitChord(c);
+    enterChord(c); H.press(c, 'pressL'); H.release(c, 'pressL'); exitChord(c);
     t.ok(isActive(c, 'twoDeckMini'));
 
-    enterChord(c); H.press(c, 'pressL'); exitChord(c);
+    enterChord(c); H.press(c, 'pressL'); H.release(c, 'pressL'); exitChord(c);
     t.ok(isActive(c, 'twoDeck'));
 
-    enterChord(c); H.press(c, 'pressR'); exitChord(c);
+    enterChord(c); H.press(c, 'pressR'); H.release(c, 'pressR'); exitChord(c);
     t.ok(isActive(c, 'topShared'));
 });
 

@@ -486,11 +486,12 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             var name = this.activePatches[i];
             var p = this.patches[name];
             if (!p) continue;
+            var active = this._patchActive(name);
             // A _noModifiers patch whose _host isn't satisfied must
             // not suppress the modifier system — it isn't visible,
             // and _hasNoModifierPatch already gates on _patchActive.
-            if (p._noModifiers && this._patchActive(name)) suppressModifiers = true;
-            if (!this._patchActive(name)) continue;
+            if (p._noModifiers && active) suppressModifiers = true;
+            if (!active) continue;
             if (name === PN.CHORD) { hasChord = true; continue; }
             if (stack.indexOf(name) === -1) stack.push(name);
         }
@@ -720,9 +721,21 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             }
         }
         if (b.group && b.outKey && (b._csOn === null || b._csOn === undefined)) {
-            b._conns.push(engine.makeConnection(b.group, b.outKey, function() {
+            b._conns.push(engine.makeConnection(b.group, b.outKey, function(v) {
+                b._lastOutKeyValue = v;
                 b._refresh();
             }));
+            // Seed the cache with a live read. Mixxx doesn't fire
+            // the listener on setup — only on change — so the first
+            // _refresh (in _applyBinding, right after _bindConns)
+            // would otherwise find the cache undefined and do a
+            // live read that never gets reused. Seeding here means
+            // the cache is valid from the first render onward.
+            try {
+                b._lastOutKeyValue = engine.getValue(b.group, b.outKey);
+            } catch (e) {
+                b._lastOutKeyValue = undefined;
+            }
         }
     };
 

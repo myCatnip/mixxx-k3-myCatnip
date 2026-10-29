@@ -61,7 +61,8 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             var seen = {};
             for (var i = 0; i < slots.length; i++) {
                 var n = slots[i];
-                if (typeof n !== 'number' || n < 1 || n > XoneK3.MIXXX_HOTCUE_LIMIT) continue;
+                if (typeof n !== 'number' || n !== Math.floor(n) ||
+                    n < 1 || n > XoneK3.MIXXX_HOTCUE_LIMIT) continue;
                 if (seen[n]) continue;
                 seen[n] = true;
                 out.push(n);
@@ -446,9 +447,24 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         this._phraseOrigin[ch] = 0;
         if (this.selectedDeckCurrent === ch) {
             this._refreshDisplayFlags();
+            var depthBefore = this._refreshAllLedsDepth;
+            // _refreshAllLeds refreshes every binding, including
+            // every beat LED. The explicit _refreshBeatLeds below
+            // would be a strict subset of that sweep.
             this._refreshAllLeds('reset-beat');
+            // Fallback if the sweep was skipped by the re-entrancy
+            // guard. Not reachable today — _resetBeat only runs from
+            // _onTrackLoaded, which runs outside sweeps — but kept
+            // for defensive correctness.
+            if (depthBefore > 0) {
+                this._refreshBeatLeds(ch);
+            }
+        } else {
+            // Non-active channel: _refreshAllLeds only sweeps when
+            // the active deck is affected. Refresh this channel's
+            // beat LEDs directly.
+            this._refreshBeatLeds(ch);
         }
-        this._refreshBeatLeds(ch);
     };
 
     XoneK3.K3Controller.prototype._repaintBeat = function(ch) {
@@ -700,10 +716,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var seen = {};
         for (var i = 0; i < slots.length; i++) {
             var n = slots[i];
-            if (typeof n !== 'number' || n < 1 || n > XoneK3.MIXXX_HOTCUE_LIMIT) {
+            if (typeof n !== 'number' || n !== Math.floor(n) ||
+                n < 1 || n > XoneK3.MIXXX_HOTCUE_LIMIT) {
                 XoneK3._warnOnce('phraseSlotRange:' + n,
-                    'PHRASE_HOTCUE_SLOTS contains ' + n + ' — Mixxx ' +
-                    'supports hotcues 1..' + XoneK3.MIXXX_HOTCUE_LIMIT +
+                    'PHRASE_HOTCUE_SLOTS contains ' + n + ' — must be ' +
+                    'an integer between 1 and ' + XoneK3.MIXXX_HOTCUE_LIMIT +
                     '. Slot skipped.');
                 continue;
             }

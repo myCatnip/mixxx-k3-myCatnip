@@ -262,6 +262,7 @@ test('hotcue916 and loopOdd both persist; only host-active is visible', function
     // Add hotcue916 in cue mode.
     enterChord(c);
     H.press(c, 'grid2_1');
+    H.release(c, 'grid2_1');
     exitChord(c);
     t.contains(c.activePatches, 'hotcue916');
     t.ok(c._patchActive('hotcue916'));
@@ -269,8 +270,10 @@ test('hotcue916 and loopOdd both persist; only host-active is visible', function
     // Switch to loop, add loopOdd. hotcue916 stays in activePatches
     // but its host ('cue') is gone.
     H.press(c, 'layer');
+    H.release(c, 'layer');
     enterChord(c);
     H.press(c, 'grid2_1');
+    H.release(c, 'grid2_1');
     exitChord(c);
 
     t.contains(c.activePatches, 'hotcue916');

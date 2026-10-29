@@ -667,3 +667,72 @@ test('bounce: release still fires captured func', function(t) {
     H.release(c, 'press0');           // log: [127, 0]
     t.eq(log, [127, 0], 'bounce skipped, real press + release logged');
 });
+
+// ── toggle-mode bounce guard ─────────────────────────────────
+
+test('bounce: toggle-mode does not double-flip on bounce', function(t) {
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'play', 0);
+    c._applyBinding('grid3_1', {
+        group: '[Channel1]', inKey: 'play', outKey: 'play_indicator'
+    });
+
+    H.press(c, 'grid3_1');
+    t.eq(engine.getValue('[Channel1]', 'play'), 1, 'first press toggles');
+
+    H.press(c, 'grid3_1');
+    t.eq(engine.getValue('[Channel1]', 'play'), 1, 'bounce does not toggle');
+});
+
+test('bounce: toggle-mode release-then-press toggles correctly', function(t) {
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'play', 0);
+    c._applyBinding('grid3_1', {
+        group: '[Channel1]', inKey: 'play', outKey: 'play_indicator'
+    });
+
+    H.press(c, 'grid3_1');
+    t.eq(engine.getValue('[Channel1]', 'play'), 1);
+    H.release(c, 'grid3_1');
+    H.press(c, 'grid3_1');
+    t.eq(engine.getValue('[Channel1]', 'play'), 0,
+        'real second press toggles back');
+});
+
+// Closes the toggle → push → toggle rebind case: the flag must
+// be cleared on release regardless of the binding's *current*
+// mode, or a mid-hold rebind to push leaves _togglePressActive
+// stuck true and the next toggle press is swallowed.
+test('bounce: toggle→push→release→toggle does not swallow next press', function(t) {
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'play', 0);
+    c._applyBinding('grid3_1', {
+        group: '[Channel1]', inKey: 'play', outKey: 'play_indicator'
+    });
+
+    // Press as toggle: flag set, CO toggled 0→1.
+    H.press(c, 'grid3_1');
+    t.eq(engine.getValue('[Channel1]', 'play'), 1);
+    t.eq(c.bindings.grid3_1._togglePressActive, true, 'flag set by toggle press');
+
+    // Rebind to push mid-hold.
+    c._applyBinding('grid3_1', {
+        group: '[Channel1]', inKey: 'play', outKey: 'play_indicator',
+        type: 'push'
+    });
+
+    // Release: push-mode _defaultInput writes 0; flag must clear.
+    H.release(c, 'grid3_1');
+    t.eq(c.bindings.grid3_1._togglePressActive, false,
+        'flag cleared on release despite push mode');
+
+    // Rebind back to toggle.
+    c._applyBinding('grid3_1', {
+        group: '[Channel1]', inKey: 'play', outKey: 'play_indicator'
+    });
+
+    // Press: must toggle normally (0→1), not be swallowed.
+    H.press(c, 'grid3_1');
+    t.eq(engine.getValue('[Channel1]', 'play'), 1,
+        'press after rebind cycle toggles normally');
+});

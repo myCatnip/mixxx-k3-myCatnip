@@ -593,10 +593,12 @@
     //
     // Caller feeds the return through _sampleRamp / _sendSampled
     // with skipBeat=true — co-match bypasses the beat cascade.
-    XoneK3.coMatchSample = function(compiled, group, key, physical, isOn) {
+    XoneK3.coMatchSample = function(compiled, group, key, physical, isOn, cachedCoVal) {
         if (!compiled || !compiled.co) return null;
         if (!group || !key) return null;
-        var coVal = engine.getParameter(group, key);
+        var coVal = (typeof cachedCoVal === 'number')
+            ? cachedCoVal
+            : engine.getParameter(group, key);
         var dev = physical - coVal;
         if (dev < -1) dev = -1;
         if (dev > 1)  dev = 1;

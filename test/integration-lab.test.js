@@ -209,6 +209,7 @@ test('beat edit toggle: grid2_3 toggles colorLabBeat', function(t) {
 
     H.press(c, 'grid2_3');
     t.ok(c._patchActive('colorLabBeat'));
+    H.release(c, 'grid2_3');
     H.press(c, 'grid2_3');
     t.notOk(c._patchActive('colorLabBeat'));
 });

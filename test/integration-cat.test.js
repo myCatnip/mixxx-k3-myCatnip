@@ -266,8 +266,10 @@ test('button0_0 toggles pfl on active deck', function(t) {
     var c = H.bootCat();
     engine._set('[Channel1]', 'pfl', 0);
     H.press(c, 'button0_0');
+    H.release(c, 'button0_0');
     t.eq(engine.getValue('[Channel1]', 'pfl'), 1);
     H.press(c, 'button0_0');
+    H.release(c, 'button0_0');
     t.eq(engine.getValue('[Channel1]', 'pfl'), 0);
 });
 
@@ -283,8 +285,10 @@ test('shift release restores base press3 binding', function(t) {
     H.press(c, 'shift');
     H.press(c, 'press3');   // sync on Channel3; activeDeck unchanged
     t.eq(c.activeDeck, 'A');
+    H.release(c, 'press3');
     H.release(c, 'shift');
     H.press(c, 'press3');   // base: setActiveDeckTo('B')
+    H.release(c, 'press3');
     t.eq(c.activeDeck, 'B');
 });
 

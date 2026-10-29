@@ -223,3 +223,58 @@ test('_phraseHotcueSlots: invalidates when array replaced', function(t) {
     XoneK3.PHRASE_HOTCUE_SLOTS = origSlots;
     freshSlotsCache();
 });
+
+// ── _validatePhraseHotcueSlots ────────────────────────────────
+
+test('_validatePhraseHotcueSlots: warns on non-array', function(t) {
+    var orig = XoneK3.PHRASE_HOTCUE_SLOTS;
+    XoneK3.PHRASE_HOTCUE_SLOTS = 'bad';
+    var c = H.ctrl();
+    c._validateBindings();
+    t.ok(XoneK3._warned['phraseSlotsShape']);
+    XoneK3.PHRASE_HOTCUE_SLOTS = orig;
+});
+
+test('_validatePhraseHotcueSlots: warns on out-of-range', function(t) {
+    var orig = XoneK3.PHRASE_HOTCUE_SLOTS;
+    XoneK3.PHRASE_HOTCUE_SLOTS = [0, 99];
+    var c = H.ctrl();
+    c._validateBindings();
+    t.ok(XoneK3._warned['phraseSlotRange:0']);
+    t.ok(XoneK3._warned['phraseSlotRange:99']);
+    XoneK3.PHRASE_HOTCUE_SLOTS = orig;
+});
+
+test('_validatePhraseHotcueSlots: warns on duplicate', function(t) {
+    var orig = XoneK3.PHRASE_HOTCUE_SLOTS;
+    XoneK3.PHRASE_HOTCUE_SLOTS = [9, 9, 10];
+    var c = H.ctrl();
+    c._validateBindings();
+    t.ok(XoneK3._warned['phraseSlotDup:9']);
+    XoneK3.PHRASE_HOTCUE_SLOTS = orig;
+});
+
+test('_validatePhraseHotcueSlots: warns on non-integer', function(t) {
+    var orig = XoneK3.PHRASE_HOTCUE_SLOTS;
+    XoneK3.PHRASE_HOTCUE_SLOTS = [9.5];
+    var c = H.ctrl();
+    c._validateBindings();
+    t.ok(XoneK3._warned['phraseSlotRange:9.5']);
+    XoneK3.PHRASE_HOTCUE_SLOTS = orig;
+});
+
+test('_phraseHotcueSlots: rejects non-integer slots', function(t) {
+    var orig = XoneK3.PHRASE_HOTCUE_SLOTS;
+    XoneK3._phraseHotcueSlotsCache = null;
+    XoneK3._phraseHotcueSlotsCacheSrc = null;
+    XoneK3.PHRASE_HOTCUE_SLOTS = [9.5, 10, 11];
+
+    var slots = XoneK3._phraseHotcueSlots();
+    t.eq(slots.length, 2, '9.5 rejected');
+    t.contains(slots, 10);
+    t.contains(slots, 11);
+
+    XoneK3.PHRASE_HOTCUE_SLOTS = orig;
+    XoneK3._phraseHotcueSlotsCache = null;
+    XoneK3._phraseHotcueSlotsCacheSrc = null;
+});

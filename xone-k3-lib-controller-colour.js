@@ -107,9 +107,19 @@
 
     XoneK3.K3Controller.prototype._wireCsOnConnection = function(b, o) {
         if (!o.co || !o.group) return;
-        b._conns.push(engine.makeConnection(o.group, o.co, function() {
+        b._conns.push(engine.makeConnection(o.group, o.co, function(v) {
+            o.cachedValue = v;
             b._refresh();
         }));
+        // Seed the cache with a live read. Mixxx doesn't fire the
+        // listener on setup — only on change — so the first
+        // _refresh would otherwise find the cache undefined and do
+        // a live read that never gets reused.
+        try {
+            o.cachedValue = engine.getValue(o.group, o.co);
+        } catch (e) {
+            o.cachedValue = undefined;
+        }
     };
 
     // ============================================================
@@ -254,14 +264,29 @@
 
         if (sd.co && sd.group) {
             b._csFromStateConn = engine.makeConnection(sd.group, sd.co,
-                function() { b._refresh(); });
+                function(v) {
+                    sd.cachedValue = v;
+                    b._refresh();
+                });
+            // Seed the cache with a live read — see
+            // _wireCsOnConnection for the rationale.
+            try {
+                sd.cachedValue = engine.getValue(sd.group, sd.co);
+            } catch (e) {
+                sd.cachedValue = undefined;
+            }
         }
 
         var ctrl = this;
         return function() {
             var stateVal;
-            if (sd.co) stateVal = engine.getValue(sd.group, sd.co);
-            else       stateVal = XoneK3.readPath(ctrl, sd.state);
+            if (sd.co) {
+                stateVal = sd.cachedValue !== undefined
+                    ? sd.cachedValue
+                    : engine.getValue(sd.group, sd.co);
+            } else {
+                stateVal = XoneK3.readPath(ctrl, sd.state);
+            }
 
             var entryRef;
             if (sd.map) {

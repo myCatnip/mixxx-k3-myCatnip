@@ -287,7 +287,9 @@ pre-instantiated CO range includes intro/outro markers, so 32 is
 the usable count). Duplicates and out-of-range entries are
 dropped with a warn-once at boot. The hotcues stored in those
 slots (colour, position) update live via observers — only the
-slot *range* is fixed.
+slot *range* is fixed. Non-integer entries (e.g. `9.5`) are
+dropped for the same reason as out-of-range ones: no CO exists
+at that index, so nothing to read.
 
 Put a hotcue at the phrase-start beat in one of those slots, set
 its colour to red (`0xC50A08`). The origin derives on the next
