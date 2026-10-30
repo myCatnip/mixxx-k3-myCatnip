@@ -109,10 +109,10 @@ Cell colours:
 2        white      (co)
 3        soft blue  (co-off)
 4..11    yellow     (saves)
-12       green      (source bake)
-13       blue       (structural bake)
-14       cyan       (sampled bake)
-15       magenta    (wire bake)
+12       blue       (structural bake)
+13       cyan       (baked + interp)
+14       magenta    (baked, snapped)
+15       orange     (export)
 
 previewed   bright
 populated   dim
@@ -360,10 +360,35 @@ save to them by hand.
 
 | Slot | Contents | Rewrites on |
 |---|---|---|
-| 12 source | Verbatim clone of the preview. | preview change |
-| 13 structural | One stop per segment. Lossless. | preview change |
-| 14 sampled | 23 equal-spaced stops. | preview change |
-| 15 wire | 23 stops, hardware-solved. | preview change |
+| 12 structural | Source stops, everything live. | preview change |
+| 13 baked+interp | Source stops, calibration bisected into brightness, interp forced `true`. | preview change |
+| 14 baked | Same as 13, interp forced `false`. | preview change |
+| 15 export | Same as 13, white balance baked into rgb, interp from source. | preview change |
+
+All four preserve the source stop count. Each is a *static
+image* of the ramp at bake time; reloading applies the same
+render stages the source did, except where the stage has been
+frozen into the stops.
+
+### Where each render stage runs
+
+| Stage | 12 structural | 13 baked+interp | 14 baked | 15 export |
+|---|---|---|---|---|
+| Stops count | source | source | source | source |
+| Stop rgb | source | source | source | **wb applied** |
+| Stop brightness | source | **bisected** | **bisected** | **bisected** |
+| `curve` warp | live on reload | live on reload | live on reload | live on reload |
+| `schemePosition` | live on reload | live on reload | live on reload | live on reload |
+| `interp` | live, from source | live, forced `true` | live, forced `false` | live, from source |
+| Calibration (flat-target bisect) | live on reload | baked | baked | baked |
+| `brightnessScale` | live on reload | baked into bisect | baked into bisect | baked into bisect |
+| White balance | live at send | live at send | live at send | baked into rgb |
+
+- **live on reload** — value is still a field on the emitted
+  scheme; the runtime applies that stage again.
+- **baked** — value was applied at bake time; the corresponding
+  field is absent (or forced off) on the emitted scheme.
+- **live, forced X** — field is on the emitted scheme, set to X.
 
 ### What each bake keeps
 
@@ -371,19 +396,24 @@ Fields are either **kept** (still in the emitted scheme, still
 runtime-controlled), **baked** (already in the stops, no longer a
 field), or **dropped** (not needed on reload).
 
-| Field | Lab control | structural | sampled | wire |
-|---|---|---|---|---|
-| stops | segment cells | per segment | 23 equal | 23 + hw |
-| `ratio` | press2 + knobs | kept | baked | dropped |
-| `curve` | shift+enc0 | kept | baked | baked |
-| `schemePosition` | knob2_0 | kept | baked | baked |
-| `brightness` | enc3 / shift+enc1 | kept | kept | baked |
-| `brightnessScale` | shift+enc2 | kept | kept | baked |
-| `calibration` | press1 | kept | kept | forced off |
-| `interp` | press3 | kept | kept | kept |
-| marker | grid3_3 + knob1_0 + encL | kept | kept | kept |
-| `offScheme`, `coScheme` | — | kept | kept | kept |
-| `beat` | grid2_3 | kept | kept | kept |
+| Field | Lab control | structural | baked+interp | baked | export |
+|---|---|---|---|---|---|
+| stops | segment cells | source | source | source | source |
+| `ratio` | press2 + knobs | live | live | live | live |
+| `curve` | shift+enc0 | live | live | live | live |
+| `schemePosition` | knob2_0 | live | live | live | live |
+| stop brightness | enc3 / shift+enc1 | source | solved | solved | solved |
+| `brightnessScale` | shift+enc2 | live | baked | baked | baked |
+| `calibration` | press1 | live | forced off | forced off | forced off |
+| `interp` | press3 | live (source) | forced `true` | forced `false` | live (source) |
+| white balance | boot config | live | live | live | baked into rgb |
+| marker | grid3_3 + knob1_0 + encL | live | live | live | live |
+| `offScheme`, `coScheme` | — | live | live | live | live |
+| `beat` | grid2_3 | live | live | live | live |
+
+**live** = still a field on the scheme, applied at reload.
+**baked** = value frozen into stop data, field absent or forced.
+**solved** = brightness replaced by the calibration bisect.
 
 **Baked** means the value is worked into the stop positions or
 brightness — on reload nothing re-applies it. **Kept** means it
@@ -391,14 +421,19 @@ stays as a field and the runtime re-applies it live.
 
 ### Preview vs hardware
 
-For structural and sampled, calibration stays on — the preview
-and the hardware both re-solve brightness at render time. They
-match only if the calibration tuning hasn't changed between
-preview and reload.
+Structural keeps calibration live: preview and hardware both
+re-solve brightness at render. They match only if the calibration
+tuning hasn't changed between preview and reload.
 
-For wire, calibration is off. The solve is frozen into each
-stop's brightness. Preview matches hardware exactly, regardless
-of tuning. Wire is the "what I see is what I get" slot.
+Baked+interp / baked freeze the calibration solve into stop
+brightness. Reload sends those exact brightness values with
+`calibration: false`. Preview matches hardware exactly,
+regardless of tuning.
+
+Export additionally freezes white balance into rgb. Preview
+matches hardware for any tuning and any wb setting — but
+reloading in this runtime double-applies wb (the baked rgb is
+already wb-scaled). Export is for external raw-sysex use only.
 
 ### Field notes
 
@@ -409,7 +444,8 @@ of tuning. Wire is the "what I see is what I get" slot.
   Default 127.
 - `brightnessScale` — multiplier on the calibration target.
   Rarely needed.
-- `interp` — true blends between stops, false snaps.
+- `interp` — true blends between stops, false snaps. Baked+interp
+  and baked override this field.
 - `ratio` — per-stop weight. Editing turns it on; off resets to
   equal weights.
 

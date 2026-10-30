@@ -55,7 +55,10 @@
     XoneK3.LAB_SLOT = {
         ON: 0, OFF: 1, CO: 2, CO_OFF: 3,
         SAVE_START: 4, SAVE_END: 11,
-        SOURCE: 12, STRUCTURAL: 13, SAMPLED: 14, WIRE: 15
+        STRUCTURAL:   12,
+        BAKED_INTERP: 13,
+        BAKED:        14,
+        EXPORT:       15
     };
 
     // Slot-grid cell colours, keyed by LAB_SLOT index.
@@ -64,10 +67,10 @@
     XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.OFF]        = [127, 0, 0];
     XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.CO]         = [127, 127, 127];
     XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.CO_OFF]     = [60, 60, 127];
-    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.SOURCE]     = [0, 127, 0];
-    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.STRUCTURAL] = [0, 0, 127];
-    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.SAMPLED]    = [0, 127, 127];
-    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.WIRE]       = [127, 0, 127];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.STRUCTURAL]   = [0, 0, 127];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.BAKED_INTERP] = [0, 127, 127];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.BAKED]        = [127, 0, 127];
+    XoneK3.LAB_SLOT_COLOURS[XoneK3.LAB_SLOT.EXPORT]       = [127, 40, 0];
 
     // Segment-grid cell names, in segment-index order. The
     // renderer paints CALIB_TARGETS[i] with compiled segment i —
@@ -201,6 +204,20 @@
     // ============================================================
     // BAKE
     // ============================================================
+    // Bake levels:
+    //   'structural'   — source stops, calibration live on reload.
+    //                    curve / schemePosition / ratio /
+    //                    brightnessScale kept as fields. Editable
+    //                    after paste.
+    //   'bakedInterp'  — source stops, calibration bisected into
+    //                    brightness at bake time. interp forced
+    //                    true. Reloads here with calibration off;
+    //                    curve / schemePosition / ratio live.
+    //   'baked'        — same, interp forced false.
+    //   'export'       — same, plus white balance baked into rgb.
+    //                    calibration off, brightnessScale absent.
+    //                    Reloading here double-applies wb — for
+    //                    external raw-sysex hand-off only.
     XoneK3.bakeScheme = function(ref, ctrl, level) {
         var raw = XoneK3.resolveScheme(ref);
         if (!raw || !raw.colors) return null;
@@ -208,32 +225,38 @@
         if (!compiled) return null;
         var segs = compiled.on;
 
-        var newColors;
-        if (level === 'structural') {
-            newColors = segs.map(function(s) {
-                return [s.color.rgb[0], s.color.rgb[1], s.color.rgb[2], s.color.brightness];
-            });
-        } else {
-            var N = 23;
-            newColors = [];
-            var flatTarget = null;
-            if (level === 'wire' && raw.calibration && ctrl && ctrl.calibrationMode !== 'off') {
-                flatTarget = ctrl._flatTarget(segs);
-                flatTarget = XoneK3.scaleTarget(flatTarget, raw.brightnessScale);
-            }
-            for (var i = 0; i < N; i++) {
-                var t = i / (N - 1);
-                var tw = XoneK3.sampleT(compiled, t);
-                var entry = XoneK3.sampleSegs(segs, tw, true);
-                if (!entry) continue;
-                var rgb = entry.rgb.slice();
-                var br = entry.brightness;
-                if (flatTarget !== null && (rgb[0] > 0 || rgb[1] > 0 || rgb[2] > 0)) {
-                    br = ctrl._calibratedHw(rgb, flatTarget);
-                }
-                newColors.push([rgb[0], rgb[1], rgb[2], br]);
-            }
+        var bakeCal = (level === 'bakedInterp' || level === 'baked' ||
+                       level === 'export');
+        var bakeWb  = (level === 'export');
+
+        // Flat-target reference used by the bisect. Computed once
+        // per bake. Skip when the source has calibration off or
+        // the controller has no calibration pipeline.
+        var flatTarget = null;
+        if (bakeCal && raw.calibration &&
+            ctrl && ctrl.calibrationMode !== 'off') {
+            flatTarget = ctrl._flatTarget(segs);
+            flatTarget = XoneK3.scaleTarget(flatTarget, raw.brightnessScale);
         }
+
+        var wb = (bakeWb && ctrl && ctrl.wbActive &&
+                  ctrl.wbGain && ctrl.wbGain.length >= 3)
+                 ? ctrl.wbGain : null;
+
+        var newColors = segs.map(function(s) {
+            var rgb = [s.color.rgb[0], s.color.rgb[1], s.color.rgb[2]];
+            var br  = s.color.brightness;
+            if (flatTarget !== null &&
+                (rgb[0] > 0 || rgb[1] > 0 || rgb[2] > 0)) {
+                br = ctrl._calibratedHw(rgb, flatTarget);
+            }
+            if (wb) {
+                rgb[0] = Math.max(0, Math.min(127, Math.round(rgb[0] * wb[0])));
+                rgb[1] = Math.max(0, Math.min(127, Math.round(rgb[1] * wb[1])));
+                rgb[2] = Math.max(0, Math.min(127, Math.round(rgb[2] * wb[2])));
+            }
+            return [rgb[0], rgb[1], rgb[2], br];
+        });
 
         var out = {
             colors: newColors,
@@ -247,19 +270,26 @@
             reverse: raw.reverse,
             beat: raw.beat
         };
-        if (level !== 'wire' && typeof raw.brightnessScale === 'number' && raw.brightnessScale !== 1) {
+
+        if (level === 'bakedInterp') out.interp = true;
+        if (level === 'baked')       out.interp = false;
+
+        if (level === 'structural' &&
+            typeof raw.brightnessScale === 'number' &&
+            raw.brightnessScale !== 1) {
             out.brightnessScale = raw.brightnessScale;
         }
-        if (level === 'wire') out.calibration = false;
+        if (bakeCal) out.calibration = false;
 
-        if (level === 'structural') {
-            out.ratio = segs.map(function(s) { return s.end - s.start; });
-            if (typeof raw.schemePosition === 'number' && raw.schemePosition !== 63.5) {
-                out.schemePosition = raw.schemePosition;
-            }
-            if (typeof raw.curve === 'number' && raw.curve !== 0) {
-                out.curve = raw.curve;
-            }
+        // curve / schemePosition / ratio stay as fields on every
+        // level — stop count is preserved, so they have to live
+        // on the scheme.
+        out.ratio = segs.map(function(s) { return s.end - s.start; });
+        if (typeof raw.schemePosition === 'number' && raw.schemePosition !== 63.5) {
+            out.schemePosition = raw.schemePosition;
+        }
+        if (typeof raw.curve === 'number' && raw.curve !== 0) {
+            out.curve = raw.curve;
         }
 
         return out;
@@ -404,7 +434,10 @@
         var s = this._lab.previewSource;
         if (s === 'edit') return 'edit';
         if (typeof s === 'number') {
-            if (s >= XoneK3.LAB_SLOT.SOURCE) return 'bake' + (s - XoneK3.LAB_SLOT.SOURCE);
+            if (s === XoneK3.LAB_SLOT.STRUCTURAL)   return 'structural';
+            if (s === XoneK3.LAB_SLOT.BAKED_INTERP) return 'baked+interp';
+            if (s === XoneK3.LAB_SLOT.BAKED)        return 'baked';
+            if (s === XoneK3.LAB_SLOT.EXPORT)       return 'export';
             return 'slot' + s;
         }
         return s;
@@ -425,10 +458,10 @@
         var preview = this._previewScheme();
         if (!preview) return;
         var S = XoneK3.LAB_SLOT;
-        this._lab.slots[S.SOURCE]     = this._cloneScheme(XoneK3.resolveScheme(preview));
-        this._lab.slots[S.STRUCTURAL] = XoneK3.bakeScheme(preview, this, 'structural');
-        this._lab.slots[S.SAMPLED]    = XoneK3.bakeScheme(preview, this, 'sampled');
-        this._lab.slots[S.WIRE]       = XoneK3.bakeScheme(preview, this, 'wire');
+        this._lab.slots[S.STRUCTURAL]   = XoneK3.bakeScheme(preview, this, 'structural');
+        this._lab.slots[S.BAKED_INTERP] = XoneK3.bakeScheme(preview, this, 'bakedInterp');
+        this._lab.slots[S.BAKED]        = XoneK3.bakeScheme(preview, this, 'baked');
+        this._lab.slots[S.EXPORT]       = XoneK3.bakeScheme(preview, this, 'export');
     };
 
     // ============================================================

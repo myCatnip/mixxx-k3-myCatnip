@@ -176,7 +176,10 @@ test('_setPreview: sets source and flag, runs auto-bake', function(t) {
     c._setPreview(5, 'slot5');
     t.eq(c._lab.previewSource, 5);
     t.eq(c._lab.previewing, true);
-    t.ok(c._lab.slots[XoneK3.LAB_SLOT.SOURCE]);
+    t.ok(c._lab.slots[XoneK3.LAB_SLOT.STRUCTURAL]);
+    t.ok(c._lab.slots[XoneK3.LAB_SLOT.BAKED_INTERP]);
+    t.ok(c._lab.slots[XoneK3.LAB_SLOT.BAKED]);
+    t.ok(c._lab.slots[XoneK3.LAB_SLOT.EXPORT]);
 });
 
 // ── _editSegmentTarget: no auto-trim ───────────────────────
@@ -411,10 +414,10 @@ test('_applyAutoBake: fills slots 12-15', function(t) {
     c._lab.previewSource = 'edit';
     c._applyAutoBake();
     var S = XoneK3.LAB_SLOT;
-    t.ok(c._lab.slots[S.SOURCE]);
     t.ok(c._lab.slots[S.STRUCTURAL]);
-    t.ok(c._lab.slots[S.SAMPLED]);
-    t.ok(c._lab.slots[S.WIRE]);
+    t.ok(c._lab.slots[S.BAKED_INTERP]);
+    t.ok(c._lab.slots[S.BAKED]);
+    t.ok(c._lab.slots[S.EXPORT]);
 });
 
 test('_applyAutoBake: skips bake slots', function(t) {
@@ -427,10 +430,10 @@ test('_applyAutoBake: skips bake slots', function(t) {
 
 test('_applyAutoBake: skips registry names', function(t) {
     var c = setupLab();
-    var before = c._lab.slots[XoneK3.LAB_SLOT.SOURCE];
+    var before = c._lab.slots[XoneK3.LAB_SLOT.STRUCTURAL];
     c._lab.previewSource = 'coMatch';
     c._applyAutoBake();
-    t.eq(c._lab.slots[XoneK3.LAB_SLOT.SOURCE], before);
+    t.eq(c._lab.slots[XoneK3.LAB_SLOT.STRUCTURAL], before);
 });
 
 // ── _selectSlot ────────────────────────────────────────────
@@ -627,10 +630,14 @@ test('_previewLabel: slot N', function(t) {
 
 test('_previewLabel: bake slots 12-15', function(t) {
     var c = setupLab();
-    c._lab.previewSource = XoneK3.LAB_SLOT.SOURCE;
-    t.eq(c._previewLabel(), 'bake0');
-    c._lab.previewSource = XoneK3.LAB_SLOT.WIRE;
-    t.eq(c._previewLabel(), 'bake3');
+    c._lab.previewSource = XoneK3.LAB_SLOT.STRUCTURAL;
+    t.eq(c._previewLabel(), 'structural');
+    c._lab.previewSource = XoneK3.LAB_SLOT.BAKED_INTERP;
+    t.eq(c._previewLabel(), 'baked+interp');
+    c._lab.previewSource = XoneK3.LAB_SLOT.BAKED;
+    t.eq(c._previewLabel(), 'baked');
+    c._lab.previewSource = XoneK3.LAB_SLOT.EXPORT;
+    t.eq(c._previewLabel(), 'export');
 });
 
 test('_previewLabel: registry name', function(t) {

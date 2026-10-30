@@ -708,10 +708,10 @@ Cell colours:
   2     white        (co)
   3     soft blue    (co-off)
   4-11  yellow       (saves)
-  12    green        (source bake)
-  13    blue         (structural bake)
-  14    cyan         (sampled bake)
-  15    magenta      (wire bake)
+  12    blue         (structural bake)
+  13    cyan         (baked + interp)
+  14    magenta      (baked, snapped)
+  15    orange       (export)
 
 Empty: dark. Populated: dim. Currently previewed: bright.
 
@@ -723,21 +723,29 @@ scheme is currently previewed, at four fidelity levels:
 
 | Slot | What it is |
 |---|---|
-| 12 | Raw copy of the preview, untouched |
-| 13 | One stop per segment — lossless |
-| 14 | 23 evenly-spaced stops; `curve` and `schemePosition` baked into the sample positions |
-| 15 | Same 23 stops, plus the calibration solve pre-computed into each stop's brightness |
+| 12 | Source stops, everything live — still editable |
+| 13 | Source stops, brightness pre-solved, interp forced smooth |
+| 14 | Source stops, brightness pre-solved, interp forced snapped |
+| 15 | Source stops, brightness pre-solved, white balance baked into rgb — export only |
+
+All four keep the source stop count and the source's
+`curve` / `schemePosition` / `ratio` as live fields. The
+difference is what's been frozen into the stops.
 
 Which one to paste:
 
-- **Slot 15 (wire)** — paste and forget. Looks identical on
-  hardware, regardless of what the calibration tuning is when
-  the preset loads. Best for shipping.
-- **Slot 13 (structural)** — same number of stops as your edit
-  buffer. Keeps `ratio`, `curve`, `schemePosition` live as
-  fields, so you can keep editing after paste.
-- **Slot 12 (source)** — the raw object. Hand-tweak colours
-  directly in `xone-k3-cat-schemes.js`.
+- **12 structural** — same stop count as your edit buffer,
+  everything still live and re-solvable. Use this when you want
+  to keep editing after paste.
+- **13 baked+interp** — same stops, brightness pre-solved, interp
+  forced smooth. Paste and forget for this runtime.
+- **14 baked** — same stops, brightness pre-solved, interp forced
+  snapped. Paste and forget for this runtime when you want
+  discrete bands.
+- **15 export** — same stops, brightness pre-solved, white
+  balance baked in. Hand-off to a foreign script or machine that
+  sends rgb + brightness directly. Reloading here double-applies
+  wb — don't ship export as a runtime scheme.
 
 Full matrix of what each level keeps vs bakes: `LAB.md` §Slots
 and bakes.
