@@ -47,7 +47,7 @@
                 scheme: function() {
                     var ctrl = this._ctrl;
                     if (!ctrl) return 'off';
-                    return XoneK3.THEME[themeMap][ctrl[selProp]];
+                    return CAT.themeScheme(themeMap, ctrl[selProp]);
                 },
                 on: { state: activeState, equals: which }
             }

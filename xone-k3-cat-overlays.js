@@ -33,7 +33,7 @@
         return {
             func: F.k3Select, args: ['deck', slot, n],
             colorScheme: {
-                scheme: function() { return XoneK3.THEME.deck[n]; },
+                scheme: function() { return CAT.themeScheme('deck', n); },
                 on: { state: 'selectedDeck' + slot, equals: n }
             }
         };
@@ -43,7 +43,7 @@
         return {
             func: F.k3Select, args: ['fx', slot, n],
             colorScheme: {
-                scheme: function() { return XoneK3.THEME.fx[n]; },
+                scheme: function() { return CAT.themeScheme('fx', n); },
                 on: { state: 'selectedFx' + slot, equals: n }
             }
         };

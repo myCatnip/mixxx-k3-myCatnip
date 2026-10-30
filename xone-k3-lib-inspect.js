@@ -417,12 +417,14 @@
         if (onThrew) return '_isOn() threw: ' + onThrew;
 
         if (isOn === 0) {
+            // Order matches _evalCsOn's priority: patchActive →
+            // co → state, then bare outKey when _csOn is null.
             if (b._csOn === false) return 'on: false — LED is intentionally off-ramp.';
-            if (b.outKey) return 'outKey "' + b.outKey + '" reads 0 — logicalOn is 0, LED is off.';
-            if (b._csOn && b._csOn.state) return 'on.state "' + b._csOn.state + '" is falsy.';
-            if (b._csOn && b._csOn.co)    return 'on.co "' + b._csOn.co + '" reads 0.';
             if (b._csOn && b._csOn.patchActive)
                 return 'none of on.patchActive are active.';
+            if (b._csOn && b._csOn.co)    return 'on.co "' + b._csOn.co + '" reads 0.';
+            if (b._csOn && b._csOn.state) return 'on.state "' + b._csOn.state + '" is falsy.';
+            if (b.outKey) return 'outKey "' + b.outKey + '" reads 0 — logicalOn is 0, LED is off.';
             return 'logicalOn is 0 with no obvious on/off source.';
         }
 

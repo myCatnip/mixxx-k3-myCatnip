@@ -284,6 +284,16 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         if (this.type === 'button' && !isPush) {
             if (v > 0) {
                 if (this._togglePressActive) return;
+                // A transaction captured by an earlier push-mode
+                // press is still active. The press was captured
+                // as push, then a rebind moved the binding to
+                // toggle mid-hold. Without this check, a bounce
+                // would slip past the push-mode guard (isPush is
+                // the CURRENT mode) and dispatch the captured
+                // push func a second time. The real release still
+                // dispatches through _dispatchCapturedRelease
+                // (that path doesn't consult _togglePressActive).
+                if (this._transaction.active) return;
                 this._togglePressActive = true;
             }
         }
@@ -293,10 +303,22 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         // handler — Mixxx logs it or crashes depending on version,
         // and the observer repaint below is skipped so LED state
         // diverges until the next input.
+        //
+        // Read from _transaction (when active) instead of this._func,
+        // so a modifier-driven patch swap inside _onBindingPress
+        // doesn't route the press through the new binding's func
+        // while the release (via _dispatchCapturedRelease) fires
+        // the old one. _captureTransaction copies from this._func,
+        // so when no swap happened the two are identical.
         try {
-            var fn = this._func;
-            if (fn) fn.call(this, this._funcArgs, ch, cc, v, s);
-            else    this._defaultInput(v, s);
+            var dispatchFn   = this._transaction.active
+                ? this._transaction.func
+                : this._func;
+            var dispatchArgs = this._transaction.active
+                ? this._transaction.funcArgs
+                : this._funcArgs;
+            if (dispatchFn) dispatchFn.call(this, dispatchArgs, ch, cc, v, s);
+            else            this._defaultInput(v, s);
         } catch (e) {
             XoneK3._warnOnce('inputThrow:' + this._name,
                 'binding func threw on ' + this._name + ': ' +

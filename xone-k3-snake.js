@@ -2,8 +2,12 @@
 //          it exits on entry and snake runs standalone.
 // Start:   stationary until SHIFT is pressed (amber LED on shift
 //          = "press to begin"). Pressing shift again turns right.
-// Exit:    press2 always exits. When the game is over, ANY button
-//          press also exits — playfield cells, layer, shift, press2.
+// Exit:    press2 always exits. Every other non-control button —
+//          i.e. anything except layer and shift — also exits on
+//          press, immediately, in any pre-dead state. Fast-out
+//          for accidental entry. layer and shift stay as game
+//          controls during play; when the game is dead/won they
+//          exit too (press-any-key pattern).
 // Turn:    layer = 90° CCW (left), shift = 90° CW (right).
 // Playfield: every LED except layer (idx 28) and shift (idx 29).
 // 32 cells in 4 columns × 8 rows, bottom-to-top:
@@ -317,27 +321,42 @@
         if (!ctrl._snake) return;
         if (ctrl._snake.paintTimer) engine.stopTimer(ctrl._snake.paintTimer);
         if (ctrl._snake.timer)      engine.stopTimer(ctrl._snake.timer);
+
+        // Null _snake BEFORE the batch so CHORD.press2's
+        // `on: { state: '_snake' }` reads false during the
+        // recompute inside _batchPatches — otherwise the LED
+        // stays lit until the next input event. Restore on throw
+        // so a failed batch leaves a retryable state.
+        var savedSnake = ctrl._snake;
         ctrl._snake = null;
 
-        // Remove snake; if chord's modifier state has gone false
-        // while snake was running (user released shift/layer
-        // mid-game), remove chord in the same batch to avoid a
-        // one-frame flash of chord on the recompute.
-        ctrl._batchPatches(function(patches) {
-            var si = patches.indexOf('snake');
-            if (si !== -1) patches.splice(si, 1);
-            if (!ctrl.modifiers.chord) {
-                var ci = patches.indexOf('chord');
-                if (ci !== -1) patches.splice(ci, 1);
-            }
-        });
+        try {
+            ctrl._batchPatches(function(patches) {
+                var si = patches.indexOf('snake');
+                if (si !== -1) patches.splice(si, 1);
+                if (!ctrl.modifiers.chord) {
+                    var ci = patches.indexOf('chord');
+                    if (ci !== -1) patches.splice(ci, 1);
+                }
+            });
+        } catch (e) {
+            ctrl._snake = savedSnake;
+            throw e;
+        }
     };
 
+    // Any playfield button exits — not just press2. layer and
+    // shift are excluded (they're game controls via snakeTurn /
+    // snakeControl); every other cell routes here. Triggered
+    // regardless of dead/won state so accidental chord + press2
+    // entries can be aborted with a single tap. When the game is
+    // dead/won, layer/shift also exit through their own dead-checks
+    // in snakeTurn / snakeControl.
     F.snakePressAny = function(args, ch, c, v, s) {
         if (!this._ctrl._isPress(v, s)) return;
         var ctrl = this._ctrl;
         if (!ctrl._snake) return;
-        if (ctrl._snake.dead || ctrl._snake.won) F.snakeExit.call(this, args, ch, c, v, s);
+        F.snakeExit.call(this, args, ch, c, v, s);
     };
 
     F.snakeControl = function(args, ch, c, v, s) {

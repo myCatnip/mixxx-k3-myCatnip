@@ -237,6 +237,30 @@
         return composed;
     }
 
+    // Content-keyed raw THEME lookup. Emitters that hand the THEME
+    // value straight to the binding as a colour spec (slipScheme,
+    // activeSlotButton, deckSelect, fxSelect, FX_COLOR_MAP) would
+    // otherwise return the same array reference after an in-place
+    // mutation (THEME.deck[3][0] = 100), so the binding's
+    // ref-identity memo (_evaluateScheme) would skip recompile and
+    // leave the LED stale. Content-keying returns a fresh slice per
+    // content change, matching what fxScheme already does for
+    // composed FX schemes.
+    var _themeSchemeCache = { deck: {}, fx: {} };
+    var _themeSchemeKey   = { deck: {}, fx: {} };
+    function themeScheme(kind, n) {
+        var entry = XoneK3.THEME[kind][n];
+        if (typeof entry === 'string') return entry;
+        if (!Array.isArray(entry)) return entry;
+        var key = entry.join('|');
+        if (_themeSchemeKey[kind][n] === key && _themeSchemeCache[kind][n]) {
+            return _themeSchemeCache[kind][n];
+        }
+        _themeSchemeCache[kind][n] = entry.slice();
+        _themeSchemeKey[kind][n]   = key;
+        return _themeSchemeCache[kind][n];
+    }
+
     // Deferred map — entries are functions, not baked values. The
     // desugared schemeFromState closure calls them per render, so a
     // THEME mutation lands on the next repaint.
@@ -249,7 +273,7 @@
     }
 
     var FX_SCHEME_MAP = _deferredMap(fxScheme);
-    var FX_COLOR_MAP  = _deferredMap(function(n) { return XoneK3.THEME.fx[n]; });
+    var FX_COLOR_MAP  = _deferredMap(function(n) { return themeScheme('fx', n); });
 
     // No base scheme — the schemeFromState closure is the whole
     // scheme, drawn from the deferred map above.
@@ -362,10 +386,10 @@
             schemeFromState: {
                 state: 'selectedDeckCurrent',
                 map: {
-                    1: function() { return XoneK3.THEME.deck[1]; },
-                    2: function() { return XoneK3.THEME.deck[2]; },
-                    3: function() { return XoneK3.THEME.deck[3]; },
-                    4: function() { return XoneK3.THEME.deck[4]; }
+                    1: function() { return themeScheme('deck', 1); },
+                    2: function() { return themeScheme('deck', 2); },
+                    3: function() { return themeScheme('deck', 3); },
+                    4: function() { return themeScheme('deck', 4); }
                 }
             }
         };
@@ -385,6 +409,7 @@
     // EXPORTS
     // ============================================================
     CAT.fxScheme = fxScheme;
+    CAT.themeScheme = themeScheme;
     CAT.fxSchemeFor = fxSchemeFor;
     CAT.FX_SCHEME_MAP = FX_SCHEME_MAP;
     CAT.FX_COLOR_MAP = FX_COLOR_MAP;

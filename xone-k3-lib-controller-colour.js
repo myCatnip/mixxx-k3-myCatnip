@@ -84,14 +84,13 @@
                 'comparators are ignored when patchActive is the source');
         }
 
-        // Connection is created before b._csOn is assigned. Mixxx
-        // defers the CO callback to the next event-loop iteration,
-        // so _refresh() won't fire until b._csOn === o. If that
-        // ever changed, the immediate fire would read _csOn === null
-        // and fall through to the outKey branch in _isOn.
-        this._wireCsOnConnection(b, o);
-
+        // Assign _csOn before wiring. Mixxx currently defers the
+        // CO callback, so the order didn't matter in practice, but
+        // a synchronous fire (future Mixxx, test mock) would read
+        // _csOn === null and fall through to the outKey branch in
+        // _isOn. Ordering costs nothing.
         b._csOn = o;
+        this._wireCsOnConnection(b, o);
     };
 
     XoneK3.K3Controller.prototype._warnUnknownCsOnFields = function(b, csOn) {

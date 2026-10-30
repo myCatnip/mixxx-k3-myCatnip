@@ -1363,7 +1363,7 @@
         var ctrl = this._ctrl;
         var scheme = ctrl._commitPreview();
         if (!scheme) return;
-        if (ctrl.isShifted) {
+        if (ctrl.modifiers.shift) {
             scheme.markerColor = null;
             scheme.markerWidth = 0;
             XoneK3.debugPrint('labMarkerClear');

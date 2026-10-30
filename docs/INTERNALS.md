@@ -695,8 +695,8 @@ undefined until the first tick.
 
 ## Clock connections
 
-Nine per channel — one on `_beatConns` (`beat_active`) and eight
-on `_playConns` — wired in `_openChannelBeatClocks`:
+Twelve per channel — one on `_beatConns` (`beat_active`) and
+eleven on `_playConns` — wired in `_openChannelBeatClocks`:
 
 | Array | CO | Effect |
 |---|---|---|
@@ -706,9 +706,19 @@ on `_playConns` — wired in `_openChannelBeatClocks`:
 | `_playConns` | `track_loaded` | Clears `_trackMetaCache`, resets beat state. |
 | `_playConns` | `loop_enabled` | Starts / stops loop clock. |
 | `_playConns` | `slip_enabled` | Count resync. |
-| `_playConns` | `track_samples` | Track identity changed. |
 | `_playConns` | `rate_ratio` | Updates `_rateCache[ch]`. |
 | `_playConns` | `reverse` | Updates `_reverseCache[ch]`. |
+| `_playConns` | `track_samples` | Track identity changed; invalidates meta and re-seeds hotcues. |
+| `_playConns` | `outro_end_position` | Invalidates `_trackMetaCache`. No repaint (drag fires at UI rate). |
+| `_playConns` | `duration` | Clears meta, restarts settle window, refreshes beat LEDs. |
+| `_playConns` | `file_bpm` | Clears meta, restarts settle window, refreshes beat LEDs. |
+
+`track_samples` fires when a new track replaces the current one
+and when the outgoing track unloads. `duration` and `file_bpm`
+fire *after* `track_samples` on swap — they're what corrects the
+cache once the new metadata has landed. The settle window
+(`META_SETTLE_MS`) spans the last metadata-relevant fire
+regardless of which one it was.
 
 Plus hotcue colour / position observers when
 `PHRASE_MARKER_COLORS` is non-empty — two observers per slot in
