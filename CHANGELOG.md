@@ -6,6 +6,56 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [v1.0.7] — 2026-10-31
+
+Chord + overlay LED fix. Config-only change; runtime untouched.
+No .midi.xml changes.
+
+## Bug fix
+
+**Slip button stayed slip-coloured while an overlay was
+active under chord.** `CHORD.grid2_1` had no `colorScheme`,
+no `group`, no `outKey` — the binding's `_refresh` fell
+through every branch and sent nothing, so the LED kept the
+pre-chord frame (the slip colour) until shift or layer was
+released. Chord is pushed last in `_buildStack`, so it
+shadowed the overlay's own `grid2_1` — which has the correct
+colour and CO. User-visible: with fxRouting or selectAB open
+under chord, `grid2_1` now shows that overlay's colour and
+on/off state (yellow / dim yellow for the FX2→Ch3 route;
+cyan / dim cyan for `selectedFxB === 3`) from the moment the
+overlay appears, matching the state after releasing shift and
+layer.
+
+## Behaviour
+
+- `CHORD.grid2_1` removed. The binding now falls through to
+  whichever overlay is active (`SELECT_AB_SHIFT` /
+  `FX_ROUTING_SHIFT`), or to the slip companion
+  (`CUE_SHIFT` / `LOOP_SHIFT`) when none is.
+- `CUE_SHIFT.grid2_1` / `LOOP_SHIFT.grid2_1` dispatch
+  `toggleLayerOverlay` when `modifiers.chord` is held,
+  `toggleActiveDeck` otherwise. Chord + slip without an
+  overlay still toggles hotcue2 / loopOdd, unchanged.
+- Chord + slip **with** an overlay active now performs the
+  overlay's own `grid2_1` action (toggle the FX2→Ch3 route;
+  select FX unit 3 into slot B) instead of toggling the layer
+  overlay. Overlay switching between fxRouting and selectAB
+  already worked via `_addOverlayWithSiblingClear`; the LED
+  was the only thing not reflecting the swap.
+
+## Docs
+
+- README §CHORD: `grid2_1` line updated.
+
+## Compatibility
+
+- Mixxx 2.5
+- Preset `.midi.xml` schema unchanged
+- No runtime changes
+- No other config changes required
+
+---
 
 ## [v1.0.6] — 2026-10-30
 

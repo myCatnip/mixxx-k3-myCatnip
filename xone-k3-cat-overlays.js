@@ -120,10 +120,7 @@
                                  on: { patchActive: ['twoDeck', 'twoDeckMini'] } } },
         pressL: { func: F.toggleMiniFx,
                   colorScheme: { scheme: 'overlayChord',
-                                 on: { patchActive: 'twoDeckMini' } } },
-
-        grid2_1: { func: F.toggleLayerOverlay,
-                   args: ['hotcue2', 'loopOdd'] }
+                                 on: { patchActive: 'twoDeckMini' } } }
     };
 
     // ============================================================

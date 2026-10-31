@@ -185,10 +185,26 @@
     var CUE_SHIFT = {
         grid2_0: { group: '$DECK_ACTIVE$',
                    colorScheme: { knob: 'fader2', scheme: eqRamp(), on: false } },
-        grid2_1: { func: F.toggleActiveDeck,
-                   group: '$DECK_ACTIVE$',
-                   outKey: 'slip_enabled',
-                   colorScheme: CAT.slipScheme() },
+        grid2_1: {
+            // Slip LED is shared with CHORD.grid2_1's old layer-overlay
+            // toggle. Under chord this dispatches that toggle (so
+            // chord+slip still flips hotcue2 / loopOdd); otherwise it
+            // flips the active deck. When an overlay is active,
+            // SELECT_AB_SHIFT / FX_ROUTING_SHIFT's grid2_1 shadows
+            // this one and does the correct thing.
+            func: function(args, ch, c, v, s) {
+                if (!this._ctrl._isPress(v, s)) return;
+                var ctrl = this._ctrl;
+                if (ctrl.modifiers.chord) {
+                    F.toggleLayerOverlay.call(this, ['hotcue2', 'loopOdd'], ch, c, v, s);
+                    return;
+                }
+                ctrl.setActiveDeck(ctrl.activeDeck === 'A' ? 'B' : 'A');
+            },
+            group: '$DECK_ACTIVE$',
+            outKey: 'slip_enabled',
+            colorScheme: CAT.slipScheme()
+        },
 
         encoderL: { func: F.encStepParam, args: ['[Master]', 'gain', 0.01] },
         encoderR: { func: F.encStepParam, args: ['[Master]', 'headVolume', 0.01] },
@@ -292,10 +308,26 @@
     var LOOP_SHIFT = {
         grid2_0: { group: '$DECK_ACTIVE$',
                    colorScheme: { knob: 'fader2', scheme: eqRamp(), on: false } },
-        grid2_1: { func: F.toggleActiveDeck,
-                   group: '$DECK_ACTIVE$',
-                   outKey: 'slip_enabled',
-                   colorScheme: CAT.slipScheme() },
+        grid2_1: {
+            // Slip LED is shared with CHORD.grid2_1's old layer-overlay
+            // toggle. Under chord this dispatches that toggle (so
+            // chord+slip still flips hotcue2 / loopOdd); otherwise it
+            // flips the active deck. When an overlay is active,
+            // SELECT_AB_SHIFT / FX_ROUTING_SHIFT's grid2_1 shadows
+            // this one and does the correct thing.
+            func: function(args, ch, c, v, s) {
+                if (!this._ctrl._isPress(v, s)) return;
+                var ctrl = this._ctrl;
+                if (ctrl.modifiers.chord) {
+                    F.toggleLayerOverlay.call(this, ['hotcue2', 'loopOdd'], ch, c, v, s);
+                    return;
+                }
+                ctrl.setActiveDeck(ctrl.activeDeck === 'A' ? 'B' : 'A');
+            },
+            group: '$DECK_ACTIVE$',
+            outKey: 'slip_enabled',
+            colorScheme: CAT.slipScheme()
+        },
 
         encoderL: { func: F.encBeatjump, group: '$DECK_ACTIVE$' },
         encoderR: { func: F.encBeatjumpStepScale, args: ['1/32', 16], group: '$DECK_ACTIVE$' },

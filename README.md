@@ -315,7 +315,8 @@ press2: —
 press3: hold 2 s → shutdown
 pressR: toggleTopMode  (focus ↔ twoDeck-family; mini → focus)
 pressL: toggleMiniFx   (twoDeck ↔ mini; focus → no-op)
-grid2_1 (slip): toggle layer overlay (cue → hotcue2, loop → loopOdd)
+grid2_1 (slip): active overlay's own cell if one is open, else
+                toggle layer overlay (cue → hotcue2, loop → loopOdd)
 
 Passes through unchanged:
 enc0-3:  whatever the active top mode bound them to (chord holds shift, so
