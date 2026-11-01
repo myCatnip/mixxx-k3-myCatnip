@@ -191,10 +191,18 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
     // the last loop-touching event on the same channel; on a
     // pass, records the beatjump as the new "last touch" so two
     // rapid in-loop beatjumps also gate each other.
-    XoneK3.K3Controller.prototype._beatjumpAllowed = function(group) {
+    //
+    // `loopOn` is an optional pass-through: encBeatjump already
+    // read the CO for its loop-only gate, so it passes the value
+    // here to skip a second `engine.getValue` (CO mutex) on the
+    // encoder spin path. beatjumpButton omits it and the gate
+    // reads fresh.
+    XoneK3.K3Controller.prototype._beatjumpAllowed = function(group, loopOn) {
         var ch = this._channelOf(group);
         if (!ch) return true;
-        var loopOn = engine.getValue('[Channel' + ch + ']', 'loop_enabled') > 0;
+        if (loopOn === undefined) {
+            loopOn = engine.getValue('[Channel' + ch + ']', 'loop_enabled') > 0;
+        }
         var now = Date.now();
         if (loopOn) {
             var last = this._lastLoopTouchMs[ch];

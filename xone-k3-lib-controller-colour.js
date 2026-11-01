@@ -59,7 +59,7 @@
         if (Object.keys(o).length === 0) {
             XoneK3._warnOnce('csOnEmpty:' + b._name,
                 'colorScheme.on has no recognised fields on ' + b._name +
-                ' — LED will stay dark.');
+                ' — on: ignored; LED falls back to outKey (or stays off if none).');
             return;
         }
 
@@ -74,7 +74,7 @@
             XoneK3._warnOnce('csOnNoSource:' + b._name,
                 'colorScheme.on on ' + b._name + ' has `' + orphan + '` ' +
                 'but no `state`, `co`, or `patchActive` to compare against ' +
-                '— the LED will stay off.');
+                '— no match possible; LED renders its off-ramp.');
         }
         if (o.patchActive !== undefined &&
             (o.equals !== undefined || o.contains !== undefined)) {
@@ -146,19 +146,18 @@
     // ============================================================
     // schemeFromState
     // ============================================================
+    // Caller guarantees `schemeFromState` is a non-array object
+    // (see _parseCsScheme's `hasFromState` guard), so the shape
+    // re-check and the return value are both dead.
     XoneK3.K3Controller.prototype._parseSchemeFromState = function(b, cs, schemeIsFn) {
-        var sf = cs.schemeFromState;
-        if (!sf || typeof sf !== 'object' || Array.isArray(sf)) return false;
-
         if (schemeIsFn) {
             XoneK3._warnOnce('csDoubleDynamic:' + b._name,
                 'colorScheme on ' + b._name +
                 ' has both schemeFromState and scheme: function' +
                 ' — using schemeFromState');
         }
-        var closure = this._buildCsFromStateClosure(b, sf);
+        var closure = this._buildCsFromStateClosure(b, cs.schemeFromState);
         if (closure) b._csSchemeFn = closure;
-        return true;
     };
 
     XoneK3.K3Controller.prototype._parseCsScheme = function(b, cs) {
@@ -190,7 +189,7 @@
                 '. Ignoring it; using the base scheme only.');
         }
 
-        b._csDeviation = (cs.knob !== undefined);
+        b._csDeviation = (cs.knob !== undefined && cs.knob !== null);
 
         var baseResult = this._parseSchemeValue(b, cs);
         if (b._csFailed) return;
@@ -209,7 +208,7 @@
     // been validated — a knob reference on a scheme-less binding
     // would be meaningless.
     XoneK3.K3Controller.prototype._wireCsKnob = function(b, cs) {
-        if (cs.knob === undefined) return;
+        if (cs.knob === undefined || cs.knob === null) return;
         var knob = this.bindings[cs.knob];
         if (!knob) {
             XoneK3._warnOnce('csKnobMissing:' + b._name,
@@ -260,6 +259,17 @@
                 ' has neither state nor co — LED will stay dark');
             return null;
         }
+        // A state/co source without a map or list produces a
+        // closure that always returns undefined. That silently
+        // falls back to the base scheme (if set) — no
+        // csDarkFromFn warning because the base masks it — so
+        // warn here at parse time.
+        if (!sd.map && !sd.list) {
+            XoneK3._warnOnce('csFsNoMap:' + b._name,
+                'colorScheme.schemeFromState on ' + b._name +
+                ' has a source but no map/list — closure always returns ' +
+                'undefined; base scheme (or dark) renders instead.');
+        }
 
         if (sd.co && sd.group) {
             b._csFromStateConn = engine.makeConnection(sd.group, sd.co,
@@ -308,7 +318,8 @@
     // ============================================================
     XoneK3.K3Controller.prototype._setupColorScheme = function(b, cs) {
         if (!cs || typeof cs !== 'object' || Array.isArray(cs)) {
-            print('[k3] colorScheme must be an object on ' + b._name +
+            XoneK3._warnOnce('csShape:' + b._name,
+                'colorScheme must be an object on ' + b._name +
                 ' — got ' + (cs === null ? 'null' : typeof cs));
             b._csActive = false;
             return;

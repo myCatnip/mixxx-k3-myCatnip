@@ -559,8 +559,9 @@
         encBeatjump: function(args, ch, c, v, s) {
             var chNum = this._ctrl._channelOf(this.group);
             if (!chNum) return;
-            if (engine.getValue('[Channel' + chNum + ']', 'loop_enabled') <= 0) return;
-            if (!this._ctrl._beatjumpAllowed(this.group)) return;
+            var loopOn = engine.getValue('[Channel' + chNum + ']', 'loop_enabled') > 0;
+            if (!loopOn) return;
+            if (!this._ctrl._beatjumpAllowed(this.group, loopOn)) return;
             var co = (v === 1) ? 'beatjump_forward' : 'beatjump_backward';
             this._ctrl._pulseCo(this.group, co);
         },

@@ -873,9 +873,8 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     // identical to the old read-in-callback path in that case.
     XoneK3.K3Controller.prototype._onPlayposition = function(ch, newPos) {
         var st = this._decks[ch];
-        var grp = '[Channel' + ch + ']';
         if (newPos === undefined) {
-            newPos = engine.getValue(grp, 'playposition');
+            newPos = engine.getValue('[Channel' + ch + ']', 'playposition');
         }
         // Backward movement — jog-scrub leftward while playing, or
         // a manual reverse. Either way `reverse` may be 0 (jog

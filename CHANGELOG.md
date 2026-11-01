@@ -5,6 +5,116 @@ All notable changes to the Xone K3 Mixxx mapping.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.15] — 2026-11-01
+
+Verification pass on v1.0.10 – v1.0.14, focused review of
+`lib-controller-colour.js`, and nine micro-cleanups. No
+shipped-preset behaviour change.
+
+## Performance
+
+- **`_beatjumpAllowed` accepts the already-read `loop_enabled`
+  value.** `encBeatjump` reads `loop_enabled` for its loop-only
+  gate, then `_beatjumpAllowed` read it again for its 130 ms gap
+  gate — two `engine.getValue` (CO mutex) acquisitions per
+  encoder tick while spinning. The encoder now passes the fresh
+  value through; grid buttons still omit it and the gate reads
+  fresh. Halves the CO-mutex load on the beatjump spin path.
+- **`_evalPatchActive` skips the array wrap for string input.**
+  Every render of any `on: { patchActive: 'name' }` binding
+  (shipped: `CHORD.pressL`, `CHORD.pressR`) was allocating
+  `[patchActive]` fresh. Negligible frequency (chord-held only)
+  but zero-cost to remove.
+
+## Hardening
+
+- **`colorScheme.knob: null` means "no knob".** Previously
+  `null` fell through `!== undefined`, set `_csDeviation`,
+  then failed at `this.bindings[null]` → `_csFailed` → black
+  LED with a confusing "knob 'null' not found" warning. Now
+  treated as `undefined` and renders the static scheme as
+  intended. No shipped preset uses `knob: null`, so this is
+  a config-shape hardening.
+- **`schemeFromState` with a source but no `map`/`list`
+  warns at parse.** The closure always returned `undefined`;
+  with a base scheme also set, the base silently masked the
+  misconfiguration and `csDarkFromFn` never fired. New
+  `csFsNoMap` warn-once at parse time surfaces it.
+
+## Readability
+
+- **`_onPlayposition` inlines the mock-fallback `grp`.** The
+  local sat above the throttle gate, misleadingly implying
+  hot-path use; it only fed the `newPos === undefined` mock
+  branch. No behaviour change.
+- **`_parseSchemeFromState` drops the dead shape re-check and
+  return value.** The caller (`_parseCsScheme`) already
+  guarantees a non-array object via its `hasFromState` guard;
+  the check was unreachable and the return value ignored. Pure
+  cleanup.
+- **`_setupColorScheme` uses `_warnOnce` for a bad-shape
+  `colorScheme:`.** Previously `print`ed the same line on
+  every rebind (focus flips, patch swaps); now warns once per
+  binding. Warning key: `csShape:<name>`.
+- **`csOnEmpty` warning text matches the actual fallback.**
+  On this path `_csOn` stays `null`, so `_bindConns` wires the
+  `outKey` listener and `_isOn` reads it — the LED renders
+  from `outKey` (or off-ramp), not dark. New text:
+  "on: ignored; LED falls back to outKey (or stays off if
+  none)." Warning text only.
+- **`csOnNoSource` warning text matches the actual outcome.**
+  `_csOn` is set with `equals`/`contains` but no source →
+  `_isOn` returns 0 → off-ramp renders (dim), not black. New
+  text: "no match possible; LED renders its off-ramp."
+  Pairs with the `csOnEmpty` fix.
+
+## Tests
+
+- No test changes required. `encBeatjump`'s in-loop /
+  out-of-loop tests still pass unchanged (the `> 0` cast
+  preserves semantics for binary `loop_enabled`).
+  `_beatjumpAllowed`'s default-argument path is identical from
+  `beatjumpButton`'s perspective. `_evalPatchActive` returns
+  the same values on array and scalar inputs.
+
+## Review notes (no code change)
+
+- **v1.0.10 – v1.0.14 changelog claims re-verified.** All 28
+  verifiable claims confirmed on disk (parseNum strictness,
+  `_warned` null-proto, `_stableStringify` cycle detection,
+  `resolve` bail-outs, `_onPlayposition` callback `v`, hotcue
+  colour cache, `applyBeat` deferred slice, `_sampleSnap` /
+  `_sampleBlend` index-tracked, `_warnIfFreshScheme` hoist,
+  `_buildSegments` warn, `wbGain` validation, `BOOT_WHITE_ENTRY`,
+  `_resolveDeckRef` fast paths, `pos` threading, `EMPTY_META`,
+  `encBeatjump` loop gate, `_wbRGB` / `_channelEmit` scratch,
+  `sendLED` wb-off skip, `_bootWith` shutdown + try/catch,
+  `_inspectBeat` dead local). External-fact claims
+  (`PULSE_CO_MS`, `ControlPushButton` CO types, Mixxx mock
+  signatures) not re-verified from source this pass.
+- **`_buildCsFromStateClosure` — `sf.list.slice()` inconsistent
+  with `sf.map`.** `list` is copied, `map` shared. Not
+  exercised by shipped code (no `list:` in any provided
+  preset). Design decision rather than a bug; deferred.
+- **`scheme: 'invalid'` + valid `schemeFromState` — base
+  failure blocks fromState.** `_parseSchemeValue` sets
+  `_csFailed = true` and `_parseCsScheme` returns before
+  `_parseSchemeFromState`. Arguably correct (config error
+  blocks downstream) but the user sees only `csUnresolved`,
+  not "schemeFromState was also provided". Deferred.
+- **`resolveScheme` returns `null` silently for missing named
+  schemes.** `csUnresolved` at the caller stringifies the ref
+  so the bad name is visible. Sufficient. Deferred.
+
+## Compatibility
+
+- Mixxx 2.5
+- Preset `.midi.xml` schema unchanged
+- No config changes required
+- No shipped-preset behaviour change
+
+---
+
 ## [v1.0.14] — 2026-11-01
 
 Beatjump encoder scope fix, render-path allocation reduction,

@@ -488,9 +488,11 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     };
 
     XoneK3.Binding.prototype._evalPatchActive = function(patchActive) {
-        var names = Array.isArray(patchActive) ? patchActive : [patchActive];
-        for (var i = 0; i < names.length; i++) {
-            if (this._ctrl._patchActive(names[i])) return 1;
+        if (!Array.isArray(patchActive)) {
+            return this._ctrl._patchActive(patchActive) ? 1 : 0;
+        }
+        for (var i = 0; i < patchActive.length; i++) {
+            if (this._ctrl._patchActive(patchActive[i])) return 1;
         }
         return 0;
     };
