@@ -5,11 +5,53 @@ All notable changes to the Xone K3 Mixxx mapping.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
----
-
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [v1.0.9] — 2026-11-01
+
+Dead code removal. No runtime behaviour change on shipped presets.
+
+## Cleanup
+
+**Transaction `type` field removed.** `_captureTransaction` was
+snapshotting `binding.type` onto `_transaction.type`, and
+`_orphanTransaction` was comparing it against the current
+binding's type. Hardware type is fixed per control in
+`_buildHardware` (an encoder is always an encoder), so the
+comparison was a tautology — it could never contribute to
+orphan detection. Removed from the transaction init, from
+`_captureTransaction`, and from `_orphanTransaction`'s signature
+comparison. The documented orphan-detection signature is now
+`group`, `inKey`, `func`, `funcArgs`, `buttonMode`.
+
+**`_accel` binding field removed.** Listed in `_BINDING_FIELDS`
+with `ignored: true` as a leftover from a removed acceleration
+feature. Never written, never read, never audited against
+`_bindingDefaults` (which doesn't define it). Removed from
+`_BINDING_FIELDS`; the derived `_SNAPSHOT_IGNORED` list is
+shorter by one entry. `_auditBindingCfg`'s warn-once for the
+non-underscore `accel:` config key is unchanged — that's the
+migration check for user configs, not the binding-side field.
+
+## Docs
+
+- `docs/INTERNALS.md` §2.5 — transaction lifecycle paragraph
+  drops `type` from the captured-field list.
+- `docs/INTERNALS.md` §2.5 — signature paragraph moves `type`
+  from "fields compared" to "fields excluded", with a note on
+  why (hardware type is immutable per binding).
+
+## Compatibility
+
+- Mixxx 2.5
+- Preset `.midi.xml` schema unchanged
+- No config changes required
+- No behaviour change on shipped presets
+- `node test/run.js` green
+
+---
+
 ## [v1.0.8] — 2026-11-01
 
 Phrase-origin correction after a mid-session track swap; FX layout

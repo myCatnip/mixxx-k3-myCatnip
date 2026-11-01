@@ -294,7 +294,6 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         { name: '_csOn',              ignored: true },
         { name: '_valueConn',         ignored: true },
         { name: '_conns',             ignored: true },
-        { name: '_accel',             ignored: true },
         { name: '_valueCurve',        ignored: true },
         { name: '_shutdownHoldTimer', ignored: true }
     ];

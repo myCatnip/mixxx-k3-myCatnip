@@ -663,7 +663,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             t.inKey      === b.inKey &&
             t.func       === b._func &&
             t.buttonMode === b.buttonMode &&
-            t.type       === b.type &&
             argsEqual(t.funcArgs, b._funcArgs);
         if (!same) t.orphaned = true;
     };

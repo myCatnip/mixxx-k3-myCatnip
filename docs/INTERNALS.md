@@ -144,8 +144,8 @@ One physical control is one `Binding`.
 
 **Transaction lifecycle.** A physical push-mode press is captured
 by `_captureTransaction` before func dispatch — the binding's
-current `group`, `inKey`, `_func`, `_funcArgs`, `buttonMode`, and
-`type` are snapshot onto `b._transaction`. The captured config is
+current `group`, `inKey`, `_func`, `_funcArgs`, and `buttonMode`
+are snapshot onto `b._transaction`. The captured config is
 dispatched at physical release via `_dispatchCapturedRelease`,
 which fires the press-time func (or default input) with the
 captured args. `_orphanTransaction` runs on every rebind and
@@ -179,14 +179,16 @@ the release clears the flag. Protects both func-bound and
 default-input toggle bindings.
 
 **Signature.** Fields compared: `group`, `inKey`, `func`,
-`funcArgs`, `buttonMode`, `type`. Fields excluded (changes don't
-orphan): `colorScheme`, `outKey`, `noLED`, `k2`, `softTakeover`,
-`valueCurve` — none of these change what the release does at the
-CO. Args are compared by `===` on each element; a non-primitive
-arg always orphans (safe default — a rebind that passes the same
-object reference doesn't; a rebind that passes a structurally-
-equal-but-different object does, which is the intended
-conservative behaviour).
+`funcArgs`, `buttonMode`. Fields excluded (changes don't orphan):
+`colorScheme`, `outKey`, `noLED`, `k2`, `softTakeover`,
+`valueCurve`, `type` — none of these change what the release does
+at the CO. `type` is fixed per hardware control (an encoder is
+always an encoder), so it can never change between press and
+release. Args are compared by `===` on each element; a
+non-primitive arg always orphans (safe default — a rebind that
+passes the same object reference doesn't; a rebind that passes a
+structurally-equal-but-different object does, which is the
+intended conservative behaviour).
 
 **Orphaned is sticky.** Once set, `orphaned` is never cleared by
 a later matching rebind. Rationale: the release that eventually

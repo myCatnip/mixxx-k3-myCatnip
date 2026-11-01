@@ -131,8 +131,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             inKey: undefined,
             func: undefined,
             funcArgs: [],
-            buttonMode: 'toggle',
-            type: 'button'
+            buttonMode: 'toggle'
         };
     };
 
@@ -153,7 +152,6 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         t.func = this._func;
         t.funcArgs = (this._funcArgs || []).slice();
         t.buttonMode = this.buttonMode;
-        t.type = this.type;
     };
 
     // Fire the captured release against the captured config.
