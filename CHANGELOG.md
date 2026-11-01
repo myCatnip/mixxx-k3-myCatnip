@@ -5,6 +5,79 @@ All notable changes to the Xone K3 Mixxx mapping.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.12] — 2026-11-01
+
+Small hardening + readability release. No shipped-preset behaviour
+change.
+
+## Fixed
+
+- **Constructor validates `wbGain` before slicing.** `wbGain:
+  undefined` (or `null`) crashed at construction with
+  `.slice()` on undefined. `wbGain: 'foo'` (string) survived
+  construction — strings have `.slice` — but fed `NaN` through
+  `_channelEmit`'s white-balance multiplication, silently
+  degrading calibrated schemes to uncalibrated. Now validates
+  with the same warn-once + `[1,1,1]` fallback pattern as
+  `channelPerceptual` (which sits immediately above it in the
+  constructor). Warning key: `wbGainShape:<label>`.
+
+## Performance
+
+- **`_renderDeviation` boot-white fallback uses a shared
+  module constant.** The deviation-LED fallback for a knob
+  that has never reported was allocating
+  `{ rgb: [127,127,127], brightness: 127, brightnessOff: 127 }`
+  fresh on every render. Hoisted to `BOOT_WHITE_ENTRY` at
+  module scope. `_sendColor` reads indices only — no mutation,
+  safe to share. Bounded win (fires only before the first
+  knob turn), zero behavioural change.
+
+## Documentation
+
+- **`_armOwnConn` value listener** — comment explains why the
+  listener reads `getParameter` instead of using the callback
+  `v`. The callback value is the raw CO value; co-match's
+  deviation maths needs the normalised [0,1] parameter, and
+  for ranged COs (`rate`, `pitch_adjust`) the two differ.
+  Standard [0,1] COs (EQ, pregain, volume) are unaffected,
+  but the read is load-bearing for custom bindings. Prevents
+  a future "obvious optimization" from breaking co-match on
+  ranged COs.
+
+## Review notes (no code change)
+
+- **`_patchActive` doesn't recurse into host's `_host`.**
+  Reviewed as a possible hardening gap. Shipped `_host` values
+  all reference base patches (no nesting), so the presence-based
+  check is correct for every shipped preset. Recursion would
+  require cycle detection for a config shape nobody writes.
+  Future INTERNALS §4 edit could add "`_host` should reference
+  base patches, not other overlays" if desired.
+- **`_recompute` throw during patch mutation leaves
+  `activePatches` mutated.** Reviewed as a possible recovery
+  gap. A cycle in an overlay's patch tree self-heals on the
+  next toggle (the patch is already in the array, so the next
+  press removes it, and the subsequent `_recompute` succeeds).
+  A cycle in a base patch is a broken config — the preset is
+  unusable by design. Rolling back state would mask the
+  underlying problem. No change.
+- **`_applyBinding`'s per-binding refresh is unreached in
+  shipped code.** Reviewed as a possible dead-code / doc
+  mismatch. INTERNALS §21's phrasing ("direct callers still
+  get a per-binding refresh") is conditional — describing
+  behaviour if a direct caller existed, not asserting one
+  does. Dead code is intentional scaffolding. No change.
+
+## Compatibility
+
+- Mixxx 2.5
+- Preset `.midi.xml` schema unchanged
+- No config changes required
+- No shipped-preset behaviour change
+
+---
+
 ## [v1.0.11] — 2026-11-01
 
 Performance-focused release plus small UX and warning improvements.

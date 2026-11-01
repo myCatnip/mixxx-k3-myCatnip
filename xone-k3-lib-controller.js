@@ -181,7 +181,23 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
             cp = [1, 1, 1];
         }
         this.channelPerceptual = cp.slice();
-        this.wbGain            = cfg.wbGain.slice();
+
+        // Same validation pattern as channelPerceptual. `wbGain`
+        // is read by _wbRGB, whose own guard only catches short
+        // arrays at use time — `undefined` crashes the slice
+        // here, and a string ('foo') passes .slice() but feeds
+        // NaN through _channelEmit, silently degrading calibrated
+        // schemes. Warn-once + neutral fallback matches the
+        // channelPerceptual precedent.
+        var wb = cfg.wbGain;
+        if (!Array.isArray(wb) || wb.length < 3) {
+            XoneK3._warnOnce('wbGainShape:' + this.label,
+                'wbGain must be a 3-element array on ' + this.label +
+                ' — got ' + JSON.stringify(wb) + '; using [1,1,1]');
+            wb = [1, 1, 1];
+        }
+        this.wbGain = wb.slice();
+
         this.hkBoost           = cfg.hkBoost;
         this.lumGamma          = cfg.lumGamma;
         this.calibrationMode   = (cfg.calibrationMode === 'rms') ? 'rms' : 'off';

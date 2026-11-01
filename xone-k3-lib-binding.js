@@ -426,6 +426,13 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         // for a colorScheme.knob reference. Buttons and encoders
         // skip the extra read.
         var isPot = (this.type === 'knob' || this.type === 'fader');
+        // The callback value (`v`, unused here) is the raw CO value.
+        // _lastCoValue feeds co-match's deviation maths, which needs
+        // the normalised parameter (0..1) — `getParameter` applies
+        // the range mapping for ranged COs (rate, pitch_adjust). For
+        // standard [0,1] parameters (EQ, pregain, volume) the two
+        // are identical, but using `v` directly would break custom
+        // bindings to ranged COs. Keep the live read.
         this._valueConn = engine.makeConnection(this.group, this.inKey, function() {
             if (isPot) {
                 try { self._lastCoValue = engine.getParameter(self.group, self.inKey); }
@@ -635,10 +642,15 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         return true;
     };
 
+    // Boot-white fallback for deviation LEDs whose knob has never
+    // reported. Shared object — _sendColor reads indices only,
+    // no mutation. Hoisted out of the per-render path.
+    var BOOT_WHITE_ENTRY = { rgb: [127, 127, 127], brightness: 127, brightnessOff: 127 };
+
     XoneK3.Binding.prototype._renderDeviation = function(scheme, isOn) {
         var knob = this._csKnob;
         if (!knob || knob._normalized === undefined) {
-            this._sendColor({ rgb: [127, 127, 127], brightness: 127, brightnessOff: 127 }, isOn);
+            this._sendColor(BOOT_WHITE_ENTRY, isOn);
             return;
         }
         var physical = knob._normalized;
