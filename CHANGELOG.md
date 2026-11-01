@@ -5,9 +5,53 @@ All notable changes to the Xone K3 Mixxx mapping.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [v1.0.10] — 2026-11-01
+
+## Changed
+
+- **`parseNum` is strict about malformed fractions.** `'1/0'`,
+  `'5/'`, and `'1/2/3'` now return `NaN` instead of silently
+  falling back to the leading integer (`1`, `5`, `1`). Affected
+  shipped configs: none.
+- **`resolve()` bails out early on token-free strings.** Two
+  `indexOf` guards — one at function entry, one per token
+  iteration. No behavioural change; focus-flip rebinds are
+  measurably cheaper.
+
+## Fixed
+
+- **`_stableStringify` detects cycles.** Previously recursed
+  until stack overflow if a binding cfg held a cyclic
+  reference. Now warn-onces (`stableStringifyCycle`) and
+  substitutes `"[cycle]"` at the cycle point. Unreachable from
+  any shipped config; hardening. Diamond references serialise
+  normally.
+- **`_warned` uses `Object.create(null)`.** A warn key
+  colliding with `Object.prototype` (`toString`, `constructor`,
+  `__proto__`) inherited truthy and was silently swallowed.
+  All shipped keys are prefixed, so unreachable today —
+  one-line hardening. Two reset sites updated (lib-core,
+  lib-controller-boot).
+
+## Documentation
+
+- **README** — clarified how `midiChannel` is used. It controls
+  input routing (MIDI note-on/note-off) and the K2 fallback
+  output (`sysex: false`) only; SysEx LED output is port-scoped
+  by the `<controller id="...">` binding in each `.midi.xml`.
+  The `0x0E` byte in the SysEx frame is a fixed command-header
+  byte — shared by the RGB write and release commands, invariant
+  across LED indices — not a channel. Confirmed empirically
+  (Cat on `0x0E` and Kitten on `0x0D` emit identical 14-byte
+  frames to their respective ports and both render correctly).
+  The "fight over outputs" warning now describes the actual
+  failure mode: shared input bindings, one preset's LED state
+  driven by the wrong physical unit.
+- **`beatLevel`** — comment clarifying that `prePhraseBeats`
+  marks a single beat, not a duration.
 
 ---
+
 ## [v1.0.9] — 2026-11-01
 
 Dead code removal. No runtime behaviour change on shipped presets.
@@ -119,9 +163,6 @@ no play needed.
 - No other config changes required beyond reloading the preset
 - `node test/run.js` green
 
----
-
-## [v1.0.7] — 2026-10-31
 ---
 
 ## [v1.0.7] — 2026-10-31
@@ -337,7 +378,6 @@ the new slot keys and levels.
 - No runtime changes
 - `node test/run.js` green
 
-
 ---
 
 ## [v1.0.4] — 2026-10-29
@@ -385,7 +425,6 @@ updated. 11 new row-3 tests.
 - Mixxx 2.5
 - Preset `.midi.xml` schema unchanged
 - No runtime changes
-
 
 ---
 
@@ -461,7 +500,6 @@ custom-func co-match cache case.
 - No new script files
 - No config changes required
 - No shipped-preset behaviour change
-
 
 ---
 
@@ -583,7 +621,6 @@ broken-switch scenario, already accepted as out of scope.
 - No new script files
 - No config changes required
 
-
 ---
 
 ## [v1.0.1] — 2026-10-29
@@ -650,6 +687,4 @@ silently:
 - Preset `.midi.xml` schema unchanged
 - No new script files
 
-
 ---
-

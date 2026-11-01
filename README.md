@@ -4,9 +4,24 @@ Custom Mixxx mapping for the Allen & Heath Xone K3.
 
 One runtime, two layer trees, five presets. Four playback presets
 share one layer tree and differ only in boot config; colorLab is
-a separate editor preset. Presets on the same MIDI channel fight
-over outputs — Cat, oneK3, oneK3 miniFX, and colorLab all ship on
-0x0E. Change one before running them together.
+a separate editor preset.
+
+`midiChannel` in each preset's boot config controls **input
+routing** (MIDI note-on/note-off) and the K2 fallback output
+(`sysex: false`). It does **not** control SysEx LED output —
+`midi.sendSysexMsg` routes to the MIDI port bound to each
+preset's `<controller id="...">` in the `.midi.xml`, regardless
+of the SysEx frame's byte-7 value (the `0x0E` there is a fixed
+command-header byte, shared by the RGB write and release
+commands and invariant across LED indices, not a channel).
+
+Consequence: two presets on the same `midiChannel` share input
+bindings. If Cat hardware sends on `0x0E` and both Cat and
+oneK3 listen on `0x0E`, both presets respond to Cat's hardware;
+oneK3's port receives LED state driven by Cat's buttons. Cat,
+oneK3, oneK3 miniFX, and colorLab all ship on `0x0E` — change
+one before running them together on separate physical units.
+Kitten ships on `0x0D` and pairs with Cat without conflict.
 
 | Preset | Channel | Boot mode | Layer tree | Use case |
 |---|---|---|---|---|

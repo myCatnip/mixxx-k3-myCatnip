@@ -160,8 +160,7 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
     // ============================================================
     XoneK3.PRINT_TABLES = [];
     XoneK3._debugPrintsOn = false;
-    XoneK3._warned = {};
-
+    XoneK3._warned = Object.create(null);
     XoneK3.registerPrintTable = function(table, name) {
         XoneK3.PRINT_TABLES.push({ table: table, name: name || 'unnamed' });
     };
@@ -209,10 +208,12 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
             var p = s.split('/');
             if (p.length === 2) {
                 var a = parseFloat(p[0]), b = parseFloat(p[1]);
-                if (!isNaN(a) && !isNaN(b) && b !== 0) v = a / b;
-                else v = parseFloat(s);
-            } else {
+                if (isNaN(a) || isNaN(b) || b === 0) return NaN;
+                v = a / b;
+            } else if (p.length === 1) {
                 v = parseFloat(s);
+            } else {
+                return NaN;
             }
         }
         // Callers guard with isNaN, which accepts Infinity. A
@@ -348,33 +349,47 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
 
     // Recursive helpers, hoisted. Called only at runtime, after
     // XoneK3._stableStringify has been assigned.
-    function _stableStringifyArray(arr) {
+    function _stableStringifyArray(arr, seen) {
         var parts = [];
         for (var i = 0; i < arr.length; i++) {
-            parts.push(XoneK3._stableStringify(arr[i]));
+            parts.push(XoneK3._stableStringify(arr[i], seen));
         }
         return '[' + parts.join(',') + ']';
     }
 
-    function _stableStringifyObject(obj) {
+    function _stableStringifyObject(obj, seen) {
         var keys = Object.keys(obj).sort();
         var parts = [];
         for (var k = 0; k < keys.length; k++) {
             var key = keys[k];
-            parts.push(JSON.stringify(key) + ':' + XoneK3._stableStringify(obj[key]));
+            parts.push(JSON.stringify(key) + ':' + XoneK3._stableStringify(obj[key], seen));
         }
         return '{' + parts.join(',') + '}';
     }
 
-    XoneK3._stableStringify = function(o) {
+    XoneK3._stableStringify = function(o, seen) {
         if (o === null) return 'null';
         if (o === undefined) return 'undefined';
         var t = typeof o;
         if (t === 'number' || t === 'boolean') return String(o);
         if (t === 'string') return JSON.stringify(o);
         if (t === 'function') return 'fn:' + XoneK3._funcId(o);
-        if (Array.isArray(o)) return _stableStringifyArray(o);
-        if (t === 'object')   return _stableStringifyObject(o);
+        if (t === 'object') {
+            seen = seen || new Set();
+            if (seen.has(o)) {
+                XoneK3._warnOnce('stableStringifyCycle',
+                    '_stableStringify: cycle detected in binding cfg — ' +
+                    'hashing truncated at the cycle. Fix the cfg reference.');
+                return '"[cycle]"';
+            }
+            seen.add(o);
+            try {
+                if (Array.isArray(o)) return _stableStringifyArray(o, seen);
+                return _stableStringifyObject(o, seen);
+            } finally {
+                seen.delete(o);
+            }
+        }
         return String(o);
     };
 
@@ -460,9 +475,11 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
 
     XoneK3.resolve = function(str, ctrl) {
         if (typeof str !== 'string') return str;
+        if (str.indexOf('$') === -1) return str;
         for (var i = 0; i < XoneK3.TOKENS.length; i++) {
             var t = XoneK3.TOKENS[i], v = ctrl[t.state];
             if (v === undefined) continue;
+            if (str.indexOf(t.token) === -1) continue;
             str = str.split(t.token).join(t.make(v, ctrl));
         }
         return str;
@@ -632,6 +649,11 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         // double-mod.
         var phrasePos = ((count - 1) % phraseLen + phraseLen) % phraseLen;
         var level;
+        // `prePhraseBeats` marks the beat where the pre-phrase colour
+        // starts, not a duration. With prePhraseBeats: 4 (and phraseLen
+        // 16), only position 12 gets the prePhrase colour; 13–15 fall
+        // through to bar/beat. If you want a zone, extend _BEAT_CHAIN
+        // and this condition together.
         if (preBeats > 0 && phrasePos === prePhraseStart) level = 'prePhrase';
         else if (phrasePos === 0)                         level = 'phrase';
         else if (phrasePos % barBeats === 0)              level = 'bar';

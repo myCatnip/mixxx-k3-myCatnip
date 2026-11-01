@@ -98,7 +98,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-boot.js', ['K3Controller']);
         XoneK3.controllers = [];
         XoneK3._schemeCache = {};
         XoneK3._compiledCache = {};
-        XoneK3._warned = {};
+        XoneK3._warned = Object.create(null);
         XoneK3._modeSeen = { edit: false, slots: false };
         XoneK3.MODE_PRINTS = false;
         XoneK3._funcIdCounter = 0;
