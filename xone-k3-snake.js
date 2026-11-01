@@ -319,14 +319,20 @@
         if (!this._ctrl._isPress(v, s)) return;
         var ctrl = this._ctrl;
         if (!ctrl._snake) return;
-        if (ctrl._snake.paintTimer) engine.stopTimer(ctrl._snake.paintTimer);
-        if (ctrl._snake.timer)      engine.stopTimer(ctrl._snake.timer);
 
         // Null _snake BEFORE the batch so CHORD.press2's
         // `on: { state: '_snake' }` reads false during the
         // recompute inside _batchPatches — otherwise the LED
-        // stays lit until the next input event. Restore on throw
-        // so a failed batch leaves a retryable state.
+        // stays lit until the next input event.
+        //
+        // Timers are stopped AFTER the batch succeeds. The batch
+        // mutator is indexOf + splice on a copy — it cannot
+        // throw, and _recompute has its own try/catch — but if
+        // it ever did, the restore below leaves _snake with its
+        // timers still live, so a retried snakeExit sees a live
+        // game rather than a frozen board. During the batch
+        // window, any timer that fires sees _snake === null and
+        // returns harmlessly (see tick() and the paintTimer body).
         var savedSnake = ctrl._snake;
         ctrl._snake = null;
 
@@ -343,6 +349,9 @@
             ctrl._snake = savedSnake;
             throw e;
         }
+
+        if (savedSnake.paintTimer) engine.stopTimer(savedSnake.paintTimer);
+        if (savedSnake.timer)      engine.stopTimer(savedSnake.timer);
     };
 
     // Any playfield button exits — not just press2. layer and

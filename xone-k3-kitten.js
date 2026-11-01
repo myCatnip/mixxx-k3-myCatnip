@@ -1,8 +1,9 @@
 // xone-k3-kitten.js — Kitten preset: Cat's layers, different boot.
 //
 // Loads after cat.js. Reuses XoneK3.CAT_LAYERS via XoneK3.bootCat.
-// Only differences from Cat: channel 0x0D, both activeDeck and
-// activeFx booted to side B.
+// Only differences from Cat: channel 0x0D, initial slots pinned
+// to decks 2/4 and FX units 2/4. Both activeDeck and activeFx
+// boot to side A (deck 2 / FX 2).
 
 'use strict';
 
@@ -21,7 +22,7 @@
             label: 'Kitten',
             midiChannel: 0x0D,
             initialDeckA: 2, initialDeckB: 4,
-            initialFxA: 1,   initialFxB: 4,
+            initialFxA: 2,   initialFxB: 4,
             initialActiveDeck: 'A',
             initialActiveFx:   'A'
         });

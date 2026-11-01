@@ -614,19 +614,28 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // duration and file_bpm fire after track_samples on swap
         // (queued main-thread emission in BaseTrackPlayer). They
         // are the only signals that arrive *after* the new
-        // metadata has landed, so they do the correcting refresh
-        // and restart the settle window from the new event.
-        // Defensive against Mixxx changing the delay: as long as
-        // the CO fires eventually, the cache is corrected.
+        // metadata has landed. The track_loaded / track_samples
+        // handlers above already ran _deriveOriginFromPosition
+        // and _syncBeatCount — but against pre-settle metadata,
+        // so _phraseOrigin[ch] and st.count are stale for the
+        // entire paused duration. _refreshBeatLeds alone would
+        // repaint those stale values. Re-derive and re-sync here
+        // with freshly-read playposition; _syncBeatCount
+        // internally refreshes beat LEDs when count changes, so
+        // no separate _refreshBeatLeds call is needed.
         wire(this._playConns, 'duration', function() {
             self._loadSettlingAt[ch] = Date.now();
             self._trackMetaCache[ch] = undefined;
-            self._refreshBeatLeds(ch);
+            var pos = engine.getValue(grp, 'playposition');
+            self._deriveOriginFromPosition(ch, pos);
+            self._syncBeatCount(ch, pos);
         });
         wire(this._playConns, 'file_bpm', function() {
             self._loadSettlingAt[ch] = Date.now();
             self._trackMetaCache[ch] = undefined;
-            self._refreshBeatLeds(ch);
+            var pos = engine.getValue(grp, 'playposition');
+            self._deriveOriginFromPosition(ch, pos);
+            self._syncBeatCount(ch, pos);
         });
 
         if (Array.isArray(XoneK3.PHRASE_MARKER_COLORS) &&

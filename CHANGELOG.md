@@ -6,6 +6,82 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+
+Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+## [v1.0.8] — 2026-11-01
+
+Phrase-origin correction after a mid-session track swap; FX layout
+unit 2 aligned with unit 1; chord/overlay and lab-bake docs
+corrected.
+
+## Bug fix
+
+**Phrase colours stayed stale until play after a paused track
+swap.** `_onTrackLoaded` and the `track_samples` observer both
+ran `_deriveOriginFromPosition` and `_syncBeatCount` before
+Mixxx's queued `duration` / `file_bpm` emissions had landed — so
+`_phraseOrigin[ch]` and `st.count` were computed from the
+outgoing track's metadata. The `duration` / `file_bpm`
+observers cleared the cache and repainted LEDs but never
+re-derived origin or count, so a paused deck kept the wrong
+cascade colour until the user played, jogged, or seeked. Both
+observers now re-read `playposition`, re-derive origin, and
+re-sync count with settled metadata. User-visible: load a track
+while paused and the phrase colours are correct immediately;
+no play needed.
+
+## Changed
+
+- **`FX_LAYOUTS[2]` now shares unit 1's Moog → Echo → Moog
+  layout.** The Bitcrusher overrides were commented out — unit 2
+  is a copy of unit 1 for users running a duplicate FX chain on
+  the second unit. `fx-presets/2-2ndEchoMoog.xml` added as the
+  pairing preset for the shipped unit-2 layout.
+  `fx-presets/2-EchoBit.xml` is retained but no longer pairs
+  with the shipped layout — users who want the old Bitcrusher
+  behaviour on unit 2 should restore the commented overrides in
+  `xone-k3-cat-fx.js`.
+
+## Docs
+
+- `README.md` focus-mode cell table, Row 0: unit 2 column no
+  longer bolds the four cells that used to differ from unit 1
+  (`knob2_0`, `knob3_0`, `button2_0`, `button3_0`).
+- `README.md` shipped FX presets table: `2-2ndEchoMoog.xml`
+  added (Moog → Echo → Moog); `2-EchoBit.xml` row marked as
+  pairing with the pre-v1.0.8 unit-2 layout.
+- `README.md` §CHORD: `grid2_1` line corrected. The chord +
+  slip cell is not declared on `CHORD`; it routes through
+  `CUE_SHIFT.grid2_1` / `LOOP_SHIFT.grid2_1`, each branching
+  on `modifiers.chord`.
+- `docs/INTERNALS.md` §9: removed the `grid2_1` line from the
+  CHORD cell list; added the shift-companion routing
+  explanation.
+- `docs/INTERNALS.md` §17: lab `colorSet` persistence note
+  corrected — save/load paths strip it via `_cloneScheme`,
+  bake paths do not use `_cloneScheme` but are safe because
+  `bakeScheme` builds a fresh object from `segs[].color`.
+- `xone-k3-kitten.js` header comment: corrected to describe the
+  actual boot config (`initialActiveDeck` / `initialActiveFx`
+  both `'A'`, not `'B'`).
+
+## Compatibility
+
+- Mixxx 2.5
+- Preset `.midi.xml` schema unchanged
+- **FX unit 2 default layout changed** — pair with the new
+  `2-2ndEchoMoog.xml`, or restore the overrides in
+  `xone-k3-cat-fx.js` to keep using `2-EchoBit.xml`
+- No other config changes required beyond reloading the preset
+- `node test/run.js` green
+
+---
+
+## [v1.0.7] — 2026-10-31
+---
+
 ## [v1.0.7] — 2026-10-31
 
 Chord + overlay LED fix. Config-only change; runtime untouched.

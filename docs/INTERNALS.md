@@ -617,11 +617,16 @@ The CHORD patch in `cat-overlays.js` declares no `layer` binding
 - `press3` — `shutdownHold`
 - `pressR` — `toggleTopMode`
 - `pressL` — `toggleMiniFx`
-- `grid2_1` — `toggleLayerOverlay(['hotcue2', 'loopOdd'])`
 
-`grid2_1` picks target by `_patchActive('cue')` /
-`_patchActive('loop')`. Both overlays may sit in `activePatches`
-simultaneously; `_host` gates visibility.
+`grid2_1` is **not** a CHORD cell. Under chord it routes through
+`CUE_SHIFT.grid2_1` / `LOOP_SHIFT.grid2_1` — each is a closure
+that checks `ctrl.modifiers.chord` and dispatches
+`toggleLayerOverlay(['hotcue2', 'loopOdd'])` on match; under
+shift-only it flips the active deck. The shift companion reaches
+through the chord stack; the chord patch itself declares nothing
+on that cell. `toggleLayerOverlay` picks target by
+`_patchActive('cue')` / `_patchActive('loop')`. Both overlays may
+sit in `activePatches` simultaneously; `_host` gates visibility.
 
 `shutdownHold` is a 2 s hold. Releasing shift, layer, or the
 binding cell cancels the timer via `Binding._reset` — the same
@@ -997,8 +1002,13 @@ ratioEdit, schemeName, beatTarget, _version }`.
 
 - `slots[0..15]` — saved schemes. 0/1/2/3 = on/off/co/co-off.
 - `edit` — working buffer. May carry `colorSet` (parallel bool
-  array; real stop vs gap). Lab editing state, never persisted —
-  `_cloneScheme` strips it.
+  array; real stop vs gap). Lab editing state, never persisted.
+  Save / load paths go through `_cloneScheme`, which strips it.
+  Bake paths (`_applyAutoBake` → `bakeScheme`) do not use
+  `_cloneScheme`; they go `resolveScheme` → `_buildSegments` →
+  fresh `{ colors, ... }` object built from `segs[].color`, so
+  `colorSet` on the input is never copied to the bake output.
+  Safe by field-picking, not by cloning.
 - `previewSource` — `'edit'`, 0..15, or a registry name.
 - `_version` — bumped on every input event, keys the preview
   compile cache.

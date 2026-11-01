@@ -315,8 +315,12 @@ press2: —
 press3: hold 2 s → shutdown
 pressR: toggleTopMode  (focus ↔ twoDeck-family; mini → focus)
 pressL: toggleMiniFx   (twoDeck ↔ mini; focus → no-op)
-grid2_1 (slip): active overlay's own cell if one is open, else
-                toggle layer overlay (cue → hotcue2, loop → loopOdd)
+grid2_1 (slip): dispatched via CUE_SHIFT.grid2_1 / LOOP_SHIFT.grid2_1
+                (each branches on modifiers.chord). Under chord:
+                toggle layer overlay (cue → hotcue2, loop → loopOdd).
+                Under shift only: flip active deck. NOT declared on
+                CHORD itself — the shift companion reaches through
+                the chord stack.
 
 Passes through unchanged:
 enc0-3:  whatever the active top mode bound them to (chord holds shift, so
@@ -375,11 +379,11 @@ differs from unit 1.
 | Cell | Unit 1 | Unit 2 | Unit 3 | Unit 4 |
 |---|---|---|---|---|
 | `knob1_0` | FX2.p1 | FX2.p1 | **FX2.p2** | **FX2.p2** |
-| `knob2_0` | FX1.p2 | **FX1.p1** | FX1.p2 | **FX1.p1** |
-| `knob3_0` | FX1.meta | **FX1.p2** | FX1.meta | **FX1.p3** |
+| `knob2_0` | FX1.p2 | FX1.p2 | FX1.p2 | **FX1.p1** |
+| `knob3_0` | FX1.meta | FX1.meta | FX1.meta | **FX1.p3** |
 | `button1_0` | LED→`knob1_0` | LED→`knob1_0` | **LED→`knob1_0` (lo)** | **LED→`knob1_0` (mid)** |
-| `button2_0` | LED→`knob2_0` (mid) | **LED→`knob2_0` (hi)** | LED→`knob2_0` (mid) | **LED→`knob2_0`** |
-| `button3_0` | FX1.enable | **FX1.enable (hi)** | FX1.enable | **FX1.enable (lo)** |
+| `button2_0` | LED→`knob2_0` (mid) | LED→`knob2_0` (mid) | LED→`knob2_0` (mid) | **LED→`knob2_0`** |
+| `button3_0` | FX1.enable | FX1.enable | FX1.enable | **FX1.enable (lo)** |
 
 **Row 1**
 
@@ -488,7 +492,7 @@ touch each effect's meta + enable, so any of the four is fine):
 | File | Layout |
 |---|---|
 | `1-EchoMoog.xml` | Moog → Echo → Moog |
-| `2-EchoBit.xml` | Bitcrusher → Echo → Moog |
+| `2-2ndEchoMoog.xml` | Moog → Echo → Moog — second copy for a duplicate FX unit; same chain shape as preset 1 |
 | `3-FlangerMoog.xml` | Moog → Flanger → Moog |
 | `4-TremeloAutopan.xml` | Autopan → Tremolo → Moog |
 

@@ -110,14 +110,15 @@
     var FX_LAYOUTS = {
         // moog - echo - moog
         1: fxLayoutTable(),
-        // bit - echo - moog
+        // 2nd moog - echo - moog
         2: fxLayoutTable({
-            knob2_0:   { effect: 1, param: 1 },
-            knob3_0:   { effect: 1, param: 2 },
-            button2_0: { displayOnly: true, on: false, marker: 'high', schemePosition: 127 },
-            button3_0: { effect: 1, enabled: true, marker: 'high', schemePosition: 127 },
+            // bit - echo - moog
+            //knob2_0:   { effect: 1, param: 1 },
+            //knob3_0:   { effect: 1, param: 2 },
+            //button2_0: { displayOnly: true, on: false, marker: 'high', schemePosition: 127 },
+            //button3_0: { effect: 1, enabled: true, marker: 'high', schemePosition: 127 },
 
-            knob1_0:   { effect: 2, param: 1 },
+            //knob1_0:   { effect: 2, param: 1 },
         }),
         // moog - flanger - moog
         3: fxLayoutTable({
