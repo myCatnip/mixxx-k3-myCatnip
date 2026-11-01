@@ -22,20 +22,26 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
     // ============================================================
     // LED WRITE + CALIBRATION
     // ============================================================
+    // Shared 3-element scratch for _wbRGB / _channelEmit. Every
+    // caller unpacks indices immediately and discards the array;
+    // none holds it past the current call. No re-entrancy between
+    // these two functions.
+    var _WB_SCRATCH = [0, 0, 0];
+
     XoneK3.K3Controller.prototype._wbRGB = function(r, g, b) {
-        if (!this.wbActive) return [r, g, b];
+        if (!this.wbActive) {
+            _WB_SCRATCH[0] = r; _WB_SCRATCH[1] = g; _WB_SCRATCH[2] = b;
+            return _WB_SCRATCH;
+        }
         var wb = this.wbGain;
-        // Constructor validates wbGain is a 3-element array, but
-        // a runtime mutation (lab tools, future code) could still
-        // set it short. A short array makes wb[2] undefined →
-        // b * undefined = NaN → Math.round(NaN) = NaN → downstream
-        // bit-AND coerces to 0. Silent blue kill. Guard defensively.
-        if (!wb || wb.length < 3) return [r, g, b];
-        return [
-            Math.max(0, Math.min(127, Math.round(r * wb[0]))),
-            Math.max(0, Math.min(127, Math.round(g * wb[1]))),
-            Math.max(0, Math.min(127, Math.round(b * wb[2])))
-        ];
+        if (!wb || wb.length < 3) {
+            _WB_SCRATCH[0] = r; _WB_SCRATCH[1] = g; _WB_SCRATCH[2] = b;
+            return _WB_SCRATCH;
+        }
+        _WB_SCRATCH[0] = Math.max(0, Math.min(127, Math.round(r * wb[0])));
+        _WB_SCRATCH[1] = Math.max(0, Math.min(127, Math.round(g * wb[1])));
+        _WB_SCRATCH[2] = Math.max(0, Math.min(127, Math.round(b * wb[2])));
+        return _WB_SCRATCH;
     };
 
     // Per-index dedupe + throttle queue for RGB sysex frames.
@@ -129,7 +135,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         if (idx < 0) return;
         var useK2 = (typeof k2Override === 'boolean') ? k2Override : !this.sysex;
         if (useK2) { XoneK3.sendK2Note(this.midiChannel, idx, r, g, b, hw); return; }
-        if (this.calibrationMode !== 'off') {
+        if (this.calibrationMode !== 'off' && this.wbActive) {
             var wbRgb = this._wbRGB(r, g, b);
             r = wbRgb[0]; g = wbRgb[1]; b = wbRgb[2];
         }
@@ -250,22 +256,22 @@ XoneK3._requireLoad('xone-k3-lib-controller-render.js',
         return table[i][1] * (1 - t) + table[j][1] * t;
     }
 
+    var _EMIT_SCRATCH = [0, 0, 0];
+
     XoneK3.K3Controller.prototype._channelEmit = function(rgb, hw) {
         var wbRgb = this._wbRGB(rgb[0], rgb[1], rgb[2]);
         var t = this._transfer, w = this.channelPerceptual;
         if (!t) {
             var lv = hw / 127;
-            return [
-                (wbRgb[0] / 127) * lv * w[0],
-                (wbRgb[1] / 127) * lv * w[1],
-                (wbRgb[2] / 127) * lv * w[2]
-            ];
+            _EMIT_SCRATCH[0] = (wbRgb[0] / 127) * lv * w[0];
+            _EMIT_SCRATCH[1] = (wbRgb[1] / 127) * lv * w[1];
+            _EMIT_SCRATCH[2] = (wbRgb[2] / 127) * lv * w[2];
+            return _EMIT_SCRATCH;
         }
-        return [
-            (wbRgb[0] / 127) * _sampleTransfer(t.r, hw) * w[0],
-            (wbRgb[1] / 127) * _sampleTransfer(t.g, hw) * w[1],
-            (wbRgb[2] / 127) * _sampleTransfer(t.b, hw) * w[2]
-        ];
+        _EMIT_SCRATCH[0] = (wbRgb[0] / 127) * _sampleTransfer(t.r, hw) * w[0];
+        _EMIT_SCRATCH[1] = (wbRgb[1] / 127) * _sampleTransfer(t.g, hw) * w[1];
+        _EMIT_SCRATCH[2] = (wbRgb[2] / 127) * _sampleTransfer(t.b, hw) * w[2];
+        return _EMIT_SCRATCH;
     };
 
     XoneK3.K3Controller.prototype._emitAt = function(rgb, hw) {

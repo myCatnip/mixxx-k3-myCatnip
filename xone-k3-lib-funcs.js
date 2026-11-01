@@ -549,10 +549,19 @@
         // ----------------------------------------------------------
         // Loop movement — gated by _beatjumpAllowed when in loop
         // ----------------------------------------------------------
+        // Beatjump encoder is loop-only. Outside a loop, the
+        // encoder does nothing — no beatjump, no pulse timer.
+        // Inside a loop, _beatjumpAllowed's 130ms gap caps the
+        // rate well below the 30ms pulse width, so no drops.
+        // The grid beatjump buttons (beatjumpButton) are not
+        // gated here — they stay usable outside a loop for
+        // track navigation.
         encBeatjump: function(args, ch, c, v, s) {
+            var chNum = this._ctrl._channelOf(this.group);
+            if (!chNum) return;
+            if (engine.getValue('[Channel' + chNum + ']', 'loop_enabled') <= 0) return;
             if (!this._ctrl._beatjumpAllowed(this.group)) return;
-            var cw = (v === 1);
-            var co = cw ? 'beatjump_forward' : 'beatjump_backward';
+            var co = (v === 1) ? 'beatjump_forward' : 'beatjump_backward';
             this._ctrl._pulseCo(this.group, co);
         },
         beatjumpButton: function(args, ch, c, v, s) {

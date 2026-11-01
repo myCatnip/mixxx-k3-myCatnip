@@ -21,9 +21,12 @@ test('_channelEmit: black → [0, 0, 0]', function(t) {
 
 test('_channelEmit: scales linearly with hw', function(t) {
     var c = H.ctrl();
-    var low  = c._channelEmit([127, 0, 0], 64);
-    var high = c._channelEmit([127, 0, 0], 127);
-    t.approx(high[0] / low[0], 127 / 64, 1e-6);
+    // Unpack immediately — _channelEmit returns a shared scratch
+    // array (see its contract comment in lib-controller-render.js).
+    // Holding two returns across calls aliases to the same array.
+    var low0  = c._channelEmit([127, 0, 0], 64)[0];
+    var high0 = c._channelEmit([127, 0, 0], 127)[0];
+    t.approx(high0 / low0, 127 / 64, 1e-6);
 });
 
 test('_channelEmit: white at hw 127', function(t) {

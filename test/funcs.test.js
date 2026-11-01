@@ -282,9 +282,16 @@ test('encLoopMove: writes loop_anchor 0 for out', function(t) {
 });
 
 // ── encBeatjump ────────────────────────────────────────────
+//
+// v1.0.14: encoder beatjump is loop-only. Outside a loop the
+// encoder does nothing — no beatjump, no pulse timer. Inside a
+// loop, _beatjumpAllowed's 130ms cap prevents drops. The grid
+// beatjump buttons (beatjumpButton) stay usable outside a loop
+// and are tested separately.
 
-test('encBeatjump: CW → beatjump_forward pulse', function(t) {
+test('encBeatjump: CW → beatjump_forward pulse (in loop)', function(t) {
     var c = H.ctrl();
+    engine._set('[Channel1]', 'loop_enabled', 1);
     c._applyBinding('encoderL', {
         func: XoneK3.FUNCS.encBeatjump, group: '[Channel1]'
     });
@@ -294,13 +301,36 @@ test('encBeatjump: CW → beatjump_forward pulse', function(t) {
     t.eq(engine.getValue('[Channel1]', 'beatjump_forward'), 0);
 });
 
-test('encBeatjump: CCW → beatjump_backward pulse', function(t) {
+test('encBeatjump: CCW → beatjump_backward pulse (in loop)', function(t) {
     var c = H.ctrl();
+    engine._set('[Channel1]', 'loop_enabled', 1);
     c._applyBinding('encoderL', {
         func: XoneK3.FUNCS.encBeatjump, group: '[Channel1]'
     });
     H.send(c, 'encoderL', 127);
     t.eq(engine.getValue('[Channel1]', 'beatjump_backward'), 1);
+});
+
+test('encBeatjump: no-op outside a loop (CW)', function(t) {
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'loop_enabled', 0);
+    c._applyBinding('encoderL', {
+        func: XoneK3.FUNCS.encBeatjump, group: '[Channel1]'
+    });
+    H.send(c, 'encoderL', 1);
+    t.eq(engine.getValue('[Channel1]', 'beatjump_forward'), 0,
+        'no beatjump outside a loop');
+});
+
+test('encBeatjump: no-op outside a loop (CCW)', function(t) {
+    var c = H.ctrl();
+    engine._set('[Channel1]', 'loop_enabled', 0);
+    c._applyBinding('encoderL', {
+        func: XoneK3.FUNCS.encBeatjump, group: '[Channel1]'
+    });
+    H.send(c, 'encoderL', 127);
+    t.eq(engine.getValue('[Channel1]', 'beatjump_backward'), 0,
+        'no beatjump outside a loop');
 });
 
 // ── encBeatjumpStepScale ───────────────────────────────────

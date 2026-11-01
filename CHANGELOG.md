@@ -5,6 +5,115 @@ All notable changes to the Xone K3 Mixxx mapping.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.14] — 2026-11-01
+
+Beatjump encoder scope fix, render-path allocation reduction,
+boot hardening. One shipped-preset behaviour change: encoder
+beatjump is now loop-only.
+
+**Perf reclaimed:**
+- ~24 array allocations / knob-event on calibrated schemes —
+  eliminated (shared `_wbRGB` / `_channelEmit` scratch)
+- One passthrough function call / LED frame when white balance
+  is off
+
+## Fixed
+
+- **`encBeatjump` is now loop-only.** The beatjump encoder
+  previously fired outside a loop, where no throttle exists
+  and fast spins could drop. Mixxx's `beatjump_forward` /
+  `beatjump_backward` are `ControlPushButton`, not
+  `ControlTrigger` — `_pulseCo` is required for them, so
+  removing the pulse was not an option. The fix gates the
+  encoder on `loop_enabled`: outside a loop it does nothing
+  (no beatjump, no pulse timer); inside a loop the existing
+  130ms `_beatjumpAllowed` cap sits well below the 30ms pulse
+  width, so no drops. The grid beatjump buttons
+  (`beatjumpButton`, `grid0_1` / `grid1_1`) are unchanged and
+  remain usable outside a loop for track navigation.
+
+## Performance
+
+- **Shared scratch for `_wbRGB` / `_channelEmit`.**
+  Both returned a fresh 3-element array per call. On a
+  calibrated scheme, every `_calibratedHw` cache miss runs
+  12 bisect iterations × 1 `_emitAt` → `_channelEmit` →
+  `_wbRGB` = **24 array allocations per knob position**.
+  Every production caller unpacks indices immediately and
+  discards the array; none holds it past the current call.
+  Module-scope scratch eliminates the allocation.
+
+  **Contract:** `_wbRGB` / `_channelEmit` return a shared
+  array — read indices immediately, do not hold across calls.
+  A new caller that needs to hold two returns must copy
+  explicitly. The `_channelEmit: scales linearly` test was
+  updated to unpack immediately for this reason.
+- **`sendLED` skips `_wbRGB` entirely when white balance is
+  off.** colorLab after `labToggleWb`, custom configs with
+  `wbActive: false`, and any preset where `calibrationMode`
+  is off — all skip the passthrough `_wbRGB` call. Saves one
+  function call per LED frame, not just an allocation.
+
+## Hardening
+
+- **`_bootWith` shuts down existing controllers before
+  resetting the array.** Console `init()` after a boot would
+  otherwise leak the old controllers' sysex drain timer,
+  beat-clock connections, and boot-settle timers. Mixxx's
+  framework calls shutdown before init on preset reload, so
+  this only matters for manual re-init — but the fix is one
+  line and removes a real leak path.
+- **`_bootWith` device loop is try/catch per device.** A
+  throwing constructor or `init()` previously aborted the
+  loop — remaining devices never booted, and the failed
+  controller wasn't in `controllers` for `halt` to clean up.
+  Now warn-onces per device and continues.
+
+## Readability
+
+- **`_inspectBeat`** — removed dead `vbeat` local
+  (`_virtualBeatFor` result was assigned but never used).
+
+## Tests
+
+- `calibration.test.js` — "`_channelEmit: scales linearly with
+  hw`" now unpacks each return immediately (was holding two
+  returns across calls, which aliases under the new shared
+  scratch). Same mathematical assertion.
+- `funcs.test.js` — the two `encBeatjump` tests enable a loop
+  before firing the encoder; two new tests cover the
+  outside-loop no-op. Locks in the loop-only gate.
+
+## Review notes (no code change)
+
+- **All four `_pulseCo` callers verified as `ControlPushButton`.**
+  `beatjump_forward` / `beatjump_backward` are declared
+  `ControlPushButton*` in `loopingcontrol.h`;
+  `reloop_toggle` and `beatloop_activate` are the same loop-
+  button family. `ControlPushButton` stays at 1 until
+  explicitly reset, so `_pulseCo` is load-bearing for all
+  four. Removing it would leave every beatjump and loop
+  action stuck after the first press.
+- **`PULSE_CO_MS` stays at 30.** No split into
+  beatjump / loop-action tuneables — the pulse width is CO
+  reset latency (enough for Mixxx's event loop to observe
+  the 1), identical requirement for every caller. The
+  throttle side effect is unintentional but harmless: inside
+  a loop the 130ms `_beatjumpAllowed` cap is the real rate
+  limiter, and outside a loop the encoder now does nothing.
+
+## Compatibility
+
+- Mixxx 2.5
+- Preset `.midi.xml` schema unchanged
+- **`encBeatjump` outside a loop is now a no-op.** If a user
+  relied on encoder beatjumps for non-loop navigation, bind
+  `beatjumpButton` to a grid cell instead — those stay
+  unrestricted.
+- No other config changes required
+
+---
+
 ## [v1.0.13] — 2026-11-01
 
 Beat-engine performance + readability. No shipped-preset behaviour

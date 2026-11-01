@@ -188,7 +188,6 @@
         print('');
         for (var ch = 1; ch <= 4; ch++) {
             var st = this._decks[ch];
-            var vbeat = this._virtualBeatFor(ch);
             print('  deck ' + ch +
                 '   count=' + st.count +
                 '   active=' + st.active +

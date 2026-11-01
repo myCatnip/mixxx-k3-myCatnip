@@ -95,6 +95,13 @@ XoneK3._requireLoad('xone-k3-lib-controller-boot.js', ['K3Controller']);
 
     XoneK3._bootWith = function(devices, Ctor, label) {
         print('\n=== Xone K3 INIT' + (label ? ' (' + label + ')' : '') + ' ===');
+        // Shut down any controllers from a previous boot (console
+        // init() without a preset reload). Mixxx's controller
+        // framework calls shutdown before init on preset reload,
+        // so this only matters for manual re-init — but the old
+        // controllers' timers and CO connections would otherwise
+        // leak and keep firing alongside the new ones.
+        XoneK3.controllers.forEach(function(c) { c.shutdown(); });
         XoneK3.controllers = [];
         XoneK3._schemeCache = {};
         XoneK3._compiledCache = {};
@@ -111,10 +118,16 @@ XoneK3._requireLoad('xone-k3-lib-controller-boot.js', ['K3Controller']);
             ? devices[0].timeSig : null;
         devices.forEach(function(d) {
             print('  spawning ' + d.label + ' ch 0x' + d.midiChannel.toString(16));
-            var ctrl = new Ctor(d);
-            ctrl.init();
-            XoneK3._wireInputs(ctrl);
-            XoneK3.controllers.push(ctrl);
+            try {
+                var ctrl = new Ctor(d);
+                ctrl.init();
+                XoneK3._wireInputs(ctrl);
+                XoneK3.controllers.push(ctrl);
+            } catch (e) {
+                XoneK3._warnOnce('bootDeviceThrow:' + (d.label || '?'),
+                    'device "' + (d.label || '?') + '" failed to boot: ' +
+                    (e && e.message ? e.message : e));
+            }
         });
         XoneK3._auditSnapshotFields();
     };
