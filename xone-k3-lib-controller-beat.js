@@ -257,12 +257,19 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     //
     // Both gates are controller-scoped so they survive
     // _resetBeat / _closeBeatClocks replacing _decks[ch].
+    // Shared empty-meta sentinel for unloaded decks. Callers read
+    // a field (`duration`, `samples`, etc.); none mutates. Saves
+    // one object allocation per call on cold paths — countdown
+    // LED repaint on an empty deck fires this ~32×/sec across
+    // 4 channels. Same pattern as BOOT_WHITE_ENTRY.
+    var EMPTY_META = { duration: 0, fileBpm: null, samples: 0, outroEnd: 0 };
+
     XoneK3.K3Controller.prototype._trackMeta = function(ch) {
         var cached = this._trackMetaCache[ch];
         if (cached !== undefined) return cached;
 
         if (this._loadedState[ch] !== true) {
-            return { duration: 0, fileBpm: null, samples: 0, outroEnd: 0 };
+            return EMPTY_META;
         }
 
         var grp = '[Channel' + ch + ']';
@@ -485,8 +492,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             : this._trackBeatF(ch);
         if (trackBeatF === null) return;
 
-        var trackAbs = Math.floor(trackBeatF);
-        var trackFrac = trackBeatF - trackAbs;
+        var trackFrac = trackBeatF - Math.floor(trackBeatF);
         var count = this._cascadeCount(ch, trackBeatF);
 
         var wasHasBeat = st.hasBeat;
@@ -601,7 +607,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             self._seedHotcueCache(ch);
             var pos = engine.getValue(grp, 'playposition');
             self._deriveOriginFromPosition(ch, pos);
-            self._syncBeatCount(ch);
+            self._syncBeatCount(ch, pos);
         });
 
         // outro_end_position changes when the user drags the outro
@@ -678,7 +684,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var self = this;
         var slots = XoneK3._phraseHotcueSlots();
 
-        function onColor(n) {
+        function onColor(n, v) {
             var st = self._decks[ch];
             // _onTrackLoaded and _onLoopEnabled wipe hotcueState
             // (via _resetBeat) before re-seeding it a few CO reads
@@ -688,16 +694,20 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             // _deriveOriginFromPosition treats half-populated
             // entries as inert until both fields arrive.
             if (!st.hotcueState[n]) st.hotcueState[n] = {};
-            st.hotcueState[n].color =
-                engine.getValue(grp, 'hotcue_' + n + '_color');
+            // `v` is delivered by makeConnection's callback — same
+            // value the previous getValue would have read, one
+            // fewer mutex acquisition per fire (32 across 4
+            // channels per track load). Playposition stays a live
+            // read: it's a different CO this observer isn't
+            // watching.
+            st.hotcueState[n].color = v;
             var pos = engine.getValue(grp, 'playposition');
             self._deriveOriginFromPosition(ch, pos);
         }
-        function onPosition(n) {
+        function onPosition(n, v) {
             var st = self._decks[ch];
             if (!st.hotcueState[n]) st.hotcueState[n] = {};
-            st.hotcueState[n].pos =
-                engine.getValue(grp, 'hotcue_' + n + '_position');
+            st.hotcueState[n].pos = v;
             var pos = engine.getValue(grp, 'playposition');
             self._deriveOriginFromPosition(ch, pos);
         }
@@ -706,10 +716,10 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
             (function(n) {
                 self._playConns.push(
                     engine.makeConnection(grp, 'hotcue_' + n + '_color',
-                        function() { onColor(n); }));
+                        function(v) { onColor(n, v); }));
                 self._playConns.push(
                     engine.makeConnection(grp, 'hotcue_' + n + '_position',
-                        function() { onPosition(n); }));
+                        function(v) { onPosition(n, v); }));
             })(slots[hi]);
         }
     };
@@ -830,7 +840,10 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var pos = engine.getValue('[Channel' + ch + ']', 'playposition');
         this._deriveOriginFromPosition(ch, pos);
         this._syncVirtualClock(ch);
-        this._syncBeatCount(ch);
+        // Pass `pos` — avoids a redundant getValue in
+        // _syncBeatCount's _trackBeatF fallback. Boot settle runs
+        // this path up to 5 × 4 = 20 times per boot.
+        this._syncBeatCount(ch, pos);
     };
 
     // ============================================================
@@ -927,6 +940,16 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         var st = this._decks[ch];
         var wasPlaying = st.playing;
         st.playing = v > 0;
+        // Two independent refresh triggers:
+        //   - state change (playing ↔ paused): sync the virtual
+        //     clock (may flip displaySource) and repaint beat LEDs
+        //     so BEAT_PLAYING_MODE / BEAT_PAUSED_MODE swap in.
+        //   - v === 1: resync the beat count in case the pause
+        //     skipped a beat edge. Fires even when the state didn't
+        //     change (redundant play press on a playing deck) so a
+        //     stalled count can be recovered.
+        // On play-start both fire; the double refresh is harmless
+        // (_ledCache dedupes unchanged frames).
         if (wasPlaying !== st.playing) {
             this._syncVirtualClock(ch);
             this._refreshBeatLeds(ch);
@@ -980,7 +1003,7 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         // landing past a marker anchors immediately.
         var pos = engine.getValue(grp, 'playposition');
         this._deriveOriginFromPosition(ch, pos);
-        this._syncBeatCount(ch);
+        this._syncBeatCount(ch, pos);
     };
 
     // Enabling the loop while paused does not start the clock —
@@ -1087,6 +1110,15 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         if (ref === undefined || ref === null) ref = XoneK3.DEFAULT_BEAT_DECK;
         if (typeof ref === 'number') return (ref >= 1 && ref <= 4) ? ref : null;
         if (typeof ref === 'string') {
+            // Fast path for the three deck tokens every shipped
+            // scheme uses. Skips the 16-token resolve loop + regex
+            // that runs on every beat-enabled LED refresh (~1.3k
+            // token comparisons/sec at steady-state playback, plus
+            // another sweep per patch swap). Same numeric result
+            // as the generic path for these tokens.
+            if (ref === '$DECK_ACTIVE$') return this.selectedDeckCurrent;
+            if (ref === '$DECK_A$')      return this.selectedDeckA;
+            if (ref === '$DECK_B$')      return this.selectedDeckB;
             var s = XoneK3.resolve(ref, this);
             var m = /\[Channel(\d)\]/.exec(s);
             return m ? parseInt(m[1], 10) : null;

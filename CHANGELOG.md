@@ -5,6 +5,94 @@ All notable changes to the Xone K3 Mixxx mapping.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.13] — 2026-11-01
+
+Beat-engine performance + readability. No shipped-preset behaviour
+change.
+
+**Perf reclaimed:**
+- ~1.3k token comparisons + ~80 regex matches /sec — steady
+  playback
+- ~52 redundant CO mutex acquisitions / boot
+- ~33 redundant CO mutex acquisitions / track load
+- ~32 object allocations /sec — idle-deck countdown repaints
+
+## Performance
+
+**`_resolveDeckRef` fast-paths the three common deck tokens.**
+Every beat-enabled LED refresh resolved its `beat.deck` via the
+full 16-token `XoneK3.resolve` loop plus a regex match. Shipped
+schemes all use `$DECK_ACTIVE$` (or `$DECK_A$` / `$DECK_B$` in
+custom configs), which map directly to controller state. The
+fast path returns the same numeric channel in O(1); other tokens
+fall through unchanged to the generic resolver. Steady-state
+playback eliminates ~1.3k token comparisons and ~80 regex
+matches per second; a `_refreshAllLeds` sweep saves the same
+per-binding cost across all ~80 bindings.
+
+**`_catchUpChannel`, `_onTrackLoaded`, and the `track_samples`
+listener pass `pos` into `_syncBeatCount`.** Each handler read
+`playposition` for origin derivation, then let `_syncBeatCount`
+re-read it via `_trackBeatF`'s fallback. Passing the already-read
+value avoids the second `engine.getValue`. Saves ~20 redundant
+reads per boot (boot settle runs up to 5 × 4 channels) plus one
+per track load and per `track_samples` fire.
+
+**Hotcue colour/position observers use the callback `v`.**
+`makeConnection` delivers the new CO value as the first callback
+argument; the observers were ignoring it and re-reading via
+`engine.getValue`. Same value, one fewer mutex acquisition per
+fire. 32 reads eliminated per track load (4 channels × 4 hotcue
+slots × 2 COs). The `playposition` read inside each observer
+stays — that's a different CO the observer isn't watching.
+
+**`_trackMeta` returns a shared `EMPTY_META` sentinel for
+unloaded decks.** Previously allocated a fresh
+`{ duration: 0, fileBpm: null, samples: 0, outroEnd: 0 }` per
+call. Unloaded-deck countdown LEDs repaint at ~32 Hz across four
+channels; the shared object skips that allocation. No caller
+mutates it (verified). Same pattern as `BOOT_WHITE_ENTRY` in
+`lib-binding.js`.
+
+## Readability
+
+- **`_repaintFromPosition`** — `trackAbs` was a dead local used
+  only to compute `trackFrac`. Inlined.
+- **`_onPlayIndicator`** — comment documents the two independent
+  refresh triggers (state change → virtual clock + beat LED
+  repaint; `v === 1` → beat-count resync). The double refresh on
+  play-start is intentional; `_ledCache` dedupes unchanged frames.
+
+## Review notes (no code change)
+
+- **`_patchActive` doesn't recurse into host's `_host`.** Reviewed
+  as a possible hardening gap. Shipped `_host` values all
+  reference base patches (no nesting), so the presence-based
+  check is correct for every shipped preset. Recursion would
+  require cycle detection for a config shape nobody writes. A
+  future INTERNALS §4 edit could add "`_host` should reference
+  base patches, not other overlays" if desired.
+- **`_recompute` throw during patch mutation leaves
+  `activePatches` mutated.** A cycle in an overlay's patch tree
+  self-heals on the next toggle (the patch is already in the
+  array, so the next press removes it, and the subsequent
+  `_recompute` succeeds). A cycle in a base patch is a broken
+  config — the preset is unusable by design. No change.
+- **`_applyBinding`'s per-binding refresh is unreached in shipped
+  code.** INTERNALS §21's phrasing ("direct callers still get a
+  per-binding refresh") is conditional — describing behaviour if
+  a direct caller existed, not asserting one does. Dead code is
+  intentional scaffolding. No change.
+
+## Compatibility
+
+- Mixxx 2.5
+- Preset `.midi.xml` schema unchanged
+- No config changes required
+- No shipped-preset behaviour change
+
+---
+
 ## [v1.0.12] — 2026-11-01
 
 Small hardening + readability release. No shipped-preset behaviour
