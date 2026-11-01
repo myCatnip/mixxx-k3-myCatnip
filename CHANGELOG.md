@@ -5,6 +5,74 @@ All notable changes to the Xone K3 Mixxx mapping.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.16] — 2026-11-01
+
+Code review pass. One LED fix, a palette cleanup, tunable
+extraction, minor read-path tidy-ups. No shipped-preset
+behaviour change.
+
+## Fixed
+
+- **`routeTo` LED staleness on THEME.fx mutation.** FX-routing
+  overlay grid cells held a raw reference to `THEME.fx[unit]`,
+  so an in-place mutation (`THEME.fx[3][0] = 100`) didn't
+  repaint — the ref-identity memo in `_evaluateScheme` saw the
+  same array and skipped recompile. Routed through
+  `CAT.themeScheme('fx', unit)`.
+
+## Added
+
+- **`on.group` without `on.co` warns.** The group was silently
+  dropped before (it's a known `on:` field only *with* `co`).
+  Key: `csOnGroupNoCo`.
+- **`on.patchActive` alongside `co` / `state` warns.**
+  `_evalCsOn` checks patchActive first and returns early; the
+  other source is unreachable. Key: `csOnPatchActiveSource`.
+- **`BEAT_STALL_MS = 1500`** in `lib-core.js`. Replaces the
+  sole inline timing literal among the beat-repaint tunables.
+  Same value; `_requireLoad`'d from `lib-controller-beat.js`.
+
+## Changed
+
+- **`slipOrLoad` uses `_loadSelectedOntoChannel`.** Matches
+  the other three load-arm call sites. No behaviour change —
+  `selectedDeckCurrent` is clamped 1–4 at boot.
+- **`_parseSchemeValue` returns a boolean.** Dropped the dead
+  `hasBase` field from the `{ hasBase, schemeIsFn }` shape.
+- **`Binding` ctor / `_reset` use `Object.assign`.** Same
+  semantics as the manual `for..in` copy; one less place to
+  edit when fields are added.
+
+## Removed
+
+- **`XoneK3.COLORS` / `_populateColors`.** The registry was a
+  boot-time copy of `XoneK3.SYSEX_PALETTE`; the only consumer
+  (`_parseNamedEntry`) reads the palette directly. Dropped
+  from `_bootWith` and `test/harness.js`.
+
+## Tests
+
+- `test/harness.js` — `_populateColors()` call removed.
+- `test/colors.test.js` — two `_populateColors` tests removed.
+  `resolveColorEntry: every palette entry resolves` already
+  covers the same invariant.
+
+## Review notes (no code change)
+
+- `_segsCacheId` attaches a controller-scoped id onto cached
+  scheme arrays. A WeakMap would be cleaner but can't back
+  `_flatCache`'s 1024-entry eviction. Deferred.
+- `_wireCsOnConnection` / `_buildCsFromStateClosure` share a
+  seed-then-connect shape. Extracting a helper saves ~6 lines
+  at the cost of indirection. Deferred.
+
+## Compatibility
+
+- Mixxx 2.5 · preset schema unchanged · no config changes ·
+  no shipped-preset behaviour change
+
+---
+
 ## [v1.0.15] — 2026-11-01
 
 Verification pass on v1.0.10 – v1.0.14, focused review of

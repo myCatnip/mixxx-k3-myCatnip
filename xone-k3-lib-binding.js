@@ -90,10 +90,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         this.type = spec.type;
         this.idx = spec.idx;
 
-        var d = XoneK3._bindingDefaults();
-        for (var k in d) {
-            if (d.hasOwnProperty(k)) this[k] = d[k];
-        }
+        Object.assign(this, XoneK3._bindingDefaults());
         // Pots want soft-takeover on; buttons don't.
         if (spec.type === 'knob' || spec.type === 'fader') {
             this.softTakeover = true;
@@ -410,11 +407,9 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         }
 
         // _transaction is session-scoped — not wiped here. The
-        // transaction must survive rebinds.
-        var d = XoneK3._bindingDefaults();
-        for (var k in d) {
-            if (d.hasOwnProperty(k)) this[k] = d[k];
-        }
+        // transaction must survive rebinds. _bindingDefaults()
+        // doesn't include it, so Object.assign leaves it intact.
+        Object.assign(this, XoneK3._bindingDefaults());
     };
 
     XoneK3.Binding.prototype._armOwnConn = function() {

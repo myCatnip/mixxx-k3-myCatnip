@@ -673,23 +673,28 @@ deck state when the deck has seen a beat, else null.
 
 Both write from track frac, so they agree.
 
-The position handler skips the pulse repaint in track mode when
-playing forward **inside a loop** and a recent `beat_active`
-edge exists (within 1.5 s) — that's what prevents the flicker at
-loop wrap, where `trackFrac` jumps 1 → 0. It still calls
-`_syncBeatCount` before returning.
+The position handler skips the pulse repaint when playing
+forward and a recent `beat_active` edge exists (within
+`BEAT_STALL_MS`) — that's what prevents the flicker at loop
+wrap, where `trackFrac` jumps 1 → 0, and at other trackFrac
+discontinuities. It still calls `_syncBeatCount` before
+returning. The guard is not gated on loop state; outside a
+loop it acts as a pure dedupe, inside a loop it's the wrap
+protection.
 
 The guard prevents double-writer flicker. Without it,
 `_repaintFromPosition` writes `st.active` on every throttled
 playposition tick **and** `_onBeatActive` writes it on every
 edge. The two fire on different schedules and disagree briefly
 at beat boundaries — the LED flickers, sometimes showing two
-pulses per beat. When `beat_active` has been heard from
-recently (< 1.5 s), the guard fires and only `_syncBeatCount`
-runs: `st.active` is written solely by `_onBeatActive`. When
-`beat_active` has stalled (no fires for 1.5 s), the guard fails
-and `_repaintFromPosition` takes over to avoid a frozen pulse
-phase. The stalled-beat_active case is rare in practice; the
+pulses per beat. When `beat_active` has been heard from recently
+(< `BEAT_STALL_MS`), the guard fires and only
+`_syncBeatCount` runs: `st.active` is written solely by
+`_onBeatActive`. When `beat_active` has stalled (no fires for
+`BEAT_STALL_MS`), the guard fails and `_repaintFromPosition`
+takes over to avoid a frozen pulse phase.
+
+The stalled-beat_active case is rare in practice; the
 double-writer flicker is not.
 
 The guard also requires the playhead not moving backward —
@@ -1318,10 +1323,11 @@ carries an inline disable.
   stale.
 - **`_openBeatClocks` catches up state on open.** See §10.
 - **`st.lastPlayPos` gates the beat-edge guard.** Backward motion
-  bypasses the 1.5 s guard so `_repaintFromPosition` runs. The
-  guard is also gated on `st.loopActive` — outside a loop there
-  is no wrap to protect against and the pulse tracks `trackFrac`
-  live.
+  bypasses the `BEAT_STALL_MS` guard so `_repaintFromPosition`
+  runs. The guard is not gated on loop state — where `trackFrac`
+  is continuous (outside a loop) it deduplicates
+  `_repaintFromPosition`'s `st.active` writes; where it jumps
+  (loop wrap) it's what prevents the flicker.
 - **`_catchUpChannel` re-seeds the hotcue cache and re-derives
   origin when the cache is empty.** That state arises when clocks
   were closed across a track load. See §10.
@@ -1403,9 +1409,9 @@ carries an inline disable.
 - **`_phraseHotcueSlotsCache` / `_phraseHotcueSlotsCacheSrc`** —
   memoized by `PHRASE_HOTCUE_SLOTS` array identity. Reset in
   `test/run.js` between tests.
-- **`SCHEMES` / `COLORS`** — cleared by `lib-schemes.js` on every
-  evaluation. Compiled-scheme references on live bindings are
-  object references, not names — they survive the clear.
+- **`SCHEMES`** — cleared by `lib-schemes.js` on every evaluation.
+  Compiled-scheme references on live bindings are object
+  references, not names — they survive the clear.
 
 ## Beat math
 

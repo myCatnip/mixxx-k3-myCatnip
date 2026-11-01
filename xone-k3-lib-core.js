@@ -69,6 +69,12 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
 
     XoneK3.BEAT_REPAINT_THROTTLE_MS = 30;
 
+    // If beat_active has been silent for at least this long, the
+    // beat-edge guard in _onPlayposition releases and the pulse
+    // phase falls back to a position-derived read. See
+    // INTERNALS §10.
+    XoneK3.BEAT_STALL_MS = 1500;
+
     // Milliseconds after the last metadata-relevant CO event
     // (track_loaded, track_samples, duration, file_bpm) during
     // which _trackMeta reads live but skips the cache write.

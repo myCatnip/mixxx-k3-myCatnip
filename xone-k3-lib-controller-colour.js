@@ -42,6 +42,11 @@
         if (cs.on.state       !== undefined) o.state = cs.on.state;
         if (cs.on.equals      !== undefined) o.equals = cs.on.equals;
         if (cs.on.contains    !== undefined) o.contains = cs.on.contains;
+        if (cs.on.group !== undefined && cs.on.co === undefined) {
+            XoneK3._warnOnce('csOnGroupNoCo:' + b._name,
+                'colorScheme.on on ' + b._name +
+                ' has `group` but no `co` — group is ignored');
+        }
         if (cs.on.co !== undefined) {
             var g = cs.on.group ? XoneK3.resolve(cs.on.group, this) : b.group;
             if (!g) {
@@ -82,6 +87,13 @@
                 'colorScheme.on on ' + b._name +
                 ' has `equals`/`contains` alongside `patchActive` — ' +
                 'comparators are ignored when patchActive is the source');
+        }
+        if (o.patchActive !== undefined &&
+            (o.co !== undefined || o.state !== undefined)) {
+            XoneK3._warnOnce('csOnPatchActiveSource:' + b._name,
+                'colorScheme.on on ' + b._name +
+                ' has both `patchActive` and `co`/`state` — patchActive ' +
+                'wins, the other source is ignored');
         }
 
         // Assign _csOn before wiring. Mixxx currently defers the
@@ -124,23 +136,26 @@
     // ============================================================
     // BASE SCHEME
     // ============================================================
+    // Returns true iff cs.scheme is a function (i.e. a live scheme
+    // closure the binding invokes per render). Compiles the static
+    // case into b._csScheme and returns false. Sets b._csFailed on
+    // an unresolvable static scheme. Safe to call with no base
+    // scheme — returns false without touching b._csScheme (the
+    // caller's hasFromState path handles that case).
     XoneK3.K3Controller.prototype._parseSchemeValue = function(b, cs) {
-        var hasBase = cs.scheme !== undefined && cs.scheme !== null;
-        var schemeIsFn = (typeof cs.scheme === 'function');
-        if (!hasBase) return { hasBase: false, schemeIsFn: false };
+        if (cs.scheme === undefined || cs.scheme === null) return false;
+        if (typeof cs.scheme === 'function') return true;
 
-        if (!schemeIsFn) {
-            var comp = this._resolveSchemeRef(cs.scheme);
-            if (!comp) {
-                XoneK3._warnOnce('csUnresolved:' + b._name,
-                    'colorScheme: cannot resolve scheme for ' + b._name +
-                    ' — ' + String(JSON.stringify(cs.scheme)).slice(0, 120));
-                b._csFailed = true;
-                return { hasBase: true, schemeIsFn: false };
-            }
-            b._csScheme = comp;
+        var comp = this._resolveSchemeRef(cs.scheme);
+        if (!comp) {
+            XoneK3._warnOnce('csUnresolved:' + b._name,
+                'colorScheme: cannot resolve scheme for ' + b._name +
+                ' — ' + String(JSON.stringify(cs.scheme)).slice(0, 120));
+            b._csFailed = true;
+            return false;
         }
-        return { hasBase: true, schemeIsFn: schemeIsFn };
+        b._csScheme = comp;
+        return false;
     };
 
     // ============================================================
@@ -191,12 +206,12 @@
 
         b._csDeviation = (cs.knob !== undefined && cs.knob !== null);
 
-        var baseResult = this._parseSchemeValue(b, cs);
+        var baseIsFn = this._parseSchemeValue(b, cs);
         if (b._csFailed) return;
 
         if (hasFromState) {
-            this._parseSchemeFromState(b, cs, baseResult.schemeIsFn);
-        } else if (baseResult.schemeIsFn) {
+            this._parseSchemeFromState(b, cs, baseIsFn);
+        } else if (baseIsFn) {
             b._csSchemeFn = cs.scheme;
         }
 

@@ -54,7 +54,13 @@
         return {
             group: '[EffectRack1_EffectUnit' + unit + ']',
             inKey: key, outKey: key,
-            colorScheme: { scheme: function() { return XoneK3.THEME.fx[unit]; } }
+            // themeScheme content-keys the slice so an in-place
+            // THEME.fx mutation propagates on the next repaint
+            // instead of getting short-circuited by the scheme
+            // ref-identity memo in _evaluateScheme.
+            colorScheme: {
+                scheme: function() { return CAT.themeScheme('fx', unit); }
+            }
         };
     }
 

@@ -1,6 +1,6 @@
 'use strict';
 
-// resolveColorEntry, mapMixxxColor, _populateColors.
+// resolveColorEntry, mapMixxxColor.
 
 // ── resolveColorEntry ────────────────────────────────────────
 
@@ -105,17 +105,4 @@ test('mapMixxxColor: known hexes', function(t) {
 test('mapMixxxColor: unknown halves the RGB', function(t) {
     // 0x123456 → [18, 52, 86] → halved → [9, 26, 43]
     t.eq(XoneK3.mapMixxxColor(0x123456), [9, 26, 43]);
-});
-
-// ── _populateColors ──────────────────────────────────────────
-
-test('_populateColors: COLORS mirrors SYSEX_PALETTE', function(t) {
-    t.eq(XoneK3.COLORS.red,   [127, 0, 0]);
-    t.eq(XoneK3.COLORS.white, [127, 127, 127]);
-});
-
-test('_populateColors: keys match', function(t) {
-    var palKeys = Object.keys(XoneK3.SYSEX_PALETTE).sort();
-    var colKeys = Object.keys(XoneK3.COLORS).sort();
-    t.eq(colKeys, palKeys);
 });

@@ -111,7 +111,6 @@ XoneK3._requireLoad('xone-k3-lib-controller-boot.js', ['K3Controller']);
         XoneK3._funcIdCounter = 0;
         XoneK3._funcIdMap = new WeakMap();
         XoneK3._segsCacheCounter = 0;
-        XoneK3._populateColors();
 
         if (!Array.isArray(devices)) devices = [devices];
         XoneK3.TIME_SIG = (devices[0] && devices[0].timeSig)

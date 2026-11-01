@@ -436,11 +436,7 @@
         slipOrLoad: function(args, ch, c, v, s) {
             if (!this._ctrl._isPress(v, s)) return;
             var ctrl = this._ctrl;
-            if (ctrl.modifiers.loadArm) {
-                engine.setValue('[Channel' + ctrl.selectedDeckCurrent + ']',
-                                'LoadSelectedTrack', 1);
-                return;
-            }
+            if (_loadSelectedOntoChannel(ctrl, ctrl.selectedDeckCurrent)) return;
             var cur = engine.getValue(this.group, 'slip_enabled');
             engine.setValue(this.group, 'slip_enabled', cur ? 0 : 1);
         },

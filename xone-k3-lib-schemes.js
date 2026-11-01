@@ -119,15 +119,11 @@
     };
 
     // ============================================================
-    // COLOUR REGISTRY + RESOLVER
+    // COLOUR RESOLVER
     // ============================================================
-    XoneK3.COLORS = {};
-
-    XoneK3._populateColors = function() {
-        var k;
-        if (XoneK3.SYSEX_PALETTE) for (k in XoneK3.SYSEX_PALETTE)
-            if (XoneK3.SYSEX_PALETTE.hasOwnProperty(k)) XoneK3.COLORS[k] = XoneK3.SYSEX_PALETTE[k];
-    };
+    // Palette lookups read XoneK3.SYSEX_PALETTE directly. No
+    // copy registry — a copy was only ever a boot-time snapshot,
+    // and _parseNamedEntry runs at compile time anyway.
 
     // ---------- Colour-entry parsing ----------
     // A colour spec is normalised to a `parts` array (the same
@@ -186,7 +182,7 @@
 
     function _parseNamedEntry(parts, DEF) {
         var first = (typeof parts[0] === 'string') ? parts[0].toLowerCase() : parts[0];
-        var rgbNamed = XoneK3.COLORS[first];
+        var rgbNamed = XoneK3.SYSEX_PALETTE[first];
         if (!rgbNamed) return null;
         return {
             rgb: rgbNamed.slice(),

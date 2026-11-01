@@ -70,7 +70,6 @@ module.exports.load = function() {
         vm.runInContext(src, sandbox, { filename: files[i] });
     }
 
-    sandbox.XoneK3._populateColors();
     sandbox.XoneK3.LED_TRANSFERS.linearTest = {
         r: [[0, 0], [127, 1]],
         g: [[0, 0], [127, 1]],
