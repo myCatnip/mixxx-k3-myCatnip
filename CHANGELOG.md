@@ -5,6 +5,104 @@ All notable changes to the Xone K3 Mixxx mapping.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.11] — 2026-11-01
+
+Performance-focused release plus small UX and warning improvements.
+No shipped-preset behaviour change except the intro/outro marker
+LEDs, which now stay dimly visible when unset.
+
+## Performance
+
+**`_onPlayposition` uses the callback value instead of re-reading
+`playposition`.** `makeConnection` delivers the new value as the
+first callback argument, and every other CO listener in the file
+already uses it — `playposition` alone discarded it and called
+`engine.getValue` for the same value. `playposition` fires at
+audio-buffer rate (~690 Hz per playing deck at 64-sample
+buffers), so the old path was taking ~2,760 control-object
+mutex acquisitions per second across four playing decks — the
+audio thread contends on the same mutex. Now zero. Playback
+states (play / pause / seek / reverse / loop wrap) update
+identically because the callback value *is* the new position.
+The `undefined` fallback covers test mocks and future Mixxx
+variation.
+
+**Hotcue colour CO read eliminated from render path.** Hotcue
+and phrase LEDs using `colorScheme: 'mixxx'` were regex-matching
+`outKey` and re-reading `hotcue_N_color` on every render. The
+colour CO name is now precomputed at bind time, and its value is
+cached on the binding — seeded at bind, kept current by the
+existing colour listener. Same pattern as `_lastOutKeyValue`,
+`_lastCoValue`, and `_csOn.cachedValue`. Removes one regex
+match and one mutex acquisition per mixxx-typed LED per sweep
+(sweeps happen on track load, patch swap, focus change, and
+hotcue state / colour change).
+
+**`applyBeat` no longer slices `entry.rgb` on brightness-only
+cascades.** The common case — bar / phrase boundaries that only
+override brightness — was allocating a fresh rgb array that was
+never replaced. Deferred the slice to when the cascade actually
+supplies a new colour. ~660 allocations/sec saved on a typical
+20-LED playback sweep.
+
+**`_sampleSnap` / `_sampleBlend` no longer allocate per-candidate
+wrapper objects.** Both functions built intermediate
+`{ t, color }` / `{ rgb, brightness, type }` objects inside the
+scan loop. Index-tracked now — one allocation per sample call,
+identical behaviour. ~5,400 small objects/sec churned during
+knob turn (deviation LEDs sampling at ~30 Hz).
+
+## Warning improvements
+
+**`_warnIfFreshScheme` now catches fresh-array scheme
+functions.** The warning exists to catch scheme functions that
+return a structurally-identical-but-different-reference value
+each call (which forces a recompile every render) — but the
+guard silently skipped arrays. `scheme: function() {
+return [127,0,0]; }` was the same trap as a fresh object, and
+now warns.
+
+**`_warnIfFreshScheme` stops re-stringifying after warning.**
+Two `_stableStringify` calls per render used to run forever for
+a buggy config, because the warn-once guard sat below them. Now
+the guard sits above. No effect on well-behaved configs.
+
+**`_buildSegments` warns on unresolved colour specs.** A typo
+in a scheme's `colors` array (`'gren'` for `'green'`) silently
+dropped the segment — no warning, no error, just a scheme with
+fewer stops than the config declares. Now warn-onces with the
+bad spec. No effect on shipped schemes.
+
+## UX
+
+**Intro / outro marker buttons stay dimly visible when unset.**
+`markerCell` / `markerCellShift` previously set brightness-off
+to 0, so the marker LEDs went fully dark when the marker wasn't
+set — indistinguishable from a dead LED or an unused cell.
+Brightness-off is now 12 (`DEFAULT_RGB_BRIGHTNESS_OFF`), so the
+unset state shows a dim version of the marker colour (or dim
+red under shift). Only affects the four row-3 marker cells in
+the hotcue2 overlay.
+
+## Tests
+
+- `integration-bottom.test.js` — "hotcue2: row-3 LED follows
+  `_enabled` (off)" updated to assert `hw = 12` and rgb
+  `(0, 127, 0)`. Previous assertion was `hw = 0` (fully dark).
+  Aligns with the marker dim-when-unset change above; only
+  the off-state brightness assertion changed, on-state test
+  was already correct.
+  
+## Compatibility
+
+- Mixxx 2.5
+- Preset `.midi.xml` schema unchanged
+- No config changes required
+- No shipped-preset behaviour change beyond marker LED
+  visibility
+
+---
+
 ## [v1.0.10] — 2026-11-01
 
 ## Changed

@@ -536,8 +536,11 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         wire(this._beatConns, 'beat_active', function(v) {
             self._onBeatActive(ch, v);
         });
-        wire(this._playConns, 'playposition', function() {
-            self._onPlayposition(ch);
+        // makeConnection delivers the new playposition as the first
+        // callback argument. Use it instead of re-reading the CO —
+        // eliminates a mutex acquisition per audio buffer per deck.
+        wire(this._playConns, 'playposition', function(v) {
+            self._onPlayposition(ch, v);
         });
         wire(this._playConns, 'play_indicator', function(v) {
             if (self._bootSettling[ch]) self._bootSettledAt[ch] = Date.now();
@@ -851,10 +854,16 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         if (this._onBeat) this._onBeat(ch);
     };
 
-    XoneK3.K3Controller.prototype._onPlayposition = function(ch) {
+    // `newPos` comes from the makeConnection callback. The fallback
+    // covers test mocks or any future Mixxx version that might
+    // invoke the callback without a value — keeps behaviour
+    // identical to the old read-in-callback path in that case.
+    XoneK3.K3Controller.prototype._onPlayposition = function(ch, newPos) {
         var st = this._decks[ch];
         var grp = '[Channel' + ch + ']';
-        var newPos = engine.getValue(grp, 'playposition');
+        if (newPos === undefined) {
+            newPos = engine.getValue(grp, 'playposition');
+        }
         // Backward movement — jog-scrub leftward while playing, or
         // a manual reverse. Either way `reverse` may be 0 (jog
         // doesn't toggle it), so the guard can't rely on it alone.

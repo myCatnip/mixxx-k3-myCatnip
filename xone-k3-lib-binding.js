@@ -74,6 +74,8 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             _valueConn:  null,
             _conns:      [],
             _valueCurve: 1,
+            _hotcueColorCO:      undefined,
+            _cachedHotcueColor:  undefined,
             _shutdownHoldTimer: null
         };
     };
@@ -571,12 +573,17 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     };
 
     XoneK3.Binding.prototype._resolveMixxxColor = function() {
-        var co = this.outKey;
-        if (!co) return null;
-        var m = co.match(/^(hotcue_\d+)_status$/);
-        if (!m) return null;
+        // The colour CO name is precomputed at bind time
+        // (_bindConns), and its value is seeded + kept current by
+        // the colour listener. Falls back to a live read only
+        // before the seed has landed.
+        if (!this._hotcueColorCO) return null;
         if (!this.group) return null;
-        var mx = engine.getValue(this.group, m[1] + '_color');
+        var mx = this._cachedHotcueColor;
+        if (mx === undefined) {
+            try { mx = engine.getValue(this.group, this._hotcueColorCO); }
+            catch (e) { return null; }
+        }
         return XoneK3.mapMixxxColor(mx);
     };
 
@@ -666,17 +673,28 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     };
 
     XoneK3.Binding.prototype._warnIfFreshScheme = function(ref) {
+        // Hoist the warn-once check above the expensive stringify
+        // calls. Once warned, the two _stableStringify calls would
+        // otherwise run on every render forever for a buggy config.
+        var key = 'csSchemeFresh:' + this._name;
+        if (XoneK3._warned[key]) return;
+
         var memo = this._csSchemeMemo;
-        if (typeof ref !== 'object' || Array.isArray(ref)) return;
-        if (typeof memo !== 'object' || memo === null || Array.isArray(memo)) return;
+        if (ref === null || ref === undefined) return;
+        if (typeof ref !== 'object') return;
+        if (memo === null || memo === undefined || typeof memo !== 'object') return;
+
+        // Arrays are valid scheme refs (single-colour ramps). Treat
+        // them like objects here — a fresh array each call is the
+        // same recompile trap as a fresh object.
         var a = XoneK3._stableStringify(ref);
         var b = XoneK3._stableStringify(memo);
         if (a !== b) return;
-        XoneK3._warnOnce('csSchemeFresh:' + this._name,
+        XoneK3._warnOnce(key,
             'colorScheme scheme function on ' + this._name +
-            ' returns a fresh object each call — LED ' +
+            ' returns a fresh object/array each call — LED ' +
             'recompiles every render. Wrap with ' +
-            'XoneK3.builders.composeScheme or hoist the object.');
+            'XoneK3.builders.composeScheme or hoist the value.');
     };
 
     XoneK3.Binding.prototype._refreshColorScheme = function() {

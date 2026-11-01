@@ -288,7 +288,13 @@
                 if (e.ratio !== undefined) ratioSpec = e.ratio;
             }
             var c = XoneK3.resolveColorEntry(colorSpec, brightness);
-            if (!c) continue;
+            if (!c) {
+                XoneK3._warnOnce('segUnresolved:' + String(colorSpec),
+                    '_buildSegments: could not resolve colour spec ' +
+                    JSON.stringify(colorSpec).slice(0, 60) +
+                    ' — segment skipped. Check spelling or palette name.');
+                continue;
+            }
             var w;
             if (ratioSpec !== null) w = ratioSpec;
             else if (Array.isArray(ratio) && i < ratio.length && ratio[i] !== undefined) w = ratio[i];
@@ -498,7 +504,10 @@
     // black LED when there is none). Warn once so the user can
     // see why a stop is being ignored.
     function _sampleSnap(segs, t) {
-        var lastValid = null;
+        // Index-tracked instead of wrapper-object-tracked to
+        // avoid allocating a fresh { rgb, brightness, type } on
+        // every iteration before the match.
+        var lastValidIdx = -1;
         for (var i = 0; i < segs.length; i++) {
             var c = segs[i].color;
             if (!c || c.rgb === null) {
@@ -507,17 +516,23 @@
                     '`mixxx` is only supported on static single-colour LEDs. ' +
                     'The stop is skipped during sampling.');
                 if (t <= segs[i].end || i === segs.length - 1) {
-                    return lastValid;
+                    if (lastValidIdx === -1) return null;
+                    var lv = segs[lastValidIdx].color;
+                    return {
+                        rgb: [lv.rgb[0], lv.rgb[1], lv.rgb[2]],
+                        brightness: lv.brightness,
+                        type: lv.type
+                    };
                 }
                 continue;
             }
-            lastValid = {
-                rgb: [c.rgb[0], c.rgb[1], c.rgb[2]],
-                brightness: c.brightness,
-                type: c.type
-            };
+            lastValidIdx = i;
             if (t <= segs[i].end || i === segs.length - 1) {
-                return lastValid;
+                return {
+                    rgb: [c.rgb[0], c.rgb[1], c.rgb[2]],
+                    brightness: c.brightness,
+                    type: c.type
+                };
             }
         }
         return null;
@@ -533,7 +548,12 @@
     //
     // Null-rgb (mixxx) stops are skipped — see _sampleSnap.
     function _sampleBlend(segs, t) {
-        var before = null, after = null;
+        // Index-tracked before/after — avoids the intermediate
+        // { t, color } wrapper allocation per candidate segment.
+        // Behaviour is identical: `before` is the last centre <= t,
+        // `after` is the first centre >= t.
+        var beforeIdx = -1, beforeT = 0;
+        var afterIdx  = -1, afterT  = 0;
         for (var j = 0; j < segs.length; j++) {
             var c = segs[j].color;
             if (!c || c.rgb === null) {
@@ -544,21 +564,22 @@
                 continue;
             }
             var centre = (segs[j].start + segs[j].end) / 2;
-            if (centre <= t) before = { t: centre, color: c };
-            if (centre >= t && !after) after = { t: centre, color: c };
+            if (centre <= t) { beforeIdx = j; beforeT = centre; }
+            if (centre >= t && afterIdx === -1) { afterIdx = j; afterT = centre; }
         }
-        if (!before) before = after;
-        if (!after)  after  = before;
-        if (!before) return null;
-        if (before === after || before.t === after.t) {
+        if (beforeIdx === -1 && afterIdx === -1) return null;
+        if (beforeIdx === -1) { beforeIdx = afterIdx; beforeT = afterT; }
+        if (afterIdx  === -1) { afterIdx  = beforeIdx; afterT  = beforeT; }
+        var cA = segs[beforeIdx].color;
+        if (beforeIdx === afterIdx || beforeT === afterT) {
             return {
-                rgb: before.color.rgb.slice(),
-                brightness: before.color.brightness,
-                type: before.color.type
+                rgb: [cA.rgb[0], cA.rgb[1], cA.rgb[2]],
+                brightness: cA.brightness,
+                type: cA.type
             };
         }
-        var lt = (t - before.t) / (after.t - before.t);
-        var cA = before.color, cB = after.color;
+        var lt = (t - beforeT) / (afterT - beforeT);
+        var cB = segs[afterIdx].color;
         return {
             rgb: [
                 Math.round(cA.rgb[0]*(1-lt)+cB.rgb[0]*lt),

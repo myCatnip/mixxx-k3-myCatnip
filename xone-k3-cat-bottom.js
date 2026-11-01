@@ -113,14 +113,13 @@
     // does jump-if-set, set-if-unset, matching hotcue `_activate`.
     // `_clear` deletes, matching hotcue `_clear`. `_enabled` is
     // the read-only on/off (0 = unset, 1 = set), matching hotcue
-    // `_status`. Brightness off = 0 so the LED goes fully dark
-    // when unset, same visual as `mixxx` off-ramp.
+    // `_status`.
     function markerCell(base, color) {
         return {
             group: '$DECK_ACTIVE$',
             inKey: base + '_activate',
             outKey: base + '_enabled',
-            colorScheme: { scheme: color + ', 110, 0' },
+            colorScheme: { scheme: color + ', 110' },
             type: 'push'
         };
     }
@@ -129,7 +128,7 @@
             group: '$DECK_ACTIVE$',
             inKey: base + '_clear',
             outKey: base + '_enabled',
-            colorScheme: { scheme: 'red, 93, 0' },
+            colorScheme: { scheme: 'red, 93' },
             type: 'push'
         };
     }

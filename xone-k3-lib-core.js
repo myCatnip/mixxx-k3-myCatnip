@@ -296,6 +296,8 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         { name: '_valueConn',         ignored: true },
         { name: '_conns',             ignored: true },
         { name: '_valueCurve',        ignored: true },
+        { name: '_hotcueColorCO',     ignored: true },
+        { name: '_cachedHotcueColor', ignored: true },
         { name: '_shutdownHoldTimer', ignored: true }
     ];
 
@@ -684,8 +686,12 @@ var XoneK3 = (typeof XoneK3 !== 'undefined') ? XoneK3 : {};
         if (lc.skip) return XoneK3.BEAT_HOLD;
         if (lc.color === null && lc.brightness === null) return entry;
 
+        // Reuse entry.rgb unless the cascade supplies a new colour.
+        // Downstream _sendColor reads indices without mutating, so
+        // borrowing the array avoids one allocation per beat LED
+        // render for the common brightness-only case.
         var out = {
-            rgb: entry.rgb ? entry.rgb.slice() : null,
+            rgb: entry.rgb,
             brightness: entry.brightness,
             brightnessOff: entry.brightnessOff,
             type: entry.type

@@ -738,9 +738,19 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         if (b.outKey && b.group) {
             var m = b.outKey.match(/^(hotcue_\d+)_status$/);
             if (m) {
-                b._conns.push(engine.makeConnection(b.group, m[1] + '_color', function() {
+                // Precompute the colour CO name so _resolveMixxxColor
+                // doesn't regex-match on every render, and cache the
+                // colour value on the binding so the render path
+                // doesn't re-read the CO either. The listener keeps
+                // the cache current; the seed covers the window
+                // between bind and the first CO fire.
+                b._hotcueColorCO = m[1] + '_color';
+                b._conns.push(engine.makeConnection(b.group, b._hotcueColorCO, function(v) {
+                    b._cachedHotcueColor = v;
                     b._refresh();
                 }));
+                try { b._cachedHotcueColor = engine.getValue(b.group, b._hotcueColorCO); }
+                catch (e) { b._cachedHotcueColor = undefined; }
             }
         }
         if (b.group && b.outKey && (b._csOn === null || b._csOn === undefined)) {

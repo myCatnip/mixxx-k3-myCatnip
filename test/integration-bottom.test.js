@@ -255,7 +255,13 @@ test('hotcue2: row-3 LED follows _enabled (off)', function(t) {
     engine._set('[Channel1]', 'intro_start_enabled', 0);
     H.clearLeds(c);
     c.bindings['grid0_3']._refresh();
-    t.hw(H.led(c, 'grid0_3'), 0);
+    // v1.0.11: unset markers dim-render their own colour at
+    // brightnessOff = 12 (DEFAULT_RGB_BRIGHTNESS_OFF) so the
+    // button stays locatable. Was fully dark (hw = 0) before.
+    // intro_start's marker colour is green, so the dim state is
+    // dim green — rgb unchanged, only hw reduced.
+    t.rgb(H.led(c, 'grid0_3'), 0, 127, 0);
+    t.hw(H.led(c, 'grid0_3'), 12);
 });
 
 test('hotcue2: hidden in loop, reappears in cue', function(t) {
