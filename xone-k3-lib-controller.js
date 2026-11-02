@@ -302,7 +302,6 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
 
         this._applied = {};
         this._appliedHashes = {};
-        this._appliedCfgs = {};
         this._resolvedPatchCache = {};
 
         for (var pi = 0; pi < this.activePatches.length; pi++) {
@@ -657,11 +656,16 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // APPLY RESOLVED
     // ============================================================
+    // Hash-diff binding apply. Identity check reuses the previous
+    // hash when the resolved cfg object is the same reference as
+    // last pass — _resolvePatch memoizes per name, so a repeated
+    // recompute over an unchanged stack returns the same cfg
+    // objects. _applied itself holds those references; no
+    // separate cfg map is needed.
     XoneK3.K3Controller.prototype._applyResolved = function(resolved) {
         var oldHashes = this._appliedHashes || {};
-        var oldCfgs   = this._appliedCfgs   || {};
+        var oldCfgs   = this._applied || {};
         var newHashes = {};
-        var newCfgs   = {};
 
         var skipRefresh = this._recomputeDepth > 0;
 
@@ -675,14 +679,12 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
                 ? oldHashes[name]
                 : XoneK3._hashBinding(cfg);
             newHashes[name] = h;
-            newCfgs[name]   = cfg;
             if (oldHashes[name] === h) continue;
             this._applyOneSafe(name, cfg, skipRefresh);
         }
 
         this._applied = resolved;
         this._appliedHashes = newHashes;
-        this._appliedCfgs = newCfgs;
     };
 
     XoneK3.K3Controller.prototype._unbindRemoved = function(resolved, oldHashes, skipRefresh) {

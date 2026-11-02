@@ -4,6 +4,53 @@ All notable changes to the Xone K3 Mixxx mapping.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [v1.0.18] — 2026-11-01
+
+Removed a duplicate map in `_applyResolved`'s diff state. No
+behaviour change.
+
+## Removed
+
+- **`_appliedCfgs`.** It held the same cfg object references as
+  `_applied`; the identity guard
+  `oldCfgs[name] === cfg` was the only consumer. Now reads from
+  `_applied` directly. Three parallel maps to two, and one
+  "these must be updated together" invariant becomes structural
+  (`_applied` and `_appliedHashes` are the only pair left, and
+  they're updated in one place each). Drops a `newCfgs = {}`
+  allocation per recompute and one assignment per binding per
+  recompute.
+
+  Relies on `_resolvePatch`'s memoization — a repeated
+  recompute over an unchanged stack returns the same cfg
+  object references, so the identity check fires and the hash
+  recompute is skipped. That memoization is unchanged.
+
+## Tests
+
+- No test changes. `test/helpers.js`'s
+  `Object.assign({}, ctrl._applied)` still copies the flat cfg
+  map — `_applied` remains that. `_inspectRoot`,
+  `_needsBeatClocks`, `_unbindRemoved` still read `_applied`
+  unchanged.
+
+## Review notes (no code change)
+
+- Full collapse into a single `{ name → { cfg, hash } }` map
+  (`_applied` + `_appliedHashes` → `_appliedMeta`) was
+  considered and deferred. It needs `test/helpers.js` updated
+  in lockstep — the helper copies `_applied` as a flat cfg
+  map, so a nested shape would break `bind()` and every
+  cell-discovery path in `test/helpers.js`. The two-map form
+  shipped here is safe; the one-map form would be a clean
+  follow-up if `test/helpers.js` is refactored anyway.
+
+## Compatibility
+
+- Mixxx 2.5 · preset schema unchanged · no config changes ·
+  no shipped-preset behaviour change
+
+---
 
 ## [v1.0.17] — 2026-11-01
 
