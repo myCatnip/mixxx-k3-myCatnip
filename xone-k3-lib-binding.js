@@ -83,6 +83,27 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     // ============================================================
     // BINDING
     // ============================================================
+    // Colour-scheme state (all reset by _reset):
+    //   _csActive        colorScheme present; setup ran (ok or failed)
+    //   _csFailed        setup failed; LED stays black
+    //   _csDeviation     colorScheme.knob present; LED samples knob
+    //   _csScheme        compiled static scheme (from cs.scheme)
+    //   _csSchemeFn      live function scheme (fn, or schemeFromState)
+    //   _csSchemeMemo    last fn() return — ref-identity for recompile
+    //   _csCompiledMemo  compile of _csSchemeMemo
+    //   _csKnob          sampled knob ref (deviation only)
+    //   _csOn            parsed on: condition
+    //   _csFromStateConn CO connection for schemeFromState.co
+    //
+    // Transaction state machine (session-scoped; survives _reset):
+    //   idle ──press(v>0, push)──▶ active      (captures cfg)
+    //   active ──rebind──▶ active+orphaned     (cfg differs)
+    //   active ──release──▶ idle               (dispatch captured)
+    //   * ──shutdown──▶ abandoned              (no dispatch)
+    //
+    // _transaction.active gates the push-mode dispatch path; a
+    // binding rebound mid-hold dispatches the press-time func via
+    // _dispatchCapturedRelease. See INTERNALS §2.5.
     XoneK3.Binding = function(name, spec, ctrl) {
         this._name = name;
         this._ctrl = ctrl;
@@ -90,7 +111,10 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         this.type = spec.type;
         this.idx = spec.idx;
 
-        Object.assign(this, XoneK3._bindingDefaults());
+        var d = XoneK3._bindingDefaults();
+        for (var k in d) {
+            if (d.hasOwnProperty(k)) this[k] = d[k];
+        }
         // Pots want soft-takeover on; buttons don't.
         if (spec.type === 'knob' || spec.type === 'fader') {
             this.softTakeover = true;
@@ -139,6 +163,20 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         return v / 128;
     };
 
+    // Named predicate so the shutdown gate at each call site reads
+    // as intent rather than plumbing. The MIDI-choke-point check
+    // lives in K3Controller.sendLED — this is the render and
+    // input-dispatch side.
+    XoneK3.Binding.prototype._isShuttingDown = function() {
+        return this._ctrl._shuttingDown === true;
+    };
+
+    // Note-on vs CC/note-off discriminator. Self-documents the
+    // status-nibble test in XoneK3._wireInputs.
+    XoneK3.Binding.prototype._isNoteOn = function() {
+        return (this.midi[0] & 0xF0) === 0x90;
+    };
+
     // ============================================================
     // TRANSACTION
     // ============================================================
@@ -164,20 +202,10 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     // orphaned by a rebind.
     XoneK3.Binding.prototype._dispatchCapturedRelease = function() {
         var t = this._transaction;
-
-        var savedGroup      = this.group;
-        var savedInKey      = this.inKey;
-        var savedFunc       = this._func;
-        var savedFuncArgs   = this._funcArgs;
-        var savedButtonMode = this.buttonMode;
+        var saved = this._captureCurrentSurface();
 
         try {
-            this.group      = t.group;
-            this.inKey      = t.inKey;
-            this._func      = t.func;
-            this._funcArgs  = t.funcArgs;
-            this.buttonMode = t.buttonMode;
-
+            this._installSurface(t);
             if (t.func) {
                 t.func.call(this, t.funcArgs, undefined, undefined, 0, undefined);
             } else {
@@ -188,17 +216,47 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
                 'captured release threw on ' + this._name + ': ' +
                 (e && e.message ? e.message : e));
         } finally {
-            this.group      = savedGroup;
-            this.inKey      = savedInKey;
-            this._func      = savedFunc;
-            this._funcArgs  = savedFuncArgs;
-            this.buttonMode = savedButtonMode;
+            this._installSurface(saved);
         }
     };
 
+    // Snapshot the dispatch-facing fields into a plain object,
+    // then reinstall. The transaction holds the press-time
+    // config; the binding may have been rebound mid-hold.
+    // Temporarily installing the captured config makes the
+    // release see the same surface it saw at press time (func,
+    // args, group, inKey, buttonMode).
+    XoneK3.Binding.prototype._captureCurrentSurface = function() {
+        return {
+            group:      this.group,
+            inKey:      this.inKey,
+            func:       this._func,
+            funcArgs:   this._funcArgs,
+            buttonMode: this.buttonMode
+        };
+    };
+
+    XoneK3.Binding.prototype._installSurface = function(s) {
+        this.group      = s.group;
+        this.inKey      = s.inKey;
+        this._func      = s.func;
+        this._funcArgs  = s.funcArgs;
+        this.buttonMode = s.buttonMode;
+    };
+
     // ============================================================
-    // INPUT
+    // INPUT — physical event dispatch
     // ============================================================
+    // Pipeline:
+    //   1. Shutdown gate — preset-reload window, no CO writes
+    //   2. Value-side-effects (normalize knob, clear toggle on
+    //      release)
+    //   3. Snapshot pre-capture state for the bounce guard
+    //   4. Open transaction on first push press
+    //   5. Release with active transaction → dispatch captured
+    //   6. Bounce guard → skip if hardware re-fire
+    //   7. Dispatch func / default input
+    //   8. Cache refresh + observer sweep
     XoneK3.Binding.prototype.input = function(ch, cc, v, s) {
         // Preset reload: Mixxx calls old shutdown (sets _shuttingDown)
         // then immediately wires new handlers. Physical input in that
@@ -206,43 +264,25 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         // stale COs (_defaultInput has no gate). Momentary presses
         // self-cancel via the matching release; toggles don't and
         // leave the old CO stuck at 1.
-        if (this._ctrl._shuttingDown) return;
+        if (this._isShuttingDown()) return;
         if (this._ctrl._onInput) this._ctrl._onInput(this);
 
-        if (this.type === 'knob' || this.type === 'fader') {
-            this._normalized = this._scaleValue(v);
-        }
+        this._readPhysicalInput(v);
 
         var isPush = (this.type === 'button' && this.buttonMode === 'push');
-        // Snapshot pre-capture state. The capture block below sets
-        // active=true on the first press; the bounce guard further
-        // down must test the state BEFORE capture, or it blocks
-        // the first press too.
+        // Snapshot pre-capture state. _maybeOpenTransaction sets
+        // active=true on first press; the push-mode bounce guard
+        // must test the state BEFORE capture, or it blocks the
+        // first press too.
         var wasActive = this._transaction.active;
 
-        // Clear toggle press-state on any button release, before
-        // any dispatch path can early-return. Doing this
-        // unconditionally (rather than only when the current mode
-        // is toggle) closes the toggle → push → toggle rebind
-        // case: a binding pressed as toggle, rebound to push
-        // mid-hold, then released, then rebound back to toggle
-        // would otherwise leave _togglePressActive stuck true and
-        // swallow the next press. Session-scoped — survives _reset.
-        if (this.type === 'button' && v === 0) {
-            this._togglePressActive = false;
-        }
+        this._maybeOpenTransaction(v, isPush);
 
-        // ---- Physical press ----
-        if (v > 0 && isPush && !this._transaction.active) {
-            this._captureTransaction();
-            this._ctrl._onBindingPress(this._name);
-        }
-
-        // ---- Physical release with an active transaction ----
-        // Dispatches the captured release against the press-time
-        // config. Happens even if the binding's current
-        // buttonMode is 'toggle' — the transaction was captured
-        // when this was a push binding, and it must be closed.
+        // Physical release with an active transaction: dispatch
+        // the captured release against the press-time config.
+        // Happens even if the binding's current buttonMode is
+        // 'toggle' — the transaction was captured when this was
+        // a push binding, and it must be closed.
         if (v === 0 && this._transaction.active) {
             this._dispatchCapturedRelease();
             this._transaction.active = false;
@@ -251,62 +291,82 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             return;
         }
 
-        // ---- Bounce guard (push-mode) ----
-        // A v>0 event while a transaction was ALREADY active
-        // before this call is a hardware bounce — the user's
-        // physical state hasn't changed. Skip func dispatch so
-        // per-press flags (_bpmHeldTurned, shutdownHold's timer)
-        // aren't reset mid-hold. The eventual real release still
-        // dispatches the captured release normally.
-        //
-        // `wasActive` (pre-capture) is the discriminator. Testing
-        // the current value would return on the very first press,
-        // because _captureTransaction just set it to true above.
-        if (v > 0 && isPush && wasActive) {
-            return;
-        }
+        if (this._isBounce(v, isPush, wasActive)) return;
 
-        // ---- Bounce guard (toggle-mode) ----
-        // Toggle-mode bindings don't capture transactions, so the
-        // push-mode guard above doesn't cover them. A hardware
-        // bounce (v>0 twice without a release between) would fire
-        // the toggle action twice, flipping the CO back to its
-        // original state — user sees one press, no change. Track
-        // press state separately; a v>0 while _togglePressActive
-        // is true is the same physical press. Cleared on any
-        // button release above. Protects both func-bound and
-        // default-input toggle bindings, and a fast user
-        // double-press still works because the intervening release
-        // clears the flag.
+        this._dispatchInput(ch, cc, v, s);
+        this._postInputRefresh();
+    };
+
+    // Absorb value-dependent side-effects of a physical event:
+    // knobs/faders update _normalized, buttons clear the toggle
+    // press-state on release.
+    //
+    // Clearing on ANY release (not just when mode is toggle)
+    // closes the toggle → push → toggle rebind case: a binding
+    // pressed as toggle, rebound to push mid-hold, then released,
+    // then rebound back to toggle would otherwise leave
+    // _togglePressActive stuck true and swallow the next press.
+    // Session-scoped — survives _reset.
+    XoneK3.Binding.prototype._readPhysicalInput = function(v) {
+        if (this.type === 'knob' || this.type === 'fader') {
+            this._normalized = this._scaleValue(v);
+        }
+        if (this.type === 'button' && v === 0) {
+            this._togglePressActive = false;
+        }
+    };
+
+    // Open a transaction on the first push-mode press. Subsequent
+    // v>0 events while the transaction is active are bounces
+    // (see _isBounce) and don't re-capture.
+    XoneK3.Binding.prototype._maybeOpenTransaction = function(v, isPush) {
+        if (v > 0 && isPush && !this._transaction.active) {
+            this._captureTransaction();
+            this._ctrl._onBindingPress(this._name);
+        }
+    };
+
+    // Bounce guards. A v>0 event while the transaction/press
+    // state is already active is a hardware bounce — skip func
+    // dispatch so per-press flags (_bpmHeldTurned, shutdownHold's
+    // timer) aren't reset mid-hold.
+    //
+    // Push-mode: test pre-capture state (wasActive is snapshotted
+    // before _maybeOpenTransaction). Testing the current
+    // _transaction.active would return true on the very first
+    // press, because the capture just set it.
+    //
+    // Toggle-mode: toggles don't capture transactions, so track
+    // press state separately. A v>0 while _togglePressActive is
+    // true is the same physical press; cleared on release in
+    // _readPhysicalInput. Also checks _transaction.active — a
+    // transaction captured by an earlier push-mode press (rebind
+    // to toggle mid-hold) must skip here; the real release still
+    // dispatches through _dispatchCapturedRelease.
+    XoneK3.Binding.prototype._isBounce = function(v, isPush, wasActive) {
+        if (v > 0 && isPush && wasActive) return true;
         if (this.type === 'button' && !isPush) {
             if (v > 0) {
-                if (this._togglePressActive) return;
-                // A transaction captured by an earlier push-mode
-                // press is still active. The press was captured
-                // as push, then a rebind moved the binding to
-                // toggle mid-hold. Without this check, a bounce
-                // would slip past the push-mode guard (isPush is
-                // the CURRENT mode) and dispatch the captured
-                // push func a second time. The real release still
-                // dispatches through _dispatchCapturedRelease
-                // (that path doesn't consult _togglePressActive).
-                if (this._transaction.active) return;
+                if (this._togglePressActive) return true;
+                if (this._transaction.active) return true;
                 this._togglePressActive = true;
             }
         }
+        return false;
+    };
 
-        // ---- Normal dispatch ----
-        // A throwing func or engine call must not escape the MIDI
-        // handler — Mixxx logs it or crashes depending on version,
-        // and the observer repaint below is skipped so LED state
-        // diverges until the next input.
-        //
-        // Read from _transaction (when active) instead of this._func,
-        // so a modifier-driven patch swap inside _onBindingPress
-        // doesn't route the press through the new binding's func
-        // while the release (via _dispatchCapturedRelease) fires
-        // the old one. _captureTransaction copies from this._func,
-        // so when no swap happened the two are identical.
+    // Dispatch the func (or default input). When a transaction is
+    // active, dispatch through it — a modifier-driven patch swap
+    // inside _onBindingPress must not route the press through the
+    // new binding's func while the release (via
+    // _dispatchCapturedRelease) fires the old one. When no swap
+    // happened the two are identical.
+    //
+    // A throwing func or engine call must not escape the MIDI
+    // handler — Mixxx logs it or crashes depending on version,
+    // and the observer repaint is skipped so LED state diverges
+    // until the next input.
+    XoneK3.Binding.prototype._dispatchInput = function(ch, cc, v, s) {
         try {
             var dispatchFn   = this._transaction.active
                 ? this._transaction.func
@@ -321,28 +381,25 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
                 'binding func threw on ' + this._name + ': ' +
                 (e && e.message ? e.message : e));
         }
+    };
 
-        // Refresh the cached CO value for knob/fader bindings
-        // before observers repaint. The value listener (armed in
-        // _armOwnConn) fires on the next event-loop turn, so
-        // without this the observer sweep below renders against
-        // the pre-write cached value — every deviation LED
-        // sampling this knob flashes a spurious co-match gradient
-        // on every MIDI event until the listener catches up.
-        //
-        // Read back once per input event, not per render. Covers
-        // both the default-input write and any custom func that
-        // writes to this binding's own CO. A func that doesn't
-        // touch this CO reads back the unchanged value — no-op
-        // cost, identical cache state. Soft-takeover rejection
-        // reads back the old CO, so co-match shows until takeover
-        // is crossed, exactly as before.
+    // Refresh the cached CO value for knob/fader bindings, then
+    // repaint observers. The value listener (armed in
+    // _armOwnConn) fires on the next event-loop turn, so without
+    // this the observer sweep renders against the pre-write
+    // cached value — every deviation LED sampling this knob
+    // flashes a spurious co-match gradient until the listener
+    // catches up.
+    //
+    // Read back once per input event, not per render. Soft-
+    // takeover rejection reads back the old CO, so co-match
+    // shows until takeover is crossed, exactly as before.
+    XoneK3.Binding.prototype._postInputRefresh = function() {
         if ((this.type === 'knob' || this.type === 'fader') &&
             this.group && this.inKey) {
             try { this._lastCoValue = engine.getParameter(this.group, this.inKey); }
             catch (e) { this._lastCoValue = undefined; }
         }
-
         this._refreshObservers();
     };
 
@@ -407,9 +464,11 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         }
 
         // _transaction is session-scoped — not wiped here. The
-        // transaction must survive rebinds. _bindingDefaults()
-        // doesn't include it, so Object.assign leaves it intact.
-        Object.assign(this, XoneK3._bindingDefaults());
+        // transaction must survive rebinds.
+        var d = XoneK3._bindingDefaults();
+        for (var k in d) {
+            if (d.hasOwnProperty(k)) this[k] = d[k];
+        }
     };
 
     XoneK3.Binding.prototype._armOwnConn = function() {
@@ -446,10 +505,12 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
         }
     };
 
+    // Shutdown gate lives at the actual MIDI choke point
+    // (K3Controller.sendLED). Checking here too would be
+    // redundant — sendLED would return immediately either way.
     XoneK3.Binding.prototype._send = function(r, g, b, hw) {
         if (this.idx < 0) return;
         if (this._noLED) return;
-        if (this._ctrl._shuttingDown) return;
         this._ctrl.sendLED(this.idx, r, g, b, hw, this._k2);
     };
 
@@ -531,7 +592,7 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
     XoneK3.Binding.prototype._refresh = function() {
         if (this.idx < 0) return;
         if (this._noLED) return;
-        if (this._ctrl._shuttingDown) return;
+        if (this._isShuttingDown()) return;
 
         // CO observers registered via _bindConns,
         // _wireCsOnConnection, and _buildCsFromStateClosure call
@@ -546,16 +607,21 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
                 this._refreshColorScheme();
                 return;
             }
-
-            if (this.group && this.outKey) {
-                var v = engine.getValue(this.group, this.outKey) > 0;
-                this._send(v ? 127 : 0, v ? 127 : 0, v ? 127 : 0, v ? 127 : 0);
-            }
+            this._renderOutKey();
         } catch (e) {
             XoneK3._warnOnce('refreshThrow:' + this._name,
                 'refresh threw on ' + this._name + ': ' +
                 (e && e.message ? e.message : e));
         }
+    };
+
+    // Fallback render for bindings with no colorScheme — a plain
+    // on/off white from outKey. Called from _refresh when
+    // _csActive is false.
+    XoneK3.Binding.prototype._renderOutKey = function() {
+        if (!this.group || !this.outKey) return;
+        var v = engine.getValue(this.group, this.outKey) > 0;
+        this._send(v ? 127 : 0, v ? 127 : 0, v ? 127 : 0, v ? 127 : 0);
     };
 
     // ============================================================
@@ -706,6 +772,12 @@ XoneK3._requireLoad('xone-k3-lib-binding.js',
             'XoneK3.builders.composeScheme or hoist the value.');
     };
 
+    // Render pipeline:
+    //   1. Bail on _csFailed (setup error — LED stays black)
+    //   2. Resolve logicalOn (on: condition / outKey / 0) and scheme
+    //   3. Bail if scheme is unresolved (with diagnostics)
+    //   4. Beat-off-phase gate — deck paused-off blacks the LED
+    //   5. Render — deviation (knob) or static (ramp sample)
     XoneK3.Binding.prototype._refreshColorScheme = function() {
         if (this._csFailed) { this._send(0, 0, 0, 0); return; }
 

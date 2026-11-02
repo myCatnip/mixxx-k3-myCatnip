@@ -5,6 +5,94 @@ All notable changes to the Xone K3 Mixxx mapping.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.17] — 2026-11-01
+
+Clarity pass across `lib-binding.js`, `lib-controller.js`, and
+`lib-controller-beat.js`. Long functions split, per-object state
+documented at class-top, pipeline comments added. No behaviour
+change; no shipped-preset impact.
+
+## Changed
+
+- **`Binding.input` split into 6 named methods.** The 130-line
+  dispatcher becomes a ~35-line orchestration (`input`) plus
+  `_readPhysicalInput`, `_maybeOpenTransaction`, `_isBounce`,
+  `_dispatchInput`, `_postInputRefresh`. Pipeline comment at
+  the top of `input` names the seven steps.
+- **`_dispatchCapturedRelease` split.** Captured-surface
+  swap-out / swap-in becomes `_captureCurrentSurface` /
+  `_installSurface`, both accepting the same
+  `{group, inKey, func, funcArgs, buttonMode}` shape.
+- **`_refresh` fallback render extracted to `_renderOutKey`.**
+  The no-colorScheme path (outKey on/off) becomes a
+  one-method body.
+- **`_updateModifiers` split into `_deriveModifierChanges` /
+  `_applyModifierChanges`.** Derivation returns
+  `{ patchChanges, needsRecompute }`; application batches
+  patch deltas and fires hooks. The public entry point is
+  four lines. Same hook order, same batching, same
+  standalone-recompute fallback.
+- **`_onPlayposition` split into `_trackPlayhead` /
+  `_shouldSkipPulse` / `_dispatchPositionTick`.** The
+  90-line body becomes a ~15-line orchestration (read
+  playhead, throttle gate, advance clock, derive origin,
+  dispatch) plus three named helpers.
+- **Class-top state blocks.** `Binding` gains a documented
+  list of the ten `_cs*` colour-scheme flags and the
+  four-state transaction machine. `freshDeckState` in
+  `lib-controller.js` gains a twelve-field table.
+- **`_isShuttingDown` / `_isNoteOn` helpers.** Named
+  predicates replace the inline `this._ctrl._shuttingDown`
+  and `(status & 0xF0) === 0x90` tests in `input`,
+  `_refresh`, and `_send`.
+- **Base-hook comment on `_afterRecompute` / `_onInput` /
+  `_onPatchChange`.** Grouped under one "subclass hook —
+  no-op in base" note.
+- **Pipeline comments on `_applyBinding`, `_buildStack`,
+  `_batchPatches`, `_refreshColorScheme`, `_onPlayposition`.**
+  Numbered-step headers. Original inline comments preserved
+  on each step.
+- **`_resolveFxPatchName` return-value comment.**
+  `undefined` = not mine, `null` = mine-but-missing,
+  `string` = swap target. Surfaces the convention at the
+  function head instead of only in INTERNALS.
+
+## Removed
+
+- **`_send`'s redundant shutdown check.** `sendLED` gates on
+  `_shuttingDown` at the actual MIDI choke point; the extra
+  check in `_send` was unreachable-by-design. Comment in
+  `_send` explains the delegation.
+
+## Tests
+
+- No test changes. Every method added is a straight
+  extraction with the same signature and side effects as the
+  inline original. Warn keys (`inputThrow:`, `txReleaseThrow:`,
+  `refreshThrow:`, `obsRefreshThrow:`, `updateModifiersPressThrow:`,
+  `updateModifiersReleaseThrow:`) unchanged.
+  `_onPlayposition` split preserves the exact dispatch order
+  (backward detect → throttle → clock advance → origin derive
+  → guard → sync-or-repaint).
+
+## Review notes (no code change)
+
+- The plan's `_guardShutdown` wrapper was dropped in favour
+  of `_isShuttingDown`. A wrapper buys nothing when the
+  underlying check is a single boolean load; the named
+  predicate gives the readability win at zero indirection.
+- `_isNoteOn` is defined in `lib-binding.js` but only consumed
+  by `_wireInputs` in `lib-controller-boot.js`. Kept on
+  `Binding.prototype` so the status-nibble idiom is next to
+  the midi field it inspects.
+
+## Compatibility
+
+- Mixxx 2.5 · preset schema unchanged · no config changes ·
+  no shipped-preset behaviour change
+
+---
+
 ## [v1.0.16] — 2026-11-01
 
 Code review pass. One LED fix, a palette cleanup, tunable

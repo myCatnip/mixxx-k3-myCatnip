@@ -24,7 +24,7 @@ if (typeof XoneK3._requireLoad !== 'function') {
 }
 XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
     ['K3Controller', '_freshDeckState',
-        'DEFAULT_BEAT_DECK', 'BEAT_REPAINT_THROTTLE_MS', 'BEAT_STALL_MS']);
+     'DEFAULT_BEAT_DECK', 'BEAT_REPAINT_THROTTLE_MS', 'BEAT_STALL_MS']);
 
 (function() {
     var freshDeckState = XoneK3._freshDeckState;
@@ -867,24 +867,26 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
         if (this._onBeat) this._onBeat(ch);
     };
 
-    // `newPos` comes from the makeConnection callback. The fallback
-    // covers test mocks or any future Mixxx version that might
-    // invoke the callback without a value — keeps behaviour
+    // ============================================================
+    // BEAT CLOCKS — POSITION TICK
+    // ============================================================
+    // Position pipeline:
+    //   1. Read playhead — update lastPlayPos, detect backward
+    //   2. Throttle gate — bail if too soon since last tick
+    //   3. Advance virtual clock (loop-mode accumulation)
+    //   4. Re-derive phrase origin from cached hotcues
+    //   5. Dispatch — sync-count-only or full position repaint
+    //
+    // `newPos` comes from the makeConnection callback. The
+    // fallback covers test mocks or any future Mixxx version that
+    // might invoke the callback without a value — keeps behaviour
     // identical to the old read-in-callback path in that case.
     XoneK3.K3Controller.prototype._onPlayposition = function(ch, newPos) {
         var st = this._decks[ch];
         if (newPos === undefined) {
             newPos = engine.getValue('[Channel' + ch + ']', 'playposition');
         }
-        // Backward movement — jog-scrub leftward while playing, or
-        // a manual reverse. Either way `reverse` may be 0 (jog
-        // doesn't toggle it), so the guard can't rely on it alone.
-        // Recorded on every tick, before the throttle gate, so
-        // the next non-gated tick sees the direction that
-        // actually happened — not a stale comparison against a
-        // pre-gate position.
-        var movingBackward = (st.lastPlayPos !== undefined) && (newPos < st.lastPlayPos);
-        st.lastPlayPos = newPos;
+        var movingBackward = this._trackPlayhead(st, newPos);
 
         var now = Date.now();
         if (now - st.lastPositionSync < XoneK3.BEAT_REPAINT_THROTTLE_MS) return;
@@ -898,47 +900,74 @@ XoneK3._requireLoad('xone-k3-lib-controller-beat.js',
 
         this._deriveOriginFromPosition(ch, newPos);
 
-        // st.playing is kept current by the play_indicator CO
-        // listener; _reverseCache by the reverse CO listener. If
-        // either transitions in the same engine frame as this
-        // tick, the corresponding handler catches up in the same
-        // event-loop batch and repaints — no missed paint.
+        this._dispatchPositionTick(ch, newPos, movingBackward, now);
+    };
+
+    // Backward movement — jog-scrub leftward while playing, or
+    // a manual reverse. Either way `reverse` may be 0 (jog
+    // doesn't toggle it), so the guard can't rely on it alone.
+    // Recorded on every tick, before the throttle gate, so the
+    // next non-gated tick sees the direction that actually
+    // happened — not a stale comparison against a pre-gate
+    // position. Returns true if the playhead moved backward
+    // since the previous tick.
+    XoneK3.K3Controller.prototype._trackPlayhead = function(st, newPos) {
+        var movingBackward = (st.lastPlayPos !== undefined) && (newPos < st.lastPlayPos);
+        st.lastPlayPos = newPos;
+        return movingBackward;
+    };
+
+    // The beat-edge guard. When beat_active has been heard
+    // recently, only _syncBeatCount runs and st.active is written
+    // solely by _onBeatActive. When beat_active has stalled, the
+    // guard releases and _repaintFromPosition takes over to avoid
+    // a frozen pulse phase.
+    //
+    // Guard exists to prevent double-writer flicker. Without it,
+    // _repaintFromPosition writes st.active on every throttled
+    // playposition tick AND _onBeatActive writes st.active on
+    // every edge. The two fire on different schedules and
+    // disagree briefly at beat boundaries — the LED flickers,
+    // sometimes showing two pulses per beat.
+    //
+    // Backward motion bypasses the guard unconditionally:
+    // `beat_active` fires reliably forward but irregularly on
+    // backward jog. With the guard active, st.active (pulse
+    // phase) is left frozen for up to BEAT_STALL_MS while count
+    // keeps moving via _syncBeatCount — the "held bar" symptom.
+    // Force the position repaint on backward movement so both
+    // st.count and st.active update from the same source.
+    //
+    // st.playing is kept current by the play_indicator CO
+    // listener; _reverseCache by the reverse CO listener. If
+    // either transitions in the same engine frame as this tick,
+    // the corresponding handler catches up in the same
+    // event-loop batch and repaints — no missed paint.
+    //
+    // The guard isn't loop-gated. Where trackFrac is continuous
+    // (outside a loop) it acts as a pure dedupe; where it jumps
+    // (loop wrap, track end → start) it's what prevents the
+    // flicker.
+    XoneK3.K3Controller.prototype._shouldSkipPulse = function(ch, movingBackward, now) {
+        var st = this._decks[ch];
         var playing   = st.playing;
         var reversing = this._reverseCache[ch] > 0;
-        // `beat_active` fires reliably forward but irregularly on
-        // backward jog. With the guard active, st.active (pulse
-        // phase) is left frozen for up to BEAT_STALL_MS while
-        // count keeps moving via _syncBeatCount — the "held bar"
-        // symptom. Force the position repaint on backward movement
-        // so both st.count and st.active update from the same
-        // source.
-        //
-        // Guard exists to prevent double-writer flicker. Without
-        // it, _repaintFromPosition writes st.active on every
-        // throttled playposition tick AND beat_active writes
-        // st.active on every edge. The two fire on different
-        // schedules and disagree briefly at beat boundaries — the
-        // LED flickers, sometimes showing two pulses per beat.
-        //
-        // When beat_active has been heard from recently (<
-        // BEAT_STALL_MS), the guard fires and only _syncBeatCount
-        // runs: st.active is written solely by _onBeatActive. When
-        // beat_active has stalled (no fires for BEAT_STALL_MS),
-        // the guard fails and _repaintFromPosition takes over to
-        // avoid a frozen pulse phase.
-        //
-        // The guard isn't loop-gated. Where trackFrac is continuous
-        // (outside a loop) it acts as a pure dedupe; where it
-        // jumps (loop wrap, track end → start) it's what prevents
-        // the flicker.
-        if (playing && !reversing && !movingBackward &&
-            (now - st.lastBeatEdge < XoneK3.BEAT_STALL_MS)) {
+        return playing && !reversing && !movingBackward &&
+            (now - st.lastBeatEdge < XoneK3.BEAT_STALL_MS);
+    };
+
+    // Dispatch after the throttle gate. Skip-pulse path only
+    // re-syncs the count (st.active stays under _onBeatActive's
+    // sole control); fallthrough path calls _repaintFromPosition
+    // for a full pulse + count update.
+    //
+    // newPos is passed through — already read by _onPlayposition,
+    // no need for _repaintFromPosition to re-read it.
+    XoneK3.K3Controller.prototype._dispatchPositionTick = function(ch, newPos, movingBackward, now) {
+        if (this._shouldSkipPulse(ch, movingBackward, now)) {
             this._syncBeatCount(ch, newPos);
             return;
         }
-
-        // Pass newPos — we already read it, no need for
-        // _repaintFromPosition to re-read it.
         this._repaintFromPosition(ch, newPos);
     };
 

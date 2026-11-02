@@ -98,6 +98,21 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         return { running: false, pos: 0, lastTs: 0 };
     }
 
+    // Per-channel timeline + beat state. Replaced wholesale by
+    // _resetBeat and _closeBeatClocks; not mutated in place.
+    //
+    //   count            1-based cascade beat number (derived)
+    //   active           pulse phase — true in first half of beat
+    //   hasBeat          position is meaningful (deck has seen beats)
+    //   loopActive       live loop_enabled snapshot
+    //   playing          live play_indicator snapshot
+    //   displaySource    'track' or 'loop'
+    //   loopClock        accumulated virtual position (loop mode)
+    //   lastBeatRepaint  throttle timestamp (beat_active edges)
+    //   lastBeatEdge     last beat_active fire timestamp
+    //   lastPositionSync throttle timestamp (playposition ticks)
+    //   lastPlayPos      last playposition value (direction detect)
+    //   hotcueState      {slot → {color, pos}} phrase-marker cache
     function freshDeckState() {
         return {
             count: 1, active: false, hasBeat: false, loopActive: false,
@@ -389,10 +404,34 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     //     the state didn't change (config func may have removed
     //     the patch out of band — snake does this).
     //
-    // All patch additions / removals batch into one _batchPatches
-    // (which owns the recompute). Any changes with recompute: true
-    // but no patch change trigger a standalone _recompute.
+    // Split into _deriveModifierChanges (pure transition
+    // computation + inline hooks) and _applyModifierChanges
+    // (batch + recompute). Patch additions / removals batch into
+    // one _batchPatches, which owns the recompute. Any changes
+    // with recompute: true but no patch change trigger a
+    // standalone _recompute.
     XoneK3.K3Controller.prototype._updateModifiers = function() {
+        var changes = this._deriveModifierChanges();
+        this._applyModifierChanges(changes);
+    };
+
+    // Walk modifierStates; derive active-state from transaction
+    // membership on heldBy. State transitions fire
+    // onActivate/onDeactivate hooks inline. Independently,
+    // patch-activation deltas are collected for the caller to
+    // batch.
+    //
+    // Patch-activation is idempotent: even when state didn't
+    // change, check activePatches against current state. Config
+    // funcs (snake) may remove an owned patch out of band; this
+    // pass restores it.
+    //
+    // Returns { patchChanges, needsRecompute }. patchChanges is
+    // a list of { name, active }. needsRecompute is true iff
+    // some state changed under a recompute: true modifier —
+    // used when no patch delta is queued so the caller still
+    // needs a repaint.
+    XoneK3.K3Controller.prototype._deriveModifierChanges = function() {
         var patchChanges = [];
         var needsRecompute = false;
         var suppressPatchActivate = this._hasNoModifierPatch();
@@ -427,7 +466,15 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
                 }
             }
         }
+        return { patchChanges: patchChanges, needsRecompute: needsRecompute };
+    };
 
+    // Apply derived changes. Patch deltas batch into one
+    // _batchPatches (which owns the recompute). A standalone
+    // recompute fires when no patch deltas queued but the
+    // recompute flag was raised by a state change.
+    XoneK3.K3Controller.prototype._applyModifierChanges = function(changes) {
+        var patchChanges = changes.patchChanges;
         if (patchChanges.length > 0) {
             this._batchPatches(function(patches) {
                 for (var p = 0; p < patchChanges.length; p++) {
@@ -440,7 +487,7 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
                     }
                 }
             });
-        } else if (needsRecompute) {
+        } else if (changes.needsRecompute) {
             this._recompute();
         }
     };
@@ -500,6 +547,13 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         return false;
     };
 
+    // Resolve the active patch stack:
+    //   1. Walk activePatches, filter by _patchActive, hold
+    //      chord aside. A _noModifiers patch that's active sets
+    //      the suppress flag.
+    //   2. Append shift companions (deduped) if shift is held —
+    //      unless suppressed.
+    //   3. Append chord last (if held and not suppressed).
     XoneK3.K3Controller.prototype._buildStack = function() {
         var stack = [];
         var hasChord = false;
@@ -575,6 +629,9 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         }
     };
 
+    // Subclass hooks — no-ops in base. Overridden by LabController
+    // (auto-bake on patch change, MIDI-input hooks) and any custom
+    // controller subclass.
     XoneK3.K3Controller.prototype._afterRecompute = function() {};
     XoneK3.K3Controller.prototype._onInput = function(b) {};
     XoneK3.K3Controller.prototype._onPatchChange = function(from, to) {};
@@ -819,6 +876,16 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         return value;
     };
 
+    // Bind pipeline:
+    //   1. Snapshot prev state, reset binding
+    //   2. Unbind path (cfg null) — orphan tx, clear LED, bail
+    //   3. Bind path:
+    //      a. Core cfg (group/inKey/type/buttonMode/softTakeover)
+    //      b. Tokens, softTakeover bridge, func
+    //      c. Colour scheme + beat LED attach
+    //      d. CO connections
+    //      e. Resolved-target hash for future re-apply skip
+    //      f. Render (skipped when caller passes skipRefresh)
     XoneK3.K3Controller.prototype._applyBinding = function(name, cfg, fingerprint, skipRefresh) {
         var b = this.bindings[name];
         if (!b) return;
@@ -862,6 +929,12 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
     // ============================================================
     // PATCH LIST MUTATIONS
     // ============================================================
+    // Batch-patch pipeline:
+    //   1. Give mutator a copy; throw if already active (nest)
+    //   2. Diff before/after; bail if unchanged
+    //   3. Copy result back into activePatches
+    //   4. One recompute (patches are already final)
+    //   5. Fire per-patch change hooks AFTER recompute
     XoneK3.K3Controller.prototype._batchPatches = function(mutator) {
         if (this._batchPatchesActive) {
             throw new Error('_batchPatches cannot nest');
@@ -1158,6 +1231,10 @@ XoneK3._requireLoad('xone-k3-lib-controller.js',
         }
     };
 
+    // Return-value convention:
+    //   undefined   — name isn't an fx-pattern (not mine, skip)
+    //   null        — fx-pattern but target patch is missing
+    //   string      — the swap target
     XoneK3.K3Controller.prototype._resolveFxPatchName = function(name) {
         var m = /^fx(Layout[AB]?|Mini)(\d)$/.exec(name);
         if (m) {
